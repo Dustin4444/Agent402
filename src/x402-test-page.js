@@ -52,17 +52,20 @@ export function x402TestPage(baseUrl) {
   <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 16px;color:var(--ink);">1. Get a challenge</h2>
   <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Any paid route answers one. This is the cheapest: pure computation, no upstream.</p>
   ${pre(`curl -sD - -X POST ${baseUrl}${PROBE_PATH} \\\n  -H 'content-type: application/json' \\\n  -d '{"text":"hello"}'`)}
-  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">The terms are in the <code>PAYMENT-REQUIRED</code> response header as base64 JSON, which is where the x402 v2 spec puts them; the body is <code>{}</code> by design. MPP clients get <code>WWW-Authenticate: Payment</code> challenges on the same response.</p>
+  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">The terms are in the <code>PAYMENT-REQUIRED</code> response header as base64 JSON, which is where the x402 v2 spec puts them, and the JSON body carries the same object, so a client that reads either one finds the offer. The header is authoritative. MPP clients get <code>WWW-Authenticate: Payment</code> challenges on the same response.</p>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:36px 30px 0;">
   <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 16px;color:var(--ink);">2. Pay it, and read the refusal</h2>
-  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Retry with your client's <code>PAYMENT-SIGNATURE</code> header. If it is wrong, the 402 body carries a <code>reason</code>, a <code>hint</code> in words, and a <code>retry</code> telling you what kind of change is needed. Here is a real one:</p>
+  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Retry with your client's <code>PAYMENT-SIGNATURE</code> header. If it is wrong, the 402 body carries a <code>reason</code>, a <code>hint</code> in words, and a <code>retry</code> telling you what kind of change is needed, ahead of the same offer the header carries. The header's one-line <code>error</code> is left out of a refusal's body, so a client that reads <code>error</code> first reads the hint instead. Here is a real one, with the offer trimmed. A route that also takes proof-of-work puts an <code>altPayment</code> pointer first.</p>
   ${pre(`{
-  "error": "Payment rejected",
   "reason": "unsupported-scheme",
   "hint": "Scheme \\"lightning\\" is not offered on this route. Offered: exact, upto.",
-  "retry": "choose-offered-option"
+  "retry": "choose-offered-option",
+  "x402Version": 2,
+  "resource": { ... },
+  "accepts": [ ... ],
+  "extensions": { ... }
 }`)}
   <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Field <em>names</em> are echoed so you can compare them; values never are. A payment header is a credential.</p>
 </section>

@@ -52,6 +52,7 @@ import { createHmac } from "node:crypto";
 // from the server's own definition of an identity-bound route.
 import { isIdentityBoundRoute } from "../src/payments.js";
 import { isLongRunningSlug } from "../src/composite-spend-guard.js";
+import { railsReportSubcentPause } from "../src/avm-sponsorship.js";
 
 import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, isOurSettleBreaker, outcomeOf, subcentBudget, rotateSubcent } from "./avm-canary-classify.js";
 
@@ -193,7 +194,7 @@ async function subcentWithdrawnNow() {
   if (subcentWithdrawnSeen) return true;
   try {
     const rails = await (await fetch(`${TARGET}/api/rails`, { signal: AbortSignal.timeout(15000) })).json();
-    subcentWithdrawnSeen = (rails.restrictions || []).some((r) => r?.network === "algorand" && r?.status === "paused");
+    subcentWithdrawnSeen = railsReportSubcentPause(rails);
   } catch { /* unreadable: nothing is excused */ }
   return subcentWithdrawnSeen;
 }

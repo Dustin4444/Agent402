@@ -475,6 +475,22 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 
   {
+    // A refused payment explains itself in `hint` (an x402 refusal) or
+    // `detail` (an RFC 9457 problem) and carries no `error`, beside the
+    // mirrored offer. The failure text is that sentence, never the bare status
+    // and never the offer; a seller's own `error` still comes first.
+    const detailOf = (body) => new Agent402({ baseUrl: "https://seller.example", cache: false })
+      ._failureDetail("t", { status: 402, json: async () => body });
+    const offer = { x402Version: 2, resource: { url: "https://seller.example/api/t" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "1000" }], extensions: {} };
+    const hinted = await detailOf({ reason: "unsupported-scheme", hint: "Scheme \"lightning\" is not offered on this route.", retry: "choose-offered-option", ...offer });
+    ok(hinted === 'call "t" failed: HTTP 402 - Scheme "lightning" is not offered on this route.', `an x402 refusal reads as its hint (${hinted})`);
+    const problem = await detailOf({ type: "https://paymentauth.org/problems/invalid-challenge", title: "Invalid Challenge", status: 402, detail: "Challenge is invalid.", hint: "Request a fresh challenge.", ...offer });
+    ok(problem === 'call "t" failed: HTTP 402 - Challenge is invalid.', `a problem document reads as its detail before its hint (${problem})`);
+    const plain = await detailOf({ error: "bad input", hint: "send text" });
+    ok(plain === 'call "t" failed: HTTP 402 - bad input', `a body's own error still comes first (${plain})`);
+  }
+
+  {
     let paid = 0;
     const c = new Agent402({
       baseUrl: "https://router.example",

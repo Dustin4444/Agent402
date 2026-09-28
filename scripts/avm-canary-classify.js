@@ -2,7 +2,26 @@
 // Extracted into a side-effect-free module so they can be unit-tested without
 // booting the sweep (the canary self-runs on import). See
 // scripts/test-algorand-canary-classify.js.
-import { isSponsorshipRowFromEarlierMonth } from "../src/avm-sponsorship.js";
+import { railsReportSubcentPause, sponsorshipRowMonth } from "../src/avm-sponsorship.js";
+import { REJECTION_REASONS } from "../src/payment-reject.js";
+
+/**
+ * What a SUB-CENT route's missing Algorand accept means (the paid canary's
+ * Algorand leg). While the facilitator's sponsored sub-cent allowance is spent
+ * the server withdraws Algorand from sub-cent 402s and says so on GET
+ * /api/rails; that is the only excuse. Returns:
+ *   "offered"   the sub-cent 402 carries Algorand;
+ *   "withdrawn" it does not, and /api/rails reports the Algorand pause;
+ *   "missing"   it does not and /api/rails reports no pause (or could not be
+ *               read): the rail dropped out of the sub-cent offer - a failure;
+ *   "no-rail"   the one-cent route carries no Algorand accept either, so there
+ *               is nothing to compare (the leg's own buy decides).
+ */
+export function subcentAcceptVerdict({ centAccept, subcentAccept, rails } = {}) {
+  if (subcentAccept) return "offered";
+  if (!centAccept) return "no-rail";
+  return railsReportSubcentPause(rails) ? "withdrawn" : "missing";
+}
 
 // A 402 that comes back faster than this never reached the chain (real Algorand
 // round trips measured 5s+): the AVM-specific shape of a throttle/burst reject.
@@ -41,14 +60,27 @@ export const isUpstreamOutage = (status, body) =>
   /Seller rejected the paid retry|upstream error|operation was aborted|aborted due to timeout|ECONNRESET|ETIMEDOUT|socket hang up|Bad Gateway|Gateway Time-?out|fetch failed/i.test(String(body || ""));
 
 // OUR OWN gate refusing the credential before any facilitator is asked: the
-// body carries the gate's "Payment rejected" with a named reason (requirements-
-// mismatch, replay, expired ...). It is fast BECAUSE nothing went to the chain,
-// and that speed used to read as "throttle" - the metered Messages wire failed
-// this way for two weekly runs (2026-08-31, 09-07) and was filed as our own
-// wallet being rate-limited. A named refusal is a rail verdict whatever its
-// latency.
-export const isGateRefusal = (status, body) =>
-  status === 402 && /"error"\s*:\s*"Payment rejected"/.test(String(body || "")) && /"reason"\s*:\s*"/.test(String(body || ""));
+// body names the refusal class in a top-level `reason` (requirements-mismatch,
+// unsupported-network, authorization-expired ...). It is fast BECAUSE nothing
+// went to the chain, and that speed used to read as "throttle" - the metered
+// Messages wire failed this way for two weekly runs (2026-08-31, 09-07) and
+// was filed as our own wallet being rate-limited. A named refusal is a rail
+// verdict whatever its latency.
+//
+// Read as parsed JSON, keyed on the reason the classifier publishes. The 402
+// body also carries the full offer (it mirrors the PAYMENT-REQUIRED header),
+// and a refusal that explains itself carries no `error` at all (not "Payment
+// rejected", not the header's sentence), and a substring match could hit a
+// `reason` nested in an extension's example.
+// facilitator-quota is left out: it comes from a SETTLE refusal, which was
+// never a gate refusal.
+const GATE_REASONS = new Set(REJECTION_REASONS.map((r) => r.reason).filter((r) => r !== "facilitator-quota"));
+export const isGateRefusal = (status, body) => {
+  if (status !== 402) return false;
+  let d;
+  try { d = JSON.parse(String(body || "")); } catch { return false; }
+  return !!d && typeof d === "object" && !Array.isArray(d) && GATE_REASONS.has(d.reason);
+};
 
 // Terminal shape of one paid attempt:
 // "ok" | "empty" | "breaker" | "fast-402" | "throttle" | "slow-402" | "other".
@@ -96,12 +128,19 @@ export function subcentBudget({ status, max, reserve, now = Date.now() }) {
   // the next write. Budget it as reset (the server's rule, src/avm-sponsorship.js);
   // if the facilitator has NOT reset, the first sub-cent buy is refused and
   // that is a rail failure the run reports, instead of a zero budget that
-  // excuses it every week.
-  const earlierMonth = isSponsorshipRowFromEarlierMonth(status, now);
-  const quota = Number(status.quota), used = earlierMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
+  // excuses it every week. A row whose updatedTs is present but not a
+  // readable time cannot name its month, and here the safer reading differs
+  // from the gate's: the gate fails open for buyers, but the budget spends
+  // what buyers would be left, so an unreadable row's usedMonth is taken at
+  // its word and the reserve kept for buyers holds.
+  const month = sponsorshipRowMonth(status, now);
+  const notThisMonth = month === "earlier-month";
+  const quota = Number(status.quota), used = notThisMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
   const remaining = Math.max(0, quota - used) + Math.max(0, su);
   const spendable = Math.max(0, remaining - Math.max(0, Number(reserve) || 0));
-  return { budget: Math.min(cap, spendable), source: earlierMonth ? "live (row from an earlier month, counted as reset)" : "live", remaining };
+  const source = month === "earlier-month" ? "live (row from an earlier month, counted as reset)"
+    : month === "unreadable" ? "live (row's updatedTs is not a readable time, usedMonth taken at its word)" : "live";
+  return { budget: Math.min(cap, spendable), source, remaining };
 }
 
 /** Order the sweep's tools so that this week's window of sub-cent tools comes

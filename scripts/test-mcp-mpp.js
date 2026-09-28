@@ -122,6 +122,9 @@ try {
   const challenges = soft._meta?.["org.paymentauth/payment-required"]?.challenges;
   ok(Array.isArray(challenges) && challenges.length >= 1 && challenges.some((c) => c.method === "evm" && c.intent === "charge") && soft._meta["org.paymentauth/payment-required"].httpStatus === 402, `the result carries _meta payment-required with httpStatus 402 + challenges (${(challenges || []).map((c) => c.method).join(",")})`);
   ok(challenges.every((c) => typeof c.id === "string" && c.realm && c.request?.amount), "each challenge is a full MPP challenge object (id, realm, request.amount)");
+  // The loopback 402's body now mirrors the PAYMENT-REQUIRED offer; a plain
+  // unpaid 402 is still not a problem document, so a first ask carries none.
+  ok(soft._meta["org.paymentauth/payment-required"].problem === undefined, "a first ask's _meta carries no problem (a plain unpaid 402 is not a problem document)");
 
   // 4. Free tool untouched
   const free = await plain.callTool({ name: "catalog.call", arguments: { slug: "uuid", params: {} } });
@@ -150,6 +153,13 @@ try {
     await plain.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key: "k2", value: 1 } }, _meta: { [MCP_CREDENTIAL_META]: tampered } });
   } catch (e) { rejected = e; }
   ok(rejected && rejected.code === -32043 && rejected.data?.problem?.type === "https://paymentauth.org/problems/invalid-challenge" && Array.isArray(rejected.data.challenges) && rejected.data.challenges.length >= 1, `a tampered credential -> -32043 with problem invalid-challenge + fresh challenges (got ${rejected?.data?.problem?.type})`);
+  // The 402's problem body also carries the mirrored PaymentRequired offer
+  // (src/payment-required-body.js). The JSON-RPC error carries the RFC 9457
+  // members only: the offer reaches an MPP client as the challenges beside it.
+  {
+    const p = rejected?.data?.problem || {};
+    ok(typeof p.title === "string" && typeof p.detail === "string" && ["x402Version", "accepts", "resource", "extensions"].every((k) => !(k in p)), `-32043 data.problem holds RFC 9457 members only (keys: ${Object.keys(p).join(",")})`);
+  }
   // sanity: the test's own serializer agrees with the wire
   ok(typeof Credential.serialize(tampered) === "string", "Credential.serialize round-trips the tampered object (test harness sanity)");
 
@@ -158,6 +168,7 @@ try {
   //    hosts render with no reason. The paid loopback is now bounded below the
   //    deadline, so the caller gets a tool RESULT that names what happened.
   slowVerifyMs = 5000;
+  const settlesBeforeSlow = facCalls.settle;
   let slow = null, slowErr = null;
   try { slow = await payer.callTool({ name: "catalog.call", arguments: { slug: "memory-write", params: { key: `${key}-slow`, value: 1 } } }); }
   catch (e) { slowErr = e; }
@@ -165,17 +176,20 @@ try {
   ok(!slowErr, `a slow paid call is NOT a JSON-RPC error (got ${slowErr?.code} ${slowErr?.message || ""})`);
   const slowText = JSON.stringify(slow?.content || "");
   ok(slow?.isError === true && /did not finish within \d+s/.test(slowText), `it is an isError tool result naming the timeout (${slowText.slice(0, 120)})`);
-  // A credential was presented, so the server-side request may still settle
-  // after the connector stops waiting: "not charged" would be false.
+  // A credential was presented, and a close that lands while the settle call
+  // itself is in flight is still charged (then booked as owed), so the
+  // connector cannot promise "not charged" at the moment it stops waiting.
   ok(!/not charged|nothing was charged/i.test(slowText) && /may still have completed and been charged/.test(slowText) && /owed and refunded/.test(slowText) && /Do not retry blindly/.test(slowText),
     `a PAID cut-off says it may have been charged, that a charge is owed back, and not to retry blindly (${slowText.slice(0, 200)})`);
-  // And it really was: the slow verify completes, the handler runs, settlement
-  // happens with nobody left to deliver to, and the charge is booked as owed.
+  // Here the loopback closed while the payment was still being VERIFIED, i.e.
+  // before the first byte (src/hangup-settlement.js): once verify returns the
+  // dispatcher refuses to start the handler, nothing settles, and nothing is
+  // owed - the buyer was never charged for an answer that could not arrive.
   await sleep(3_000);
+  ok(facCalls.settle === settlesBeforeSlow, `the cut-off paid call whose loopback closed before the first byte is NOT settled (settles +${facCalls.settle - settlesBeforeSlow})`);
   const owed = await (await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}` } })).json();
   const rows = (owed.refunds || []).filter((r) => r.slug === "memory-write");
-  ok(rows.length === 1 && rows[0].wire === "mpp" && rows[0].httpStatus === 499 && rows[0].status === "owed",
-    `the cut-off paid call that settled is recorded once as owed on the mpp wire (${JSON.stringify(rows)})`);
+  ok(rows.length === 0, `and nothing is owed for it, because nothing was charged (${JSON.stringify(rows)})`);
 
   // 7. The transport deadline itself, for a tools/call, is a result too. A
   //    second server whose deadline is shorter than the loopback bound makes

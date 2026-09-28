@@ -63,15 +63,19 @@ let globalPausedUntil = 0;
 let globalTrips = 0;
 
 /** The identity a gateway call is counted under. Same derivation as the
- *  composite guard in server.js and route-execute's spend key: the signed EVM
- *  payer, else the Tempo payer the gate verified, else the client IP. Null only
- *  for an in-process caller with no request (route-execute dispatching a flat
- *  tier), which the global breaker still covers. */
+ *  composite guard in server.js: the signed EVM payer, else the Tempo sender
+ *  RECOVERED from the signed transaction (src/mpp-tempo.js sets
+ *  req.mppTempoSender; the credential's own `source` is client-supplied and a
+ *  caller could name a fresh one per request, so it is never a key), else the
+ *  credits key, else the client IP. Null only for an in-process caller with no
+ *  request (route-execute dispatching a flat tier), which the global breaker
+ *  still covers. */
 export function gatewaySettleBreakerKey(req) {
   if (!req || typeof req !== "object") return null;
   const payer = payerFromRequest(req);
   if (payer) return payer;
-  if (req.mppTempoPayer) return `tempo:${req.mppTempoPayer}`;
+  if (req.mppTempoSender) return `tempo:${req.mppTempoSender}`;
+  if (req.creditsKeyId) return `credits:${req.creditsKeyId}`;
   const ip = typeof req.ip === "string" && req.ip.trim() ? req.ip.trim() : req.socket?.remoteAddress;
   return ip ? `ip:${String(ip).trim()}` : null;
 }
@@ -160,8 +164,10 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
       // buyer's to carry: kept off the WALLET's count, and not a clear either.
       // It still feeds the /v1 global pause when this consult takes part in
       // it - that pause names no wallet, and it is the backstop if requests
-      // already in flight keep arriving.
-      if (isWithdrawnSubcentRefusal(receipt)) {
+      // already in flight keep arriving. The request is handed over so the
+      // gate checks the requirement THIS call paid against (sub-cent, to the
+      // paused payTo) and that the route's next 402 really drops it.
+      if (isWithdrawnSubcentRefusal(receipt, { req })) {
         if (global) recordGatewaySettleFailure(null, Date.now(), { global: true });
         return;
       }

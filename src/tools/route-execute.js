@@ -401,9 +401,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // the x402 headers on acceptance, so payerFromRequest is null for an
           // MPP/Tempo buyer and an unkeyed payer was exempt from the ceiling -
           // found in the 2026-08-27 review, the first day the Tempo leg
-          // resolved anything), else the client IP so nobody is unkeyed.
+          // resolved anything), else the client IP so nobody is unkeyed. The
+          // Tempo key is the sender RECOVERED from the signed transaction, not
+          // the credential's client-supplied `source`: a caller naming a fresh
+          // source per request would get a fresh ceiling each time.
           const spendPayer = payerFromRequest(req)
-            || (req?.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : null)
+            || (req?.mppTempoSender ? `tempo:${req.mppTempoSender}` : null)
             || (req?.ip ? `ip:${req.ip}` : null);
           // Book the WORST CASE this call could cost, not the seller's declared
           // price. `cap` is what payExternal will refuse to exceed, so it is the

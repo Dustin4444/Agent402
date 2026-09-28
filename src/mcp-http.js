@@ -42,6 +42,7 @@ import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
 import { partialFields, clampFields } from "./partial-answer.js";
 import { routableSellerSummaries } from "./x402-index.js";
 import { logSafe } from "./log-safe.js";
+import { withoutPaymentRequired } from "./payment-required-body.js";
 import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
 import { rankBy as rankLeaderboard } from "./leaderboard.js";
@@ -113,13 +114,31 @@ const MCP_DRAIN_MS = Number(process.env.AGENT402_MCP_DRAIN_MS) || 5_000;
 // A blocking paid call's loopback ends this long before the request deadline,
 // so the tool result (not a transport error) is what the caller sees.
 const PAID_LOOPBACK_TIMEOUT_MS = Math.max(1_000, MCP_REQ_DEADLINE_MS - 2_500);
-// What a caller is told when a PAID call was cut off on this connector. The
-// server-side request keeps running after the connector stops waiting, and
-// every rail settles a <400 once the handler finishes, connected or not - so
-// "not charged" would be false. A charge whose response never reached the
-// buyer is recorded as owed and refunded (src/hangup-settlement.js).
+// What a caller is told when a PAID call was cut off on this connector. When
+// the connector stops waiting it closes its loopback request, and a paid
+// request whose connection closes before the first response byte is not
+// settled while it holds a hang-up forgiveness ticket
+// (src/hangup-settlement.js); a handler that had not started never runs.
+// Without a ticket (the budget is spent), or for a close that lands while
+// the settle call itself is in flight, the charge goes through and is
+// recorded as owed and refunded. The connector cannot tell which happened at
+// the moment it gives up, so "not charged" would not be a promise it can keep.
 export const PAID_CUTOFF_TEXT = "The call may still have completed and been charged. If it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
 export const UNPAID_CUTOFF_TEXT = "No payment was presented, so nothing was charged.";
+// The RFC 9457 members of a 402 problem document, and nothing else. A paywall
+// 402 body also carries the full PaymentRequired offer (it mirrors the
+// PAYMENT-REQUIRED header, src/payment-required-body.js); the error data, the
+// soft-ask _meta and a task record carry the problem only, and the offer
+// reaches an MPP client through the challenges beside it. A plain unpaid 402
+// has no `type`, so it is not a problem document.
+const PROBLEM_MEMBERS = Object.freeze(["type", "title", "status", "detail", "hint", "details", "instance"]);
+export function problemOf(j) {
+  if (!j || typeof j !== "object" || Array.isArray(j) || typeof j.type !== "string") return undefined;
+  const out = {};
+  for (const k of PROBLEM_MEMBERS) if (j[k] !== undefined) out[k] = j[k];
+  return out;
+}
+
 /** The tool-result text for a call this connector stopped waiting on.
  *  `paid` = a payment credential rode along on the call; only without one is
  *  "nothing was charged" certain. */
@@ -603,7 +622,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // fall back to the paid-access instructions rather than an empty ask.
           return { content: [{ type: "text", text: walletRequiredText(entry.def) }], isError: true };
         }
-        const problem = r.json && typeof r.json === "object" && typeof r.json.type === "string" ? r.json : undefined;
+        const problem = problemOf(r.json);
         // mppx's wire: -32042 (no credential presented) / -32043 (the caller
         // PRESENTED a credential and it was refused) + {httpStatus, challenges,
         // problem?}. The code keys on whether a credential rode in _meta, not on
@@ -634,7 +653,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       }
       if (r.status >= 400) {
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: r.status, errorMessage: String(r.json?.error || r.text || r.status).slice(0, 200), inputKeys: Object.keys(params || {}) });
-        const detail = r.json ? JSON.stringify(r.json) : String(r.text || "").slice(0, 500);
+        const detail = r.json ? JSON.stringify(withoutPaymentRequired(r.json)) : String(r.text || "").slice(0, 500);
         return { content: [{ type: "text", text: `Agent402 (${entry.def.slug}) HTTP ${r.status}${r.status >= 400 && r.status < 500 ? " - not charged" : " - not charged (settlement runs only after a successful handler)"}: ${detail}` }], isError: true };
       }
       onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: false });

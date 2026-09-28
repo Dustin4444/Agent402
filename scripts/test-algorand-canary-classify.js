@@ -19,6 +19,17 @@ ok(outcomeOf(R(402, "{}", 5629)) === "slow-402", "a 5.6s 402 is slow-402 (a genu
 ok(outcomeOf(R(402, '{"error":"Payment rejected","reason":"requirements-mismatch","hint":"..."}', 40)) === "slow-402",
   "a FAST 402 carrying our gate's own named refusal is a rail verdict, never a throttle (metered Messages, 2026-08-31 + 09-07)");
 ok(outcomeOf(R(402, '{"error":"Payment required"}', 40)) === "fast-402", "a fast bare 402 with no named refusal is still fast-402");
+// The 402 body now also carries the PaymentRequired offer, mirrored from the
+// PAYMENT-REQUIRED header: a refusal with a hint carries no `error` at all, and
+// the offer's extensions can hold a `reason` of their own inside an example.
+ok(outcomeOf(R(402, JSON.stringify({ reason: "requirements-mismatch", hint: "...", retry: "rebuild-payment", x402Version: 2, resource: {}, accepts: [], extensions: {} }), 40)) === "slow-402",
+  "a FAST gate refusal in the mirrored shape (no error, our reason first, then the offer) is still a rail verdict");
+ok(outcomeOf(R(402, JSON.stringify({ x402Version: 2, error: "Payment required", resource: {}, accepts: [], extensions: { bazaar: { info: { output: { example: { reason: "requirements-mismatch" } } } } } }), 40)) === "fast-402",
+  "a fast mirrored unpaid 402 whose only `reason` is nested in an extension example is still fast-402");
+ok(outcomeOf(R(402, JSON.stringify({ error: "Payment rail temporarily unavailable", reason: "facilitator-quota", retry: "other-network" }), 40)) === "fast-402",
+  "a fast settle refusal on OUR billing quota (facilitator-quota) is not a gate refusal");
+ok(outcomeOf(R(402, '<html>"reason": "requirements-mismatch"</html>', 40)) === "fast-402",
+  "a fast non-JSON 402 is never read as a gate refusal, whatever text it holds");
 ok(outcomeOf(R(429, "rate limited")) === "throttle", "429 is throttle");
 ok(outcomeOf(R(503, "rate limit exceeded")) === "throttle", "503 that says rate-limit is throttle");
 ok(outcomeOf(R(502, "upstream error")) === "other", "a 502 is 'other' (handed to the upstream-vs-tool split)");
@@ -145,6 +156,29 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
     ok(b1.budget === 150 && b1.remaining === 1000 && /earlier month/.test(b1.source), `a September row read in October is budgeted as reset (got ${JSON.stringify(b1)})`);
     ok(subcentBudget({ status: sepRow, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) }).budget === 0, "...and is still exhausted in September");
     ok(subcentBudget({ status: { ...sepRow, updatedTs: Date.UTC(2026, 9, 5, 6) }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row the facilitator rewrote this month is taken at its word");
+    // A PRESENT updatedTs that is not a readable time (0, negative, small,
+    // text, far in the future) cannot name its month. The budget spends what
+    // buyers would be left, so its usedMonth is taken at its word and the
+    // reserve holds - never read as reset, and never by the accident of
+    // Date.parse reading "0" as January 2000.
+    for (const v of [0, -5, "0", 7, "soon", Date.UTC(9999, 11, 31), 1.79e11]) {
+      const b = subcentBudget({ status: { ...sepRow, usedMonth: 900, updatedTs: v }, max: 150, reserve: 300, now: Date.UTC(2026, 9, 5, 6, 41) });
+      ok(b.budget === 0 && b.remaining === 100 && /not a readable time/.test(b.source), `updatedTs ${JSON.stringify(v)}: not evidence, usedMonth taken at its word (got ${JSON.stringify(b)})`);
+    }
+    ok(subcentBudget({ status: { quota: 1000, usedMonth: 1013, suBalance: 0 }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row with NO updatedTs is taken at its word (the documented rule)");
+  }
+
+  // The one predicate both canaries excuse a missing sub-cent accept on: the
+  // restriction /api/rails publishes, nothing else.
+  {
+    const { railsReportSubcentPause, avmSubcentOfferStatus, noteAvmSettleRefusal, _resetAvmSponsorshipForTest } = await import("../src/avm-sponsorship.js");
+    ok(railsReportSubcentPause({ restrictions: [{ network: "algorand", status: "paused", scope: "routes priced under one cent" }] }), "a published Algorand pause is reported");
+    ok(!railsReportSubcentPause({ restrictions: [] }) && !railsReportSubcentPause(null) && !railsReportSubcentPause({}) && !railsReportSubcentPause({ restrictions: "paused" }), "no restriction, an unreadable or malformed document: nothing is reported");
+    ok(!railsReportSubcentPause({ restrictions: [{ network: "base", status: "paused" }] }) && !railsReportSubcentPause({ restrictions: [{ network: "algorand", status: "open" }] }), "another network, or another status, is not the Algorand pause");
+    _resetAvmSponsorshipForTest({ logger: () => {} });
+    noteAvmSettleRefusal({ network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", payTo: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ", reason: "subcent_quota_exceeded" });
+    ok(railsReportSubcentPause({ restrictions: avmSubcentOfferStatus() }), "...and it reads exactly the shape the server publishes on /api/rails");
+    _resetAvmSponsorshipForTest({ logger: () => {} });
   }
 
   // Rotation: this week's window, and the next, cover the catalog in turn.
@@ -179,7 +213,7 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
   // excuse a sub-cent tool's missing accept ONLY on the server's own word.
   ok(/fetch\(`\$\{TARGET\}\/api\/solidity-scan`, \{ method: "POST"/.test(src) && !/fetch\(`\$\{TARGET\}\/api\/uuid`/.test(src), "the payTo is read from the one-cent route, not a sub-cent one that may carry no Algorand accept");
   ok(/subcentPlan = \(await subcentWithdrawnNow\(\)\)\s*\? \{ budget: 0/.test(src), "a server-withdrawn sub-cent offer buys zero sub-cent tools");
-  ok(/r\?\.network === "algorand" && r\?\.status === "paused"/.test(src) && /\/api\/rails/.test(src), "the withdrawal is read from /api/rails, the server's own published state");
+  ok(/import \{ railsReportSubcentPause \} from "\.\.\/src\/avm-sponsorship\.js"/.test(src) && /subcentWithdrawnSeen = railsReportSubcentPause\(rails\)/.test(src) && /fetch\(`\$\{TARGET\}\/api\/rails`/.test(src), "the withdrawal is read from /api/rails, the server's own published state, by the server's own predicate");
   ok(/const withdrawn = !expectedNoAvm && t\.priceUsd < 0\.01 && \(await subcentWithdrawnNow\(\)\)/.test(src), "only a SUB-CENT tool's missing accept is excused, and only while the server says so - anything else is still a regression");
 }
 

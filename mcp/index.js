@@ -271,6 +271,20 @@ async function quotedUsd(url, init, listUsd) {
   } catch { return listUsd; /* fail-open to the advertised price */ }
 }
 
+// A refused call's tool text. A 402 body from an x402 v2 seller may also carry
+// the whole PaymentRequired offer (this server copies its PAYMENT-REQUIRED
+// header into the body), which is kilobytes of accepts and extension schemas
+// an agent cannot act on in text. Keep the refusal's own fields (error,
+// reason, hint, retry) and say where the offer is; any other body is returned
+// as it came.
+function failureText(status, text) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { return text; }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc) || typeof doc.x402Version !== "number") return text;
+  const { x402Version: _v, resource: _r, accepts, extensions: _e, ...rest } = doc;
+  return JSON.stringify({ ...rest, status, paymentOptions: Array.isArray(accepts) ? accepts.length : 0, note: "The full offer is in the PAYMENT-REQUIRED header of this 402." });
+}
+
 async function callEndpoint(tool, args = {}) {
   const url = new URL(`${BASE}${tool.path}`);
   const init = { method: tool.method, headers: { Accept: "application/json" } };
@@ -349,7 +363,7 @@ async function callEndpoint(tool, args = {}) {
   }
   const text = await res.text();
   if (res.status >= 400) {
-    return { content: [{ type: "text", text }], isError: true };
+    return { content: [{ type: "text", text: failureText(res.status, text) }], isError: true };
   }
   let parsed;
   try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }

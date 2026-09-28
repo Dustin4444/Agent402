@@ -135,6 +135,16 @@ succeeds. We never declare the opt-in upfront payment flow. Anything that caches
 bills on handler status before settlement is unsafe: key it off the FINAL response
 (`res.on("finish")` with `res.statusCode === 200`). The idempotency cache, credits debit and
 refund ledger all follow this rule. (`node_modules/@x402/express/dist/esm/index.mjs`.)
+A buyer whose connection closes before the first response byte is not settled while the
+run holds a hang-up forgiveness ticket (`src/hangup-forgiveness.js`: reserved when the
+handler starts, priced at the charge, against a per-wallet, per-IP and service-wide budget
+that a paid success never resets): an onBeforeSettle hook aborts with
+`client_disconnected`, the Tempo broadcast and the Stripe capture make the same check first,
+and credits release the hold. Without a ticket, for a Tempo push credential (finalized
+before the handler) and for a close during the settle call itself, the charge goes through
+and `src/hangup-settlement.js` books it as owed. The budget never refuses service. A route
+whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the memory writers,
+`attest`, `feedback`, the route-execute tiers, `seller-payability`); add a new one there.
 
 ## Subsystem pointers
 - **Idempotency:** opt-in `Idempotency-Key` (and x402 `payment-identifier` as an alias), bound
@@ -150,8 +160,10 @@ refund ledger all follow this rule. (`node_modules/@x402/express/dist/esm/index.
   both breakers and the composite guard, with a 429 that names it instead of the wallet.
 - **Algorand sub-cent offer gate:** `src/avm-sponsorship.js` drops the Algorand accept from
   sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent (fails open;
-  a status row last updated in an earlier UTC month is not evidence; published on
-  `/api/rails`; `AVM_SUBCENT_GATE=off`).
+  a status row last updated in an earlier UTC month, or with an unreadable `updatedTs`, is
+  not evidence; a pause a settle refusal set holds against headroom reads for
+  `AVM_SPONSORSHIP_REFUSAL_HOLD_MS`; published on `/api/rails`, the only excuse the canaries
+  accept for a missing sub-cent accept; `AVM_SUBCENT_GATE=off`).
 - **External spend guard:** `src/external-spend-guard.js` (per payer and per chain wallet).
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
@@ -168,6 +180,12 @@ refund ledger all follow this rule. (`node_modules/@x402/express/dist/esm/index.
 - **Challenge size:** `scripts/test-challenge-size.js` keeps the 402 header under what a buyer
   can echo back; `scripts/test-bazaar-contracts.js` validates every 402 against the protocol's
   own schema.
+- **402 body mirror:** `src/payment-required-body.js` copies the decoded PAYMENT-REQUIRED object
+  into the JSON body of every paywall 402 (header authoritative, header keys win, our fields
+  kept); a refusal that explains itself (a `hint`, or a problem's `detail`) gets the offer and
+  no `error`, so `error`-first clients read the explanation. Keyed on the header, so
+  settle-failure, credits and Tempo/Stripe direct 402s are untouched. It wraps `res.send`, so it
+  is mounted before the MPP shim and the Tempo/Stripe gates.
 - **X posting:** `announce.yml` / `scripts/tweet.js`, dispatched via Actions only; tweet copy is
   never committed.
 

@@ -8,6 +8,18 @@ carries its own version on npm.
 
 Since v2.4.0 (2026-09-18).
 
+### 2026-09-28
+- The JSON body of every paywall 402 also carries the PaymentRequired object
+  from the `PAYMENT-REQUIRED` header (`x402Version`, `error`, `resource`,
+  `accepts`, `extensions`), after this server's own fields. The header is
+  unchanged and stays authoritative. A refused payment's body leaves out the
+  header's one-line `error`: its `hint`, or an MPP problem's `detail`, says
+  what went wrong, and a client that reads `error` first reads that instead.
+- Packages: agent402-mcp 0.13.5 (a refused paid call reads as its reason,
+  not the offer), agent402-openclaw 0.4.4 (a refused x402 payment reaches
+  OpenClaw as one OpenAI-shaped error sentence), agent402-client 0.8.9 (a
+  failed call's text falls back to the refusal's hint).
+
 ### 2026-09-25
 - The tool directory (`/marketplace/tools`, `/api/index/tools`) is built once
   per index change instead of on every page request, and the search index

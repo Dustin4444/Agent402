@@ -174,8 +174,11 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   ok(keyed.spent.may[0]?.payer === "ip:203.0.113.9" && keyed.spent.note[0]?.payer === "ip:203.0.113.9",
     `the spend is keyed to the buyer so the per-payer ceiling applies (got ${keyed.spent.may[0]?.payer})`);
   const tempo = toolWith();
-  await tempo.tool.handler({ url: "https://s.example" }, { mppTempoPayer: "0xabc", ip: "203.0.113.9" });
-  ok(tempo.spent.note[0]?.payer === "tempo:0xabc", "a Tempo buyer is keyed by its credential payer, not by the IP (the gate strips the x402 header)");
+  await tempo.tool.handler({ url: "https://s.example" }, { mppTempoSender: "0xabc", mppTempoPayer: "0xhint", ip: "203.0.113.9" });
+  ok(tempo.spent.note[0]?.payer === "tempo:0xabc", "a Tempo buyer is keyed by the sender recovered from its transaction, not by the IP (the gate strips the x402 header)");
+  const hintOnly = toolWith();
+  await hintOnly.tool.handler({ url: "https://s.example" }, { mppTempoPayer: "0xhint", ip: "203.0.113.9" });
+  ok(hintOnly.spent.note[0]?.payer === "ip:203.0.113.9", "the client-supplied source hint alone is never the key: the IP is");
   const req = {};
   const handled = toolWith();
   await handled.tool.handler({ url: "https://s.example" }, req);

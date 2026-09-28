@@ -43,7 +43,7 @@ WWW-Authenticate: Payment id="Hq2dT0mB...", realm="agent402.tools", method="temp
   (one challenge per currency and chain: USDC.e then PathUSD on Tempo, USDC on Base then Celo)
 X-Pow-Challenge: https://agent402.tools/api/pow/challenge?slug=hash
 
-{"altPayment":{"protocol":"proof-of-work", ...}}`;
+{"altPayment":{"protocol":"proof-of-work", ...},"x402Version":2,"error":"Payment required","resource":{...},"accepts":[...],"extensions":{...}}`;
 
 const MPP_REQUEST = `// base64url-decoded "request" parameter of the evm challenge above
 {
@@ -135,7 +135,7 @@ export const LEARN = [
       ["The offer this server sends", [
         P(`Here is the decoded ${C("PAYMENT-REQUIRED")} header from a request to ${C("POST /api/hash")}, trimmed to the Base entry. The live response lists one entry per chain this server accepts. ${C('"amount": "1000"')} is in the asset's smallest unit: USDC has 6 decimals, so this is $0.001.`),
         { code: DECODED_OFFER },
-        P(`The body of the 402 is not where the offer lives. A 402 with an empty body can still be a complete offer, because the terms are in the header.`),
+        P(`The header carries the offer, and this server also copies the same object into the JSON body, after its own fields. Another server's 402 with an empty body can still be a complete offer, because the terms are in the header.`),
       ]],
       ["Paying from code", [
         P(`A stock x402 client wraps ${C("fetch")}: it reads the 402, signs one of the offered entries and retries, so the calling code sees an ordinary 200.`),

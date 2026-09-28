@@ -233,9 +233,44 @@ try {
       accepts: [{ scheme: "exact", network: "eip155:8453", amount: String(Math.round(usd * 1e6)), asset: "0xUSDC", payTo: "0xdead", extra: { name: "USD Coin" } }],
     })).toString("base64");
     const catalogRow = { slug: "chat", method: "POST", path: "/v1/chat/completions", price: `$${LIST_USD}`, description: "chat", category: "llm", computePayable: false };
+    // A route that refuses every request, the paid retry included, the way this
+    // server's paywall does: 402 + PAYMENT-REQUIRED + a JSON body that mirrors
+    // the header's offer beside our own reason/hint/retry (a refusal with a
+    // hint carries no `error`). The offer is signable (real address shapes) so
+    // the wallet path really pays and is refused, instead of stopping at the
+    // cap.
+    const refusedRow = { slug: "refused", method: "POST", path: "/api/refused", price: "$0.001", description: "refused", category: "util", computePayable: false };
+    const refusedOffer = {
+      x402Version: 2, error: "No matching payment requirements",
+      resource: { url: "http://127.0.0.1/api/refused", description: "refused", mimeType: "application/json" },
+      accepts: [{ scheme: "exact", network: "eip155:8453", amount: "1000", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: "0x000000000000000000000000000000000000dEaD", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } }],
+      extensions: { bazaar: { info: { input: { type: "http", method: "POST", body: { text: "x" } } }, schema: { type: "object", properties: { input: { type: "object" } } } } },
+    };
+    const { error: _offerError, ...refusedOfferKeys } = refusedOffer;
+    const refusedBody = { reason: "requirements-mismatch", hint: "Echo the accepts entry you were offered verbatim.", retry: "rebuild-payment", ...refusedOfferKeys };
+    seen.refusedPaid = 0;
+    // Error bodies that are NOT an x402 offer must reach the agent exactly as
+    // the seller wrote them: a validation 400 and an upstream 502, each a JSON
+    // body with no x402Version. Spacing is deliberate, so a
+    // parse-and-reserialize shows.
+    const plainRows = [
+      { slug: "plain-400", method: "POST", path: "/api/plain-400", price: "$0.001", description: "plain 400", category: "util", computePayable: false },
+      { slug: "plain-502", method: "POST", path: "/api/plain-502", price: "$0.001", description: "plain 502", category: "util", computePayable: false },
+    ];
+    const PLAIN = {
+      "/api/plain-400": [400, '{"error": "bad input", "expected": {"text": "string"}}'],
+      "/api/plain-502": [502, '{"error": "upstream failed", "status": 502, "hint": "retry later"}'],
+    };
     const stub = createServer((req, res) => {
       const send = (status, obj, headers = {}) => { res.writeHead(status, { "Content-Type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
-      if (req.url.startsWith("/api/pricing")) return send(200, { endpoints: [catalogRow], payment: { network: "base" } });
+      if (req.url.startsWith("/api/pricing")) return send(200, { endpoints: [catalogRow, refusedRow, ...plainRows], payment: { network: "base" } });
+      const plain = PLAIN[req.url.split("?")[0]];
+      if (plain) { req.resume(); res.writeHead(plain[0], { "Content-Type": "application/json" }); return res.end(plain[1]); }
+      if (req.url.startsWith("/api/refused")) {
+        if (req.headers["payment-signature"] || req.headers["x-payment"]) seen.refusedPaid++;
+        req.resume();
+        return send(402, refusedBody, { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(refusedOffer)).toString("base64") });
+      }
       if (req.url.startsWith("/openapi.json")) return send(200, { paths: {} });
       if (req.url.startsWith("/api/skill-packs.json")) return send(200, { packs: [] });
       if (req.url.startsWith("/v1/chat/completions")) {
@@ -295,6 +330,26 @@ try {
       }
       if (seen.authorized !== walletBefore) fail("the wallet path paid a call it had refused");
       console.log("the wallet path reads the same quote and refuses before signing ✓");
+
+      // A refused PAID call reads as its reason, not as the offer the 402 body
+      // also carries: kilobytes of accepts and schemas an agent cannot act on.
+      const denied = await wallet.callTool({ name: "catalog.call", arguments: { slug: "refused", params: { text: "x" } } });
+      const t = text(denied);
+      if (seen.refusedPaid < 1) fail(`the wallet path should have sent a paid retry to the refusing route (saw ${seen.refusedPaid})`);
+      if (!denied.isError) fail(`a refused paid call must be an error: ${t.slice(0, 300)}`);
+      if (!t.includes("requirements-mismatch") || !t.includes("rebuild-payment")) fail(`the refusal text must carry the reason and retry: ${t.slice(0, 300)}`);
+      if (t.includes('"accepts"') || t.includes('"extensions"')) fail(`the refusal text must not carry the offer: ${t.slice(0, 300)}`);
+      if (t.length >= 1000) fail(`the refusal text should be compact, got ${t.length} chars`);
+      console.log(`a refused paid call reads as its reason, not the offer (${t.length} chars) ✓`);
+
+      // Any other error body is returned as it came: no status, no option
+      // count, no note about a PAYMENT-REQUIRED header that is not there.
+      for (const row of plainRows) {
+        const r = await wallet.callTool({ name: "catalog.call", arguments: { slug: row.slug, params: { text: "x" } } });
+        const pt = text(r);
+        if (!r.isError || pt !== PLAIN[row.path][1]) fail(`${row.slug}: an error body with no x402 offer must reach the agent byte-identical, got: ${pt.slice(0, 300)}`);
+      }
+      console.log("a plain 400 and 502 reach the agent byte-identical, with no offer note ✓");
     } finally { await wallet.close().catch(() => {}); }
     await new Promise((r) => stub.close(r));
   }

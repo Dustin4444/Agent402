@@ -204,9 +204,11 @@ export function buildSellerPayabilityTool({
     // mattering the moment the cap is raised or the breaker is retuned.
     //
     // Tempo buyers have no x402 header (the gate strips it), hence the
-    // fallback chain; the IP last so nobody is unkeyed.
+    // fallback chain; the IP last so nobody is unkeyed. The Tempo key is the
+    // sender recovered from the signed transaction, never the credential's
+    // client-supplied `source`.
     const spendPayer = payerFromRequest(req)
-      || (req?.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : null)
+      || (req?.mppTempoSender ? `tempo:${req.mppTempoSender}` : null)
       || (req?.ip ? `ip:${req.ip}` : null);
     const allowed = maySpend(spendPayer, maxUsd, { chain: spendChain });
     if (!allowed?.ok) {

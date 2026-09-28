@@ -23,7 +23,7 @@ import { createHash, randomBytes } from "node:crypto";
 // `User-Agent: agent402-client/<version>` - a standard header, no extra
 // network calls - so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.8.8";
+const VERSION = "0.8.9";
 const USER_AGENT = `agent402-client/${VERSION}`;
 // 32MB: about a hundred times any realistic response from this catalog (the
 // largest is a base64 image at a few MB), so it cannot break a legitimate
@@ -519,7 +519,10 @@ export class Agent402 {
     let detail = "";
     try {
       const body = await r.json();
-      const msg = body?.error ?? body?.message ?? body?.detail;
+      // A refused payment that says what went wrong carries that sentence in
+      // `detail` (an RFC 9457 problem) or `hint` (an x402 refusal), with no
+      // `error`; a seller's plain error keeps its place first.
+      const msg = body?.error ?? body?.message ?? body?.detail ?? body?.hint;
       if (msg != null) detail = ` - ${typeof msg === "string" ? msg : JSON.stringify(msg)}`;
       if (body?.expected != null) detail += ` (expected: ${JSON.stringify(body.expected)})`;
     } catch { /* not JSON: the status is the whole story */ }

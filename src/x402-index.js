@@ -3153,7 +3153,26 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * probe that cannot produce a quote leaves the row exactly as it was.
  */
 /**
- * Carry forward quotes we already learned from a live 402.
+ * Was this row's verification stamp earned by this row's own verb?
+ *
+ * The probe records the verb whose 402 it read (networksVerifiedMethod) beside
+ * every networksVerifiedAt it writes, so a stamp is evidence about that verb's
+ * row and no other. A stamp that names no verb was written before 2026-09-28,
+ * when carry-forward still unioned one verb's read into a declared sibling on
+ * the same path: the other verb's chains, its stamp and its Base payTo, filed
+ * as the sibling's own. Such a stamp cannot be told from one the row earned, so
+ * it is not carried as a verified read, and the row takes one fresh read of its
+ * own (networksNeedLiveVerify, quoteIsStale) instead of keeping it for good.
+ */
+function stampIsOwn(r) {
+  return Number(r?.networksVerifiedAt) > 0
+    && typeof r?.networksVerifiedMethod === "string"
+    && r.networksVerifiedMethod.toUpperCase() === String(r?.method || "GET").toUpperCase();
+}
+
+/**
+ * Carry forward quotes (and verified chain reads) we already learned from a
+ * live 402.
  *
  * Every crawl REBUILDS `tools` from the seller's catalogue, and the catalogue is
  * exactly the surface that has no price - that is the whole reason the live
@@ -3163,9 +3182,9 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * zero forever and the feature looked like it worked while achieving nothing.
  * Observed live - two routes priced, then zero after the next crawl.
  *
- * Keyed by ROUTE only, deliberately: learning a quote can CORRECT the method
- * (a catalogue that said GET for a POST-only endpoint), so a method-qualified
- * key would miss the row it just fixed.
+ * Learning a quote can CORRECT the method (a catalogue that said GET for a
+ * POST-only endpoint), which is why a route-only fallback sits beside the
+ * method-qualified key: without it the key would miss the row it just fixed.
  */
 export function carryForwardLearnedQuotes(tools, prev) {
   // Keyed by METHOD + route, with a route-only fallback for the price and
@@ -3177,18 +3196,73 @@ export function carryForwardLearnedQuotes(tools, prev) {
   // be recorded as broken by us. A remembered verb may only replace a verb
   // the current row INFERRED (a manifest or llms.txt entry that named none);
   // a declared verb is the seller's own statement and stands.
+  //
+  // Two kinds of remembered row. A LEARNED QUOTE (live-402, or the live-200
+  // retirement of one) carries its price, chains, payTo and verb. A VERIFIED
+  // READ is a row whose chains a live 402 confirmed (networksVerifiedAt) while
+  // its PRICE stayed the origin's own declaration: such a row is deliberately
+  // never re-stamped live-402 (the 2026-08-29 ratchet fix), so until
+  // 2026-09-28 the first probe-less rebuild after the read copied its chains
+  // and payTo once, without the verification stamp, and the second rebuild
+  // found nothing "learned" to carry at all. Every origin-priced seller whose
+  // document names no chains flapped between settlement_required and
+  // network_unknown, and the payTo the Base scan reads flapped with it. A
+  // verified read now carries its chains, payTo, domain observation, verb
+  // correction and verification stamp - never a price, never a quoteSource -
+  // so the origin's price still wins and the weekly re-verify
+  // (networksNeedLiveVerify) keeps its own clock. A verified read is admitted
+  // only when its stamp names its own verb (stampIsOwn): a stamp written before
+  // the verb was recorded may be another verb's read, and carrying it would
+  // keep that verb's chains and Base payTo on this row for good.
+  const learnedQuote = (r) => r?.quoteSource === "live-402" || r?.quoteSource === "live-200";
+  const verifiedRead = (r) => stampIsOwn(r) && Array.isArray(r?.networks) && r.networks.length > 0;
   const learnedExact = new Map();
   const learnedByRoute = new Map();
   for (const t of prev?.tools || []) {
-    if ((t?.quoteSource !== "live-402" && t?.quoteSource !== "live-200") || typeof t.route !== "string") continue;
-    learnedExact.set(`${String(t.method || "GET").toUpperCase()} ${t.route}`, t);
-    if (!learnedByRoute.has(t.route)) learnedByRoute.set(t.route, t);
+    if (typeof t?.route !== "string" || !(learnedQuote(t) || verifiedRead(t))) continue;
+    // A learned quote is never displaced by a verified read on the same key,
+    // so admitting verified reads cannot change which row the older rules
+    // pick; among learned quotes the previous order stands (last wins on the
+    // exact key, first wins on the route).
+    const key = `${String(t.method || "GET").toUpperCase()} ${t.route}`;
+    const heldExact = learnedExact.get(key);
+    if (!heldExact || learnedQuote(t) || !learnedQuote(heldExact)) learnedExact.set(key, t);
+    const heldRoute = learnedByRoute.get(t.route);
+    if (!heldRoute || (!learnedQuote(heldRoute) && learnedQuote(t))) learnedByRoute.set(t.route, t);
   }
   if (!learnedExact.size) return tools;
   for (const t of tools) {
     const exact = learnedExact.get(`${String(t.method || "GET").toUpperCase()} ${t.route}`);
     const hit = exact || learnedByRoute.get(t.route);
     if (!hit) continue;
+    const fromQuote = learnedQuote(hit);
+    // A route-level hit may change a current row's verb in exactly two cases:
+    // the row INFERRED its verb (named none), or the hit is a recorded
+    // CORRECTION of this very verb (the probe saw it fail and the other answer).
+    const correctsVerb = !exact && hit.method && hit.method !== t.method
+      && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase());
+    // A read is evidence about ITS OWN row: the same verb, or the verb it
+    // recorded correcting (or the verb an inferred row adopts from it). A
+    // sibling verb on the path was never read, so a verified read carries
+    // nothing to it, and a learned quote carries it only the route-level price
+    // and, onto a row with no chains of its own, the chains (see below).
+    const ownRead = Boolean(exact) || correctsVerb;
+    if (!fromQuote && !ownRead) continue;
+    // ...and the hit's chains, stamp, payTo and domain are this row's own only
+    // when its stamp was earned by its own verb (stampIsOwn). A verified read
+    // is admitted only on that condition; a learned quote may still carry a
+    // stamp written before the verb was recorded, and an exact key does not
+    // prove that stamp is this verb's: until 2026-09-28 carry-forward itself
+    // filed a sibling verb's read on this row, under this row's key.
+    const readIsOwn = ownRead && stampIsOwn(hit);
+    const hitRead = Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length > 0;
+    const rowHasChains = Array.isArray(t.networks) && t.networks.length > 0;
+    // A read that would have been this row's by key but cannot be attributed
+    // to its verb, on a row with chains of its own: its chains, payTo and
+    // domain are withheld below, so the row must be read again to get them
+    // back (a row with no chains takes the chains and payTo by the older
+    // price-and-networks rule and loses only the stamp).
+    const withheldRead = ownRead && !readIsOwn && hitRead && rowHasChains;
     if (exact && Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     if (hit.quoteSource === "live-200") {
       // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
@@ -3214,30 +3288,63 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // amount was filling the fresh row and then being re-stamped "live-402",
     // which made a nine-day-old price look freshly observed).
     const originPricedThisCrawl = Number(t.originDeclaredPrice) > 0;
-    if (!(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
+    // Only a learned QUOTE fills a price: a verified read's price was the
+    // origin's own declaration, and if the origin has stopped declaring it the
+    // honest state is "unpriced" (a probe candidate), not a remembered figure
+    // relabelled as learned.
+    if (fromQuote && !(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
       t.price = hit.price;
       t.quoteCarriedForward = true;
-      if (hit.quoteObservedAt) t.quoteObservedAt = hit.quoteObservedAt;
+      // A quote whose read was withheld is carried without its age, so
+      // quoteIsStale reads it as due once ("never stamped: refresh once") and
+      // the next probe restores what was withheld, stamped with its own verb.
+      // (An origin-priced row is due through networksNeedLiveVerify instead,
+      // and a row already priced carries no age from the hit in any case.)
+      if (hit.quoteObservedAt && !withheldRead) t.quoteObservedAt = hit.quoteObservedAt;
     }
-    if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
+    // Did this row just take its chains from the hit? A row with no chains of
+    // its own takes a learned quote's chains through the route fallback (the
+    // older price-and-networks rule); the domain and payTo below describe those
+    // chains, so they ride with them.
+    let tookChains = false;
+    if (!rowHasChains && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
-    } else if (Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
+      tookChains = true;
+      // The verification stamp travels with the chains it verified, onto the
+      // row it belongs to (same verb, or the verb it recorded correcting),
+      // with the verb that earned it. This branch used to drop it, so the next
+      // rebuild saw an unverified row.
+      if (readIsOwn) { t.networksVerifiedAt = hit.networksVerifiedAt; t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase(); }
+    } else if (readIsOwn && Array.isArray(hit.networks) && hit.networks.length) {
       // A VERIFIED live read outranks a manifest claim: union the chains the
       // 402 actually offered into the freshly rebuilt (manifest-shaped) row,
       // and carry when they were verified so the weekly re-read keeps its clock.
+      // Own row only, like the stamp above. A declared sibling verb that
+      // already names chains in the seller's document was never read: until
+      // 2026-09-28 it took the other verb's chains and stamp here, and, once
+      // verified reads were carried, kept them rebuild after rebuild as its own
+      // "verified read" - hidden from its own weekly read, and listing the
+      // other verb's chains (and, below, its Base payTo) as the sibling's.
+      // Rows written that way are still in the persisted cache, stamped with
+      // no verb, which is why the gate is readIsOwn and not ownRead.
       t.networks = [...new Set([...(t.networks || []), ...hit.networks])];
       t.networksVerifiedAt = hit.networksVerifiedAt;
+      t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase();
     }
+    // The domain observation and the payTo describe the chains of the read
+    // they came from, so they ride only where those chains do: onto the read's
+    // own row, or onto a row that just took the hit's chains.
+    const carriesPayment = readIsOwn || tookChains;
     // The domain observation rides with the verified read it came from: a
     // manifest-shaped rebuild has no accepts of its own, and without this the
     // label would forget a wrong-domain seller on every crawl.
-    if (!t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
+    if (carriesPayment && !t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
     // The payTo the live 402 named rides forward the same way, per network,
     // filling a GAP only: a manifest-shaped rebuild names no wallet on a
     // bare-string resource, and without this every crawl would forget the one
     // address the Base scan needs. A network the rebuilt row already carries a
     // payTo for keeps it (the origin's own current document, read this crawl).
-    if (hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
+    if (carriesPayment && hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
       const remembered = Object.entries(hit.payToByNetwork).filter(([, addr]) => typeof addr === "string" && addr);
       // The spread ORDER is the whole rule: what this crawl read from the
       // origin wins, the remembered address fills the rest. Filtering the
@@ -3245,19 +3352,23 @@ export function carryForwardLearnedQuotes(tools, prev) {
       // other, so a test could not tell either of them from a no-op.
       if (remembered.length) t.payToByNetwork = { ...Object.fromEntries(remembered), ...(t.payToByNetwork || {}) };
     }
-    // A route-level hit may change a current row's verb in exactly two cases:
-    // the row INFERRED its verb (named none), or the hit is a recorded
-    // CORRECTION of this very verb (the probe saw it fail and the other answer).
-    // A learned verb that simply answered on its own row is not evidence about
-    // a sibling verb - that reading is what mislabelled one seller's POST rows.
-    if (!exact && hit.method && hit.method !== t.method
-        && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase())) {
+    // Verb change: see correctsVerb above. A learned verb that simply answered
+    // on its own row is not evidence about a sibling verb - that reading is
+    // what mislabelled one seller's POST rows.
+    if (correctsVerb) {
       if (hit.methodCorrectedFrom) t.methodCorrectedFrom = hit.methodCorrectedFrom;
       t.method = hit.method; t.methodInferred = false;
+      // The live proof belongs to the verb that answered, so it travels with
+      // the correction the way the verification stamp does. Carried on exact
+      // hits only until 2026-09-28, which lost it on the first rebuild of every
+      // corrected row (the rebuilt row states the wrong verb, so it never
+      // matches exactly).
+      if (Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     }
     // Only claim "live-402" for a price this crawl is actually standing behind:
-    // a row the origin priced today is origin-declared, not live-learned.
-    if (!originPricedThisCrawl) t.quoteSource = "live-402";
+    // a row the origin priced today is origin-declared, not live-learned, and a
+    // verified read never carried a learned price at all.
+    if (fromQuote && !originPricedThisCrawl) t.quoteSource = "live-402";
   }
   return tools;
 }
@@ -3297,6 +3408,18 @@ export function networksNeedLiveVerify(t, now = Date.now()) {
   if (!(Array.isArray(t.networks) && t.networks.length)) return false;
   const at = Number(t.networksVerifiedAt);
   if (!Number.isFinite(at) || at <= 0) return true;
+  // A stamp that names no verb, or another verb, is no read of this row's own
+  // (stampIsOwn): carry-forward no longer passes such a stamp on, and a row
+  // still holding one is read rather than left to the clock.
+  if (!stampIsOwn(t)) return true;
+  // The stamp's clock covers a row whose PRICE is the origin's own declaration
+  // (a live 402 is the other price source, and it returned above). A priced
+  // row carrying a stamp but neither is a row whose price came from somewhere
+  // no read looked at: the origin stopped declaring and the rebuild took a
+  // registry's settlement snapshot, while carry-forward kept the stamp of the
+  // read made beside the old declaration. Before verified reads were carried
+  // such a row had no stamp and was read on the next crawl; it still is.
+  if (!(Number(t.originDeclaredPrice) > 0)) return true;
   return now - at >= NETWORKS_VERIFY_AGE_MS;
 }
 
@@ -3435,7 +3558,17 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
         // asking us to look now, and a 1.67x gap is still a wrong price.
         || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
-          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice))
+        // ...and every route whose chains, payTo and EIP-712 domain came from
+        // a past live read. The price of an origin-priced row is the origin's
+        // own and needs no re-ask, but those three fields are the 402's, and
+        // carry-forward keeps a verified read across rebuilds, so the automatic
+        // crawl re-reads them only on the weekly networksNeedLiveVerify clock.
+        // A seller who fixed a wrong USDC domain (the fix we ask them to make,
+        // then re-register) or moved its payout wallet would otherwise keep the
+        // old observation for up to a week, with the router skipping them on it
+        // and the Base scan reading the old wallet.
+        || (ignoreBudget && Number(t.networksVerifiedAt) > 0 && Array.isArray(t.networks) && t.networks.length > 0))
       // (An undeclared route needs no clause of its own here: the staleness
       // tests above re-ask every priced row within the same 7 days that
       // needsLiveProof measures, off the same timestamps.)
@@ -3458,10 +3591,22 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   // 128-route seller with 45 priced drains 5/pass over a dozen passes. The
   // automatic crawl keeps the gentle cap. Untouched rows first either way, so
   // each pass makes new ground.
+  //
+  // quoteObservedAt alone does not say "touched": a row the rebuild priced
+  // from a registry snapshot keeps a learned quote's stamp but not its age,
+  // so it is due on every crawl and reads as never attempted. A stamp naming
+  // the row's own verb (stampIsOwn) is the other record of a read, so such a
+  // row goes behind the rows that hold neither. Those include a learned quote
+  // whose read was withheld (carryForwardLearnedQuotes: a stamp naming no
+  // verb, on a row with chains of its own), which keeps no payTo until its
+  // own read. Ranked level with the snapshot rows, a cap's worth of those
+  // ahead in array order took every crawl's probes and that read never came.
+  // Rows with an age still go last, as before.
+  const readRank = (t) => (t.quoteObservedAt ? 2 : stampIsOwn(t) ? 1 : 0);
   const repriceCap = Number(process.env.REPRICE_MAX_PER_CALL || "120");
   const cap = ignoreBudget ? repriceCap : Math.min(quoteProbeCapFor(tools), liveQuoteBudget);
   const rotated = [...candidates]
-    .sort((a, b) => (a.quoteObservedAt ? 1 : 0) - (b.quoteObservedAt ? 1 : 0))
+    .sort((a, b) => readRank(a) - readRank(b))
     .slice(0, Math.max(0, cap));
   if (!rotated.length) return tools;
   if (!ignoreBudget) liveQuoteBudget -= rotated.length;
@@ -3475,6 +3620,9 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     let firstOutcome = null;
     const own = String(tool.method || "GET").toUpperCase();
     const statusByMethod = {};
+    // Every answer per verb, a thrown attempt recorded as 0: a verb "refused"
+    // only when every attempt on it said so (see the sibling branch below).
+    const answersByMethod = {};
     const note = (method, outcome) => {
       const k = `${method} ${outcome}`;
       bump(quoteProbeStats.attempts, k);
@@ -3504,6 +3652,7 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // and is the whole reason the second method is tried.
         note(method, String(res.status));
         statusByMethod[method] = res.status;
+        (answersByMethod[method] ||= []).push(res.status);
         if (method === "GET" && res.status === 200) {
           // The route answered WITHOUT a paywall. If the price we hold was
           // learned (a past 402, or a Bazaar settlement snapshot) rather than
@@ -3564,7 +3713,11 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         const mppOnly = /^Payment\b/i.test(String(res.headers.get("www-authenticate") || "").trim());
         note(method, mppOnly ? "402-mpp-only" : "402-unreadable");
         if (!mppOnly) sampleUnreadable402(originUrl, tool.route, res.headers.get("payment-required"), body);
-      } catch (err) { note(method, probeFailureCode(err)); /* unreachable, blocked, or malformed - try the next method */ }
+      } catch (err) {
+        note(method, probeFailureCode(err));
+        (answersByMethod[method] ||= []).push(0);
+        /* unreachable, blocked, or malformed - try the next method */
+      }
     }
     if (gone) {
       markRouteGone(originUrl, own, tool.route, { kind: "410" });
@@ -3573,12 +3726,30 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       console.log(`[x402-index] live-410: ${originUrl}${tool.route} answered ${own} 410 Gone; dropped the row`);
       continue;
     }
-    if (learned || freeObserved) { tool.liveProvenAt = Date.now(); clearGoneMark(originUrl, own, tool.route); }
     // An undeclared route whose own verb answered "no such route" is not for
     // sale. Only a definitive answer counts: a timeout, 5xx, 429, 401/403 or a
     // 400 on our probe body says nothing. A row whose verb was inferred must
     // miss on every verb tried; a URL template is never probed literally.
     const MISS = new Set([404, 405, 410]);
+    // The quote belongs to the row of the verb that answered. When that is not
+    // the stated verb and the seller ALSO declares the answering verb on this
+    // route, the declared sibling takes the read, and the stated row keeps
+    // nothing from it (see the sibling branch below).
+    const answered = learned?.method ? String(learned.method).toUpperCase() : own;
+    const sibling = learned && answered !== own
+      ? tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === answered)
+      : null;
+    // Did the stated verb itself refuse, definitively, on every attempt? Only
+    // then does the sibling branch drop the stated row. The length test is a
+    // belt: probeMethodsFor always tries the stated verb first, so no current
+    // path reaches it, but an empty list would otherwise read as a refusal.
+    const statedRefused = Boolean(sibling) && (answersByMethod[own] || []).length > 0
+      && answersByMethod[own].every((st) => MISS.has(st));
+    if (learned || freeObserved) {
+      const proven = sibling || tool;
+      proven.liveProvenAt = Date.now();
+      clearGoneMark(originUrl, sibling ? answered : own, tool.route);
+    }
     const missCandidate = !learned && !freeObserved && tool.declared === false && !String(tool.route).includes("{") && MISS.has(statusByMethod[own]);
     // An inferred POST is only ever probed with POST; before calling a guessed
     // verb's miss a miss, ask the route once with a read-only GET.
@@ -3609,12 +3780,46 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       console.log(`[x402-index] live-miss: ${originUrl}${tool.route} is not in the seller's documents and answered ${own} ${statusByMethod[own]}; dropped the row`);
       continue;
     }
-    noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
+    // A quote that went to a declared sibling taught the stated row nothing
+    // about itself, so the route backs off like any probe that learned nothing
+    // (the stated row stays a candidate, and without this it would be asked
+    // again, both verbs, on every crawl). The sibling was just read and is not
+    // due again for days; a successful read of its own clears the backoff.
+    noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned) && !sibling);
     quoteProbeStats.probed++;
     if (learned) quoteProbeStats.learned++;
     else if (freeObserved) quoteProbeStats.free++;
     else { quoteProbeStats.missed++; bump(quoteProbeStats.missByFirst, firstOutcome || "none"); }
     if (!learned) continue;
+    if (sibling) {
+      // The stated verb did not answer a quote, and the seller ALSO declares
+      // the verb that did on this route: the read is the sibling's, and only
+      // the sibling is written. The stated row is dropped only when its own
+      // verb refused definitively (404/405/410 on every attempt): an OpenAPI
+      // that lists GET and POST on one path where only POST is real, a
+      // declaration the seller does not honour, which would send buyers a verb
+      // that 405s. Any other answer (a 400 from a route that validates its
+      // input before the paywall, 401/403, 5xx, a timeout) says nothing about
+      // whether the stated verb is for sale, so the row stays exactly as it
+      // was. Until 2026-09-28 any non-402 dropped it, and the drop writes no
+      // gone mark, so a declared product left the index on every crawl and
+      // came back on every rebuild.
+      adoptLivePrice(sibling, learned.price, originUrl);
+      if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
+      if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
+      applyLivePayTo(sibling, learned.payToByNetwork);
+      // The stamp names the verb whose 402 was read (stampIsOwn), here the
+      // sibling's own.
+      sibling.networksVerifiedAt = Date.now();
+      sibling.networksVerifiedMethod = answered;
+      if (statedRefused) {
+        dropped.add(tool);
+        console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${own} and answers ${answered}; the seller declares both, dropping the ${own} row (sibling kept; ${own} answered ${answersByMethod[own].join(",")})`);
+      } else {
+        console.log(`[x402-index] live-402: ${originUrl}${tool.route} answers ${answered}, not ${own} (${(answersByMethod[own] || []).map((st) => st || "failed").join(",") || "not asked"}); the quote went to the declared ${answered} row and the ${own} row was left as it was`);
+      }
+      continue;
+    }
     // Price may be null for an asset we refuse to guess at; the networks alone
     // still move the row from payable:"unknown" to payable:"x402", which is the
     // honest and useful half of the answer.
@@ -3641,30 +3846,18 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     applyLivePayTo(tool, learned.payToByNetwork);
     // The live 402 was read: the row's chains are verified as of now, whatever
     // the manifest claimed (the union above never drops a manifest chain).
+    // The stamp names the verb that answered, which is this row's verb once
+    // the correction below applies (stampIsOwn).
     tool.networksVerifiedAt = Date.now();
+    tool.networksVerifiedMethod = answered;
     if (learned.method && learned.method !== tool.method) {
-      // The stated verb did not answer a quote and this one did. When the
-      // seller ALSO declares the answering verb on this route (an OpenAPI that
-      // lists GET and POST on one path, where only POST is real), the stated
-      // row is a declaration the seller does not honour: correcting it would
-      // leave two identical rows on the path, and keeping it would send buyers
-      // a verb that 405s. Drop it; the sibling already represents the route.
-      const stated = String(tool.method || "GET").toUpperCase();
-      const sibling = tools.find((o) => o !== tool && o.route === tool.route && String(o.method || "").toUpperCase() === learned.method);
-      if (sibling) {
-        adoptLivePrice(sibling, learned.price, originUrl);
-        if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
-        if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
-        applyLivePayTo(sibling, learned.payToByNetwork);
-        sibling.networksVerifiedAt = Date.now();
-        dropped.add(tool);
-        console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${stated} and answers ${learned.method}; the seller declares both, dropping the ${stated} row (sibling kept)`);
-        continue;
-      }
-      // Otherwise a CORRECTION, recorded as such so the next crawl's
+      // The stated verb did not answer a quote and this one did, and no
+      // sibling row declares the answering verb (that case took the branch
+      // above): a CORRECTION, recorded as such so the next crawl's
       // carry-forward can re-apply it to the freshly rebuilt row (which will
       // state the wrong verb again) without ever touching a row whose own verb
       // was never probed.
+      const stated = own;
       tool.methodCorrectedFrom = stated;
       tool.method = learned.method; tool.methodInferred = false;
     }

@@ -171,7 +171,8 @@ curl -i -X POST https://agent402.tools/api/hash \
   -H 'Content-Type: application/json' \
   -d '{"text":"hello"}'
 # HTTP/2 402
-# {"x402Version":2,"accepts":[{"price":"1000","network":"eip155:8453",...}]}
+# payment-required: eyJ4NDAyVmVyc2lvbiI6Mi... (base64 JSON, authoritative)
+# {"altPayment":{...},"x402Version":2,"error":"Payment required","resource":{...},"accepts":[{"scheme":"exact","network":"eip155:8453","amount":"1000",...}],"extensions":{...}}
 ```
 
 See [[Paying with x402]] for full code examples in JavaScript and with Stripe's `purl`.
@@ -232,7 +233,7 @@ All errors return a JSON body with an `error` string field.
 | Code | Meaning |
 |---|---|
 | `400` | Bad request -- missing or invalid input parameters |
-| `402` | Payment required -- x402 quote in the `payment-required` header (MPP challenges in `WWW-Authenticate: Payment`); for a prepaid credits key, a JSON body with `reason` (`insufficient`, `unknown`, `disabled`, `identity-bound`) and `topup` |
+| `402` | Payment required -- x402 quote in the `payment-required` header, mirrored as the same object in the JSON body (MPP challenges in `WWW-Authenticate: Payment`); for a prepaid credits key, a JSON body with `reason` (`insufficient`, `unknown`, `disabled`, `identity-bound`) and `topup` |
 | `404` | Tool not found |
 | `409` | Conflict -- the request cannot be served as asked, and the body says how to fix it. Two cases: an execution tier too small for the resolved tool (retry on the rung named in the error, or call the tool directly), and external routing on a chain with no spending wallet (the error names the chains that are supported) |
 | `413` | Payload too large -- for the memory tools, the namespace quota is full: either the per-namespace key count (`MEMORY_MAX_NS_KEYS`, default 10,000) or the total-value byte budget (`MEMORY_MAX_NS_BYTES`, default 32 MB). Delete keys or shrink values |

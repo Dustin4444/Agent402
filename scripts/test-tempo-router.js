@@ -212,7 +212,7 @@ ok(JSON.stringify(externalChainsFor("eip155:137", supported)) === "[]", "unsuppo
 {
   const { __reset, noteSpend, payerExposureUsd, __config } = await import("../src/external-spend-guard.js");
   __reset();
-  const tempoReq = () => ({ mppTempoCredential: true, mppTempoPayer: "0xTempoBuyer", headers: {}, header: () => undefined, ip: "203.0.113.9" });
+  const tempoReq = () => ({ mppTempoCredential: true, mppTempoSender: "0xTempoBuyer", mppTempoPayer: "0xSpoofedHint", headers: {}, header: () => undefined, ip: "203.0.113.9" });
   const seller = { seller: "https://firecrawl.example", slug: "v1/scrape", url: "https://firecrawl.example/v1/scrape", method: "POST", price: "$0.002", priceUsd: 0.002, networks: [TEMPO_CAIP2], wire: "mpp" };
   const tool = buildRouteExecuteTool({
     getCatalog: () => ({}), tier: EXEC_TIERS[0],
@@ -221,7 +221,7 @@ ok(JSON.stringify(externalChainsFor("eip155:137", supported)) === "[]", "unsuppo
     externalEnabled: () => true, externalChains: () => ["base", "tempo"],
   });
   await tool.handler({ task: "scrape a url", include: "external" }, tempoReq());
-  ok(payerExposureUsd("tempo:0xTempoBuyer") > 0, "a Tempo buyer's external spend is recorded under its credential payer");
+  ok(payerExposureUsd("tempo:0xTempoBuyer") > 0 && payerExposureUsd("tempo:0xSpoofedHint") === 0, "a Tempo buyer's external spend is recorded under the sender recovered from its transaction, never the client-supplied source hint");
   noteSpend("tempo:0xTempoBuyer", __config.DEFAULT_MAX_UNSETTLED_USD);
   let threw = null, paid = false;
   const tool2 = buildRouteExecuteTool({
@@ -233,7 +233,7 @@ ok(JSON.stringify(externalChainsFor("eip155:137", supported)) === "[]", "unsuppo
   try { await tool2.handler({ task: "scrape a url", include: "external" }, tempoReq()); } catch (e) { threw = e; }
   ok(threw?.statusCode === 429 && /paused/.test(threw.message) && paid === false, "a Tempo buyer over the unsettled ceiling is refused before any spend (429)");
   __reset();
-  const noPayer = { mppTempoCredential: true, headers: {}, header: () => undefined, ip: "203.0.113.9" };
+  const noPayer = { mppTempoCredential: true, mppTempoPayer: "0xOnlyAHint", headers: {}, header: () => undefined, ip: "203.0.113.9" };
   await tool.handler({ task: "scrape a url", include: "external" }, noPayer);
   ok(payerExposureUsd("ip:203.0.113.9") > 0, "with no readable payer the spend is keyed on the client IP (nobody is unkeyed)");
   __reset();

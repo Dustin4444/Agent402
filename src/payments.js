@@ -5,7 +5,7 @@ import { createGuardedInit, withGuardedInit } from "./x402-boot-init.js";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { installAcceptOutputSchema, withOutputSchemaOnFirstAccept, outputSchemaFromExtensions, acceptOutputSchemaEnabled } from "./accept-output-schema.js";
 import { avmSubcentGateEnabled, installAvmSubcentGate, noteAvmSettleRefusal, startAvmSponsorshipRefresher, REFRESH_MS as AVM_SPONSORSHIP_REFRESH_MS } from "./avm-sponsorship.js";
-import { isFacilitatorBillingRefusal } from "./payment-reject.js";
+import { isBillingRefusalReceipt } from "./payment-reject.js";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { UptoEvmScheme } from "@x402/evm/upto/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
@@ -27,6 +27,7 @@ import {
 import { declarePaymentIdentifierExtension, PAYMENT_IDENTIFIER } from "@x402/extensions/payment-identifier";
 import { normalizePayerAddress } from "./payer.js";
 import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
+import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
@@ -1203,6 +1204,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   if (algorandEnabled) for (const caip2 of avmCaip2) server = server.register(caip2, new ExactAvmScheme());
   registerFacilitatorFailureHooks(server, payAiClient, solvadorClient);
   registerWalletBlocklistHook(server);
+  registerClientGoneSettleHook(server);
   // Log the OFFERED set, not the requested one: the drop-don't-break guards
   // above (Robinhood/Monad/Celo/Solvador-primary) may have removed EVM chains,
   // and a boot log claiming an unoffered rail sends the next debugger the
@@ -1508,6 +1510,35 @@ function registerWalletBlocklistHook(server) {
 }
 
 /**
+ * A buyer whose connection closed before the first response byte is not
+ * charged while the request holds a granted forgiveness ticket
+ * (src/hangup-settlement.js, src/hangup-forgiveness.js). @x402/express decides
+ * whether to settle from res.statusCode alone and never asks whether the
+ * buyer is still there, so this hook asks: an abort here makes @x402/core throw SettleError(400)
+ * BEFORE any facilitator call, which means onSettleFailure and the
+ * PayAI/Solvador fallback never run and nothing can settle twice (the same
+ * path the wallet blocklist rides). The vendor then answers 402 with a
+ * success:false receipt, and the hang-up recorder books no debt from it. It
+ * covers exact and upto, and the MPP evm shim, which is x402 underneath.
+ *
+ * Vendor-shape dependency: the request reaches the hook as
+ * transportContext.request.adapter.req (@x402/express builds
+ * `{ request: context, ... }` with an ExpressAdapter holding `this.req`;
+ * scripts/test-hangup-settlement.js pins it). If a bump moves it, `req` is
+ * undefined and the payment settles as before, with the charge booked as owed
+ * by the hang-up hook: never a silent free run.
+ */
+export function registerClientGoneSettleHook(server) {
+  server.onBeforeSettle((ctx) => {
+    const req = ctx?.transportContext?.request?.adapter?.req;
+    // No ticket (budget spent, or a route that never reserved one): settle as
+    // usual; the hang-up hook books the undelivered charge as owed.
+    if (!req || !chargeCancelledForClientGone(req)) return;
+    return { abort: true, reason: "client_disconnected", message: CLIENT_GONE_TEXT };
+  });
+}
+
+/**
  * Make facilitator verify/settle failures LOUD — and optionally auto-recover a
  * failed settlement via PayAI.
  *
@@ -1790,8 +1821,11 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // PayAI answers 403 free_tier_exhausted once the free monthly settlements
     // are spent (1,000 per receiving wallet). Say so in the log so the alarm
     // and the operator reach for credits, not for a status page. The same
-    // predicate keeps it off the buyer's record (src/payment-reject.js).
-    if (isFacilitatorBillingRefusal(`${failure} ${ctx?.error?.errorReason || ""}`)) {
+    // receipt rule words the buyer's 402 and the breakers' 429
+    // (src/payment-reject.js): an errorReason that is a verdict about the
+    // payment (insufficient_funds, transaction_failed, ...) is never
+    // relabelled billing by words in its message.
+    if (isBillingRefusalReceipt({ success: false, errorReason: ctx?.error?.errorReason, errorMessage: failure })) {
       console.warn(
         `[payments] facilitator QUOTA exhausted on ${ctx?.requirements?.network} ` +
           `${ctx?.requirements?.scheme}: ${failure} - top up the facilitator account; this is billing, not an outage`
@@ -1799,8 +1833,9 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
       // The Algorand sub-cent allowance: withdraw the offer from the next
       // sub-cent 402 at once rather than serving the next buyer for free.
       // (@x402/core 2.26 routes a graceful `success:false` here too, as a
-      // SettleError carrying the facilitator's errorReason.)
-      noteAvmSettleRefusal({ network: ctx?.requirements?.network, payTo: ctx?.requirements?.payTo, reason: `${failure} ${ctx?.error?.errorReason || ""}` });
+      // SettleError carrying the facilitator's errorReason.) The reason rides
+      // separately so the gate applies the same verdict rule before pausing.
+      noteAvmSettleRefusal({ network: ctx?.requirements?.network, payTo: ctx?.requirements?.payTo, errorReason: ctx?.error?.errorReason, reason: failure });
     }
     console.warn(
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +

@@ -323,7 +323,8 @@ export const X402_TOOLS = [
       let body = null;
       try { const t = await boundedText(res); body = t ? JSON.parse(t) : null; } catch { /* may be empty/non-JSON/oversized */ }
       // x402 v1 put the payment requirements in the 402 body; v2 moved them to
-      // the base64-encoded PAYMENT-REQUIRED header (the body is `{}`). Decode
+      // the base64-encoded PAYMENT-REQUIRED header, and many v2 sellers send a
+      // `{}` body (this server mirrors the header's object into its body). Decode
       // whichever the seller speaks — without the header path this tool returns
       // an empty quote for every v2 seller, including this server itself.
       let accepts = Array.isArray(body?.accepts) && body.accepts.length ? body.accepts : undefined;

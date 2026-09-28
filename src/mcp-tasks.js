@@ -313,9 +313,12 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
   const fail = (id, error, statusMessage) => settle(id, { status: "failed", error, statusMessage });
 
   /** tasks/cancel. Cooperative and eventually consistent (spec): we stop
-   *  waiting on the live run. The paid request itself keeps running
-   *  server-side and settles if its handler produces a <400; a charge the
-   *  buyer never received is then owed in the refund ledger. */
+   *  waiting on the live run, which closes its loopback request. A paid
+   *  request whose connection closes before the first response byte is not
+   *  settled while it holds a hang-up forgiveness ticket
+   *  (src/hangup-settlement.js); without one, or for a close that lands while
+   *  the settle call itself is in flight, it is charged and that charge is
+   *  owed in the refund ledger. */
   function cancel(id) {
     const rec = read(id);
     if (!rec) return false;
@@ -324,10 +327,12 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
     runs.delete(id);
     if (isTerminal(rec.status)) return true;   // ack anyway; terminal states are immutable
     rec.status = "cancelled";
-    // The paid request has already cleared the paywall and keeps running
-    // server-side after the connector stops waiting, so it may still settle;
-    // a charge whose result never reached the buyer is recorded as owed and
-    // refunded (src/hangup-settlement.js).
+    // The paid request has already cleared the paywall. Cancelling closes its
+    // loopback, and a request closed before its first byte is not settled
+    // while it holds a forgiveness ticket (src/hangup-settlement.js), but one
+    // without a ticket, or caught mid-settlement, is: that charge is recorded
+    // as owed and refunded. Which one happened is not known here, so the
+    // message cannot promise "not charged".
     rec.statusMessage = "Cancelled at your request. The run may still have completed and been charged; if it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
     write(rec);
     return true;

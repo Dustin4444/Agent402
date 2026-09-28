@@ -42,14 +42,16 @@ function fakeReq({ from = null, tempo = null, ip = "203.0.113.7", withRes = true
     header: (n) => (String(n).toLowerCase() === "payment-signature" ? hdr || undefined : undefined),
     headers: {}, ip,
   };
-  if (tempo) req.mppTempoPayer = tempo;
+  if (tempo) req.mppTempoSender = tempo;
   if (withRes) req.res = fakeRes();
   return req;
 }
 
 // --- key derivation: the composite guard's rule ------------------------------
 ok(b.gatewaySettleBreakerKey(fakeReq({ from: ADDR })) === ADDR.toLowerCase(), "signed EVM payer is the key, lowercased");
-ok(b.gatewaySettleBreakerKey(fakeReq({ tempo: "0xTempoPayer" })) === "tempo:0xTempoPayer", "a Tempo buyer keys on the tempo payer");
+ok(b.gatewaySettleBreakerKey(fakeReq({ tempo: "0xTempoPayer" })) === "tempo:0xTempoPayer", "a Tempo buyer keys on the sender recovered from its signed transaction");
+ok(b.gatewaySettleBreakerKey(Object.assign(fakeReq(), { mppTempoPayer: "0xclientsupplied" })) === "ip:203.0.113.7", "the credential's client-supplied source hint is never a key (a caller could name a fresh one per request): the IP is");
+ok(b.gatewaySettleBreakerKey(Object.assign(fakeReq(), { creditsKeyId: "ck_123" })) === "credits:ck_123", "a credits buyer keys on the credits key id, before the IP fallback");
 ok(b.gatewaySettleBreakerKey(fakeReq()) === "ip:203.0.113.7", "otherwise the client IP - nobody is unkeyed");
 ok(b.gatewaySettleBreakerKey(undefined) === null && b.gatewaySettleBreakerKey({}) === null, "no request (in-process caller) -> null key");
 
@@ -211,30 +213,44 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
   }
   // A FACILITATOR refusing on a billing quota of OURS. Only the one refusal
   // the offer gate WITHDRAWS (an Algorand sub-cent settle refused
-  // subcent_quota_exceeded, gate installed and armed, a payTo paused - so the
-  // next sub-cent 402 no longer offers Algorand) is kept off the wallet's
-  // count (2026-09-28: one buyer refused 325 calls for it, told their wallet
-  // was the problem), and even that still feeds the /v1 global pause. Every
-  // other billing refusal has nothing closing its loop, so it counts exactly
-  // as before - per wallet and globally - and the 429 names it instead of the
-  // wallet. Driven on the exact final shape the vendor writes: 402 +
-  // PAYMENT-RESPONSE {success:false, errorReason}.
+  // subcent_quota_exceeded, gate installed and armed, the payTo paid paused,
+  // and the route's next 402 really dropping that accept - so the loop is
+  // closed) is kept off the wallet's count (2026-09-28: one buyer refused 325
+  // calls for it, told their wallet was the problem), and even that still
+  // feeds the /v1 global pause. Every other billing refusal has nothing
+  // closing its loop, so it counts exactly as before - per wallet and
+  // globally - and the 429 names it instead of the wallet. Driven on the exact
+  // final shape the vendor writes: 402 + PAYMENT-RESPONSE {success:false,
+  // errorReason}, on a request carrying an Algorand payment (keyed, like every
+  // Algorand buyer, by client IP) whose route offer the patched build recorded.
   {
     const s = await import("../src/avm-sponsorship.js");
     const ALGO = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
     const PAYTO = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ";
+    const SUB = { scheme: "exact", network: ALGO, asset: "31566704", amount: "1000", payTo: PAYTO, maxTimeoutSeconds: 300, extra: {} };
+    const CENT = { ...SUB, amount: "10000" };
+    const BASE = { scheme: "exact", network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "1000", payTo: "0xdead", extra: {} };
+    const avmKey = "ip:203.0.113.7";
+    const avmReq = (paid = SUB, offered = [BASE, paid]) => {
+      const hdr = Buffer.from(JSON.stringify({ x402Version: 2, accepted: paid, payload: { paymentGroup: ["x"], paymentIndex: 0 } })).toString("base64");
+      const req = { header: (n) => (String(n).toLowerCase() === "payment-signature" ? hdr : undefined), headers: {}, ip: "203.0.113.7", res: fakeRes() };
+      s.rememberOfferedRequirements(req, offered);
+      return req;
+    };
     const receipt = (errorReason, extra = {}) => Buffer.from(JSON.stringify({ success: false, errorReason, errorMessage: errorReason, network: ALGO, transaction: "", ...extra })).toString("base64");
-    const finishWith = async (errorReason, extra, { global = true } = {}) => {
-      const req = fakeReq({ from: ADDR });
+    const finishWith = async (errorReason, extra, { global = true, paid, offered } = {}) => {
+      const req = avmReq(paid, offered);
       if (global) await nano.handler(chatBody, req);
-      else b.armGatewaySettleBreaker(req, key, { global: false }); // the wallet-only catalog consult
+      else b.armGatewaySettleBreaker(req, avmKey, { global: false }); // the wallet-only catalog consult
       req.res.statusCode = 402;
       req.res.setHeader("PAYMENT-RESPONSE", receipt(errorReason, extra));
       req.res.emit("finish");
     };
-    const walletFails = () => b.gatewaySettleBreakerBlocked(key).fails;
+    const walletFails = () => b.gatewaySettleBreakerBlocked(avmKey).fails;
     const globalFails = () => b.gatewaySettleBreakerStatus().globalFailsInWindow;
+    const nextCall = async () => { try { await nano.handler(chatBody, fakeReq()); return null; } catch (e) { return e; } };
     const pause = () => s.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded" });
+    ok(b.gatewaySettleBreakerKey(avmReq()) === avmKey, "an Algorand buyer is keyed by client IP (its payload signs no EVM authorization)");
 
     // No gate on the resource server: nothing withdraws the offer, so it counts.
     s._resetAvmSponsorshipForTest({ logger: () => {}, installed: false });
@@ -248,16 +264,35 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     b._gatewaySettleBreakerReset();
     pause();
     for (let i = 0; i < 5; i++) await finishWith("subcent_quota_exceeded");
-    ok(walletFails() === 0 && !b.gatewaySettleBreakerBlocked(key).blocked, "five withdrawn subcent_quota_exceeded refusals leave the wallet uncounted and unblocked");
+    ok(walletFails() === 0 && !b.gatewaySettleBreakerBlocked(avmKey).blocked, "five withdrawn subcent_quota_exceeded refusals leave the wallet uncounted and unblocked");
     ok(globalFails() === 5, `...and every one still feeds the /v1 global pause (got ${globalFails()})`);
     await finishWith("subcent_quota_exceeded", {}, { global: false });
     ok(walletFails() === 0 && globalFails() === 5, "on the catalog consult (global:false) it records nothing at all");
     await finishWith("subcent_quota_exceeded");
     ok(b.gatewaySettleBreakerGlobalPaused().paused, "the sixth trips the global pause (GLOBAL_MAX 6): the backstop for requests already in flight");
     b._gatewaySettleBreakerReset();
-    b.recordGatewaySettleFailure(key);
+    b.recordGatewaySettleFailure(avmKey);
     await finishWith("subcent_quota_exceeded");
     ok(walletFails() === 1, "a withdrawn refusal does not CLEAR a real earlier failure either");
+
+    // Paused, but the refusal is NOT one this gate withdraws: each counts.
+    // (a) a payment verdict whose message merely names the allowance;
+    b._gatewaySettleBreakerReset();
+    await finishWith("transaction_failed", { errorMessage: "simulate failed: subcent_quota_exceeded" });
+    await finishWith("insufficient_funds", { errorMessage: "subcent_quota_exceeded" });
+    ok(walletFails() === 2, `a payment verdict (transaction_failed, insufficient_funds) naming subcent_quota_exceeded in its message counts against the wallet (got ${walletFails()})`);
+    // (b) a requirement the gate never withdraws: one cent, or a payTo not paused;
+    b._gatewaySettleBreakerReset();
+    await finishWith("subcent_quota_exceeded", {}, { paid: CENT });
+    await finishWith("subcent_quota_exceeded", {}, { paid: { ...SUB, payTo: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" } });
+    ok(walletFails() === 2, `a one-cent requirement, and a sub-cent one paid to a payTo that is not paused, each count (got ${walletFails()})`);
+    // (c) a route whose ONLY accept is the paused one: the never-empty rule
+    // keeps it in the next 402, so nothing closes the loop - bounded per buyer.
+    b._gatewaySettleBreakerReset();
+    for (let i = 0; i < 3; i++) await finishWith("subcent_quota_exceeded", {}, { offered: [SUB] });
+    let err = await nextCall();
+    ok(walletFails() === 3 && err?.statusCode === 429, `an Algorand-only route: its refusals are not exempt (nothing was withdrawn), so three count and the fourth call is refused 429 (got ${err?.statusCode})`);
+    ok(/billing limit on this server's own account/.test(err?.message || ""), "...and that 429 names the facilitator's billing limit");
 
     // Installed, but no payTo paused right now (the refusal hook never flipped
     // it, or the evidence went stale): the offer is still out, so it counts.
@@ -271,8 +306,7 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     s.noteSponsorshipStatus(PAYTO, { chain: "algorand", usedMonth: 1013, quota: 1000, suBalance: 0 });
     process.env.AVM_SUBCENT_GATE = "off";
     for (let i = 0; i < 3; i++) await finishWith("subcent_quota_exceeded");
-    let err = null;
-    try { await nano.handler(chatBody, fakeReq({ from: ADDR })); } catch (e) { err = e; }
+    err = await nextCall();
     ok(walletFails() === 3 && err?.statusCode === 429, `AVM_SUBCENT_GATE=off: three refusals count and the fourth call is refused 429, never served free without bound (got ${err?.statusCode})`);
     ok(/billing limit on this server's own account/.test(err?.message || "") && /not because of the wallet/.test(err?.message || "") && !/USDC balance/.test(err?.message || ""), `...and the 429 names the facilitator's billing limit, not the wallet's balance (got: ${String(err?.message).slice(0, 120)})`);
     delete process.env.AVM_SUBCENT_GATE;
@@ -289,15 +323,13 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     await finishWith("unexpected_settle_error", { network: "eip155:1329", errorMessage: "Facilitator settle failed (403): payment required: buy more credits" });
     ok(walletFails() === 2 && globalFails() === 2, `free_tier_exhausted and a credits wall named only in errorMessage count per wallet and globally (wallet ${walletFails()}, global ${globalFails()})`);
     await finishWith("transaction_failed", { network: "eip155:43114", errorMessage: "rpc quota exceeded" });
-    err = null;
-    try { await nano.handler(chatBody, fakeReq({ from: ADDR })); } catch (e) { err = e; }
+    err = await nextCall();
     ok(err?.statusCode === 429 && /2 of them were a facilitator billing refusal/.test(err?.message || "") && /USDC balance/.test(err?.message || ""), `a mixed window names the billing share and still points at the wallet for the rest - transaction_failed is a payment verdict, whatever its message says (got: ${String(err?.message).slice(0, 160)})`);
 
     // Control: a buyer-side reason on the same 402 shape counts, and three trip the 429 as before.
     b._gatewaySettleBreakerReset();
     for (let i = 0; i < 3; i++) await finishWith("insufficient_funds");
-    err = null;
-    try { await nano.handler(chatBody, fakeReq({ from: ADDR })); } catch (e) { err = e; }
+    err = await nextCall();
     ok(err?.statusCode === 429 && /failed to settle/.test(err?.message || "") && /USDC balance/.test(err?.message || "") && !/billing/.test(err?.message || ""), `three genuine failures (insufficient_funds) trip the 429 exactly as before (got ${err?.statusCode})`);
     b._gatewaySettleBreakerReset();
     s._resetAvmSponsorshipForTest({ logger: () => {}, installed: false });

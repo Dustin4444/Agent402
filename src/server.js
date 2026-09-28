@@ -48,6 +48,7 @@ import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
+import { paymentRequiredBodyMiddleware } from "./payment-required-body.js";
 import { avmSubcentOfferStatus } from "./avm-sponsorship.js";
 import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
@@ -113,12 +114,20 @@ function cardPriceUsd(def, req) {
   return Math.ceil(((q + CARD_FEE_FIXED_USD) / (1 - CARD_FEE_RATE)) * 100) / 100;
 }
 // A paid response the buyer never received because they hung up before any
-// byte was sent, after the rail had already settled it (src/hangup-settlement.js).
-// Records a refund-ledger debt on the same evidence rules as the finish-based
-// charged-failure path: an x402 receipt must PROVE the charge (success:true);
-// the Tempo/Stripe gates set their flag only after a real settlement; credits
-// set theirs only when the close converted the hold. Returns the row it wrote
-// (or null) so the test can see exactly what was booked.
+// byte was sent, AFTER the rail had already settled it (src/hangup-settlement.js).
+// A rail declines to settle such a request only while it holds a granted
+// forgiveness ticket (src/hangup-forgiveness.js), so this is: a run with no
+// ticket (the budget is spent, the route's effect outlives the answer - a
+// memory write, an attestation, a verdict, a purchase from an outside seller -
+// or the route never reserved one), a Tempo push
+// credential (finalized before the handler), and the residual window - a close
+// that landed while the settle, broadcast or capture call was itself in
+// flight. Records a refund-ledger debt on the same evidence rules as the
+// finish-based charged-failure path: an x402 receipt must PROVE the charge
+// (success:true); the Tempo/Stripe gates set their flag only after a real
+// settlement; credits set creditsChargedOnClose only when the abandoned hold
+// was actually debited. Returns the row it wrote (or null) so the test can see
+// exactly what was booked.
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
@@ -157,8 +166,36 @@ function recordHangupDebt(req, res) {
   }
   if (!row) return null;
   const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic });
-  console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}`);
+  // Why it was not forgiven, when a ticket was refused ("lasting effect",
+  // "payer budget", ...); nothing for the residual window, where it was.
+  const denied = hangupTicketDenial(req);
+  console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}${denied ? `; not forgiven: ${denied}` : ""}`);
   return row;
+}
+// Every close-before-the-first-byte on a paid request ends here (the hang-up
+// hook's onUndelivered). Either the rail settled it - no forgiveness ticket,
+// a Tempo push credential, or the residual window - and recordHangupDebt
+// books it as owed, or the charge was cancelled, which is NOT a refund-ledger
+// debt and writes no row. The bound on cancelled charges is the forgiveness
+// budget the ticket was drawn from (src/hangup-forgiveness.js): the run was
+// recorded there as abandoned under the buyer's wallet, IP and globally the
+// moment the socket closed, and a paid success never clears that record.
+function recordHangupOutcome(req, res) {
+  if (recordHangupDebt(req, res)) return;
+  if (!ownTrue(req, "__a402Dispatched")) return; // nothing was accepted, or not a catalog route
+  const started = Object.hasOwn(req, "__a402HandlerStarted") ? Number(req.__a402HandlerStarted) : 0;
+  const rail = railOf(req) || "x402";
+  const work = started > 0 ? `after ${Math.max(0, Date.now() - started)} ms of work` : "before the handler ran";
+  const why = hangupForgiven(req) ? "within the hang-up forgiveness budget" : "nothing was settled";
+  console.warn(`[hangup] NOT CHARGED: client closed the connection before the answer was ready (${req.method} ${req.path} rail=${rail} ${work}) - payment not settled; ${why}`);
+}
+// The keys a forgiveness ticket is counted under: the verified payer (signed
+// EIP-3009 payer, the sender recovered from a Tempo transaction's signature,
+// or the credits key) and ALWAYS the client IP. Never a client-supplied field.
+function hangupForgivenessKeys(req) {
+  const payer = payerFromRequest(req);
+  const who = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : null);
+  return [who, `ip:${clientIp(req)}`];
 }
 import { mppProblem, sendMppProblem } from "./mpp-problem.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
@@ -567,7 +604,8 @@ function trialClientKey(ip) {
 }
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
-import { createHangupSettlementHook } from "./hangup-settlement.js";
+import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort } from "./hangup-settlement.js";
+import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -4813,6 +4851,9 @@ app.get("/__operator/refunds.json", (req, res) => {
     totals: refundTotals(),
     status,
     refunds: listRefunds({ status, limit: Math.min(500, parseInt(req.query.limit, 10) || 200) }),
+    // How much of the hang-up forgiveness budget is in use: once it is spent,
+    // an abandoned run is charged and appears above as owed with httpStatus 499.
+    hangupForgiveness: hangupForgivenessStatus(),
   });
 });
 // Self-serve seller conversion/churn (2026-08-16). first_seen: when the
@@ -7571,13 +7612,18 @@ app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 // stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
 // → not mounted, server stays pure-x402.
 if (!FREE_MODE) {
-  // Charged-but-not-served on a hang-up (src/hangup-settlement.js). Mounted
-  // FIRST so every payment gate's captured res.end is this hook's wrapper:
-  // when a gate settles and then ends a response whose client already hung
-  // up, the debt is recorded here, because the "finish"-based charged-failure
-  // path below never runs on a destroyed socket. Every rail still settles a
-  // <400 regardless of the socket, so a hang-up is never a free run.
-  app.use(createHangupSettlementHook({ onUndelivered: recordHangupDebt }));
+  // A buyer who hangs up before the first byte is not charged, within the
+  // hang-up forgiveness budget (src/hangup-settlement.js,
+  // src/hangup-forgiveness.js). Mounted FIRST, for two reasons: its "close"
+  // listener is the one that marks the request (req.__a402ClientGoneAt) that
+  // every settlement point reads before it moves money, and every payment
+  // gate's captured res.end is this hook's wrapper, so when a gate ends a
+  // response whose client already left, recordHangupOutcome sees it - the
+  // "finish"-based charged-failure path below never runs on a destroyed
+  // socket. A charge that was taken anyway (no ticket, a Tempo push
+  // credential, or a close during the settle call itself) is booked as owed
+  // in the refund ledger.
+  app.use(createHangupSettlementHook({ onUndelivered: recordHangupOutcome }));
 
   // Tempo support for MPP (src/mpp-tempo.js) — a SECOND, independent
   // settlement path alongside the evm shim below: Tempo's TIP-1034/TIP-20
@@ -7633,6 +7679,15 @@ if (!FREE_MODE) {
   // Telemetry may only record product keys we actually sell (see knownProduct
   // in posthog.js): on a refusal the value is whatever the caller sent.
   setKnownProductKeys([...Object.keys(HUMAN_PRODUCTS), ...Object.keys(MONITOR_PRODUCTS || {})]);
+  // The 402 body carries the same PaymentRequired object as the header
+  // (src/payment-required-body.js). MOUNT ORDER MATTERS: this wraps res.send,
+  // and it must be mounted BEFORE every middleware that can call
+  // markMppProblem (the MPP shim, the Tempo gate and the Stripe gate below).
+  // The problem patch then delegates to this wrapper, so an MPP refusal's
+  // problem document is merged too; mounted after them, this wrapper would
+  // be outer and its merge replaced. It is inner to every res.json wrapper
+  // regardless, because res.json always ends in this.send.
+  if (process.env.PAYMENT_REQUIRED_BODY !== "off") app.use(paymentRequiredBodyMiddleware());
   app.use(verifyHintMiddleware());
 
   const mppShim = createMppShim({
@@ -7667,7 +7722,11 @@ if (!FREE_MODE) {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
       const priceUsd = quotedPriceUsd(def, req);
-      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
+      // longRunning rides here as well as on the appender. Challenges are not
+      // path-bound, so the binding check has to know the route it is paying
+      // for: checkTempoCredentialBinding refuses a long-running route over
+      // Tempo (its run outlives the credential), whatever challenge it answers.
+      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def), longRunning: isLongRunningSlug(def.slug) } : null;
     },
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
@@ -8315,10 +8374,16 @@ if (FREE_MODE) {
         if (resolved) return;
         resolved = true;
         if (res.statusCode === 200) replayGuard.settle(replayKey).catch(() => {});
-        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored, client aborted)
+        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored)
       };
       res.on("finish", finishGuard);
-      res.on("close", finishGuard); // client aborted before the response finished
+      // Client left before the response finished. On a close before the first
+      // byte, statusCode is still Node's default 200 (the paywall buffers the
+      // handler's status), so the key is marked CONSUMED even though the
+      // payment is not settled (src/hangup-settlement.js). That is deliberate
+      // and must stay: an unsettled but unexpired authorization must not buy
+      // a second handler run. The buyer signs a fresh one to try again.
+      res.on("close", finishGuard);
     }
     // A v1-era client still names the price `maxAmountRequired` in the echoed
     // `accepted` block; x402 v2 calls it `amount` and deep-equals the block, so
@@ -8556,8 +8621,11 @@ app.use((req, res, next) => {
         // response and carry no PAYMENT-RESPONSE, so the branch above never saw
         // them: a replay that threw after settlement (the gate's own
         // CHARGED-BUT-NOT-SERVED log line, which ends the response 500) left no
-        // debt anywhere. A >= 400 here can only be that path - a handler >= 400
-        // is never broadcast - so the settle is proven and the debt is real.
+        // debt anywhere. A >= 400 here is that path, or a Tempo PUSH
+        // credential: its transfer was already on chain, the gate finalized
+        // it before the handler, and the handler then failed. A pull handler
+        // >= 400 is never broadcast. Either way the settle is proven and the
+        // debt is real.
         const tx = req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
         recordChargedFailure(def.slug, res.statusCode);
         recordRefundOwed({
@@ -8575,6 +8643,56 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Hang-up forgiveness (src/hangup-forgiveness.js), for EVERY paid catalog
+// route - the generic binder below, the memory family and the hand-written
+// URL tools alike. Mounted after every payment gate, so a request here has
+// been accepted by one of them and its handler is next. Two things, both
+// before any work:
+//   - a buyer whose connection is ALREADY gone (it closed while the payment
+//     was being verified) gets a 499 and no handler: a >= 400 is settled by
+//     no rail, so nothing runs and nothing is charged (a Tempo push credential,
+//     already on chain, is booked as owed);
+//   - otherwise the request reserves a forgiveness ticket priced at its
+//     charge, against the wallet's, the IP's and the service's budget. Only a
+//     request holding a granted ticket is left unsettled when its buyer leaves
+//     before the first byte; any other is settled and the undelivered charge
+//     booked as owed. A route whose effect outlives the answer (a memory
+//     write, attest, feedback, the route-execute tiers, seller-payability) is
+//     always denied, by slug (hasLastingEffect in src/hangup-forgiveness.js).
+//     Reserved here, before the handler can spend, so a burst of concurrent
+//     runs cannot all be forgiven. The close listener
+//     (registered after the hang-up hook's own, so the request is already
+//     marked) records the run as abandoned or returns the reservation; a paid
+//     success never clears an abandoned record.
+// A free proof-of-work or trial call is not a charge and takes no ticket.
+// The abandoned records are read back before the listener opens: a deploy is a
+// restart, and a budget every restart refilled would not bound anything.
+if (!FREE_MODE) {
+  try {
+    const r = loadHangupForgiveness();
+    if (r.loaded) console.log(`[hangup] forgiveness records restored: ${r.global} service-wide, ${r.keys} keys`);
+  } catch (err) { console.warn(`[hangup] forgiveness records not restored: ${err?.message || err}`); }
+  app.use((req, res, next) => {
+    const def = CATALOG[`${req.method} ${req.path}`];
+    if (!def || res.getHeader("X-Pow-Accepted") || res.getHeader("X-Trial-Accepted")) return next();
+    if (!(quotedPriceUsd(def, req) > 0)) return next();
+    req.__a402Dispatched = true;
+    if (clientGoneBeforeFirstByte(req)) {
+      try { res.status(499).json({ error: "The connection closed before the call started; nothing ran and nothing was charged.", tool: def.slug, charged: false }); } catch { /* socket already gone */ }
+      return;
+    }
+    // The handler is next (the generic binder refines this after its own
+    // checks). A request whose payment already settled before its handler
+    // (a Tempo push credential) is not forgivable: an undelivered answer on it
+    // is owed, so it takes no ticket and spends none of the budget.
+    req.__a402HandlerStarted = Date.now();
+    if (req.tempoSettled) return next();
+    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });
+    res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
+    next();
+  });
+}
 
 // Paid routes
 // SIX HAND-WRITTEN COPIES OF ONE ERROR RELAY. The URL-taking tools below
@@ -8790,6 +8908,12 @@ for (const tool of ALL_KIT) {
     let probe = false;
     let status = 200;
     let refusalClass = null;
+    // (req.__a402Dispatched and the hang-up forgiveness ticket are set by the
+    // post-paywall middleware above, for every paid catalog route.)
+    // Set on a composite: aborted the moment the buyer's connection closes
+    // before the first byte and its charge is cancelled, so its per-request
+    // upstream calls stop.
+    let clientGoneCtl = null;
     try {
       // The SAME object the quote was priced from (src/handler-input.js):
       // query merged, MCP-style {params|input|args} envelopes unwrapped once,
@@ -8817,9 +8941,11 @@ for (const tool of ALL_KIT) {
           throw e;
         }
         // Guard key: the signed EVM payer when present; otherwise the Tempo
-        // payer the gate verified, or the client IP (card/SPT buyers and any
-        // rail whose payer is only known post-settlement) - nobody is unkeyed.
-        const guardKey = payer || (req.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : `ip:${clientIp(req)}`);
+        // sender RECOVERED from the signed transaction (never the credential's
+        // client-supplied `source`, which a caller can vary per request), the
+        // credits key, or the client IP (card/SPT buyers and any rail whose
+        // payer is only known post-settlement) - nobody is unkeyed.
+        const guardKey = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : `ip:${clientIp(req)}`);
         if (compositeGuardGlobalPaused()) {
           const e = new Error("Premium report generation is briefly paused after a burst of unsettled runs; please retry in a few minutes. Not charged.");
           e.statusCode = 503;
@@ -8885,11 +9011,27 @@ for (const tool of ALL_KIT) {
       // a guard. The /v1 tiers keep their own global pause inside their handlers.
       if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req, { global: false });
 
+      // The buyer's connection is already gone (it closed while the payment
+      // was being verified): nothing could be delivered, so nothing runs and
+      // nothing is charged - a 499 cancels settlement on every rail.
+      if (clientGoneBeforeFirstByte(req)) throw clientGoneError("The connection closed before the call started; nothing ran and nothing was charged.");
+      req.__a402HandlerStarted = Date.now();
+
       // A composite runs in an abortable scope: on SIGTERM every upstream call
       // it is waiting on is cut off (503, never charged) instead of running to
       // the drain deadline with the money already spent - src/drain-abort.js.
+      // The scope also carries the buyer's client-gone signal, aborted only
+      // when the charge is actually cancelled (the buyer left before the first
+      // byte AND the run holds a forgiveness ticket): then no new paid
+      // upstream call starts and the one in flight is cut off. A run without a
+      // ticket is settled whether or not the buyer stays, so it runs to the end.
+      if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        const ctl = new AbortController();
+        clientGoneCtl = ctl;
+        res.once("close", () => { if (chargeCancelledForClientGone(req)) ctl.abort(clientGoneError()); });
+      }
       const result = EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)
-        ? await runInAbortableScope(() => tool.handler(input, req))
+        ? await runInAbortableScope(() => tool.handler(input, req), { signal: clientGoneCtl.signal })
         : await tool.handler(input, req);
 
       // A handler that spent real money upstream (external route-execute) leaves
@@ -8966,6 +9108,15 @@ for (const tool of ALL_KIT) {
       // A composite cut off by the drain is a 503 with the reason, whatever
       // shape the aborted upstream call surfaced it in (>= 400: not charged).
       if (isDrainAbort(err)) { status = 503; err = Object.assign(new Error("This host is redeploying and stopped the run before it finished; nothing was charged. Retry in a minute."), { statusCode: 503 }); }
+      // The buyer left before the first byte (src/hangup-settlement.js): a 499
+      // whatever shape the handler surfaced it in. >= 400, so no rail settles
+      // it (a Tempo push credential, already on chain, is booked as owed by
+      // the hang-up recorder). The body goes to a closed socket.
+      if (clientGoneCtl?.signal.aborted || isClientGoneAbort(err)) { status = 499; if (!isClientGoneAbort(err)) err = clientGoneError(); }
+      if (isClientGoneAbort(err)) {
+        if (!res.headersSent) { try { res.status(499).json({ error: err.message, tool: tool.slug, charged: false }); } catch { /* socket already gone */ } }
+        return;
+      }
       if (res.headersSent) { try { res.end(); } catch { /* stream already gone */ } return; }
       // Probe detection: a 4xx with zero meaningful input keys is a scanning/
       // discovery call (agent probing endpoints without arguments), not a real
@@ -9438,6 +9589,9 @@ function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS } = {}) {
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
+  // Keep the hang-up forgiveness record across the restart (no-op when not
+  // persisted); runs still in flight are recorded by their own close events.
+  try { flushHangupForgiveness(); } catch { /* never blocks the drain */ }
   console.log(`${signal} received - closing listener, draining in-flight requests (exit ${code})`);
   // Cut off every composite in flight NOW: its upstream calls reject, the
   // handler throws, the buyer sees a 503 (never charged) and the replacement

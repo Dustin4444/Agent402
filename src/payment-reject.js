@@ -2,7 +2,9 @@
 //
 // @x402/express answers every rejected payment with a bare `res.status(402)
 // .json({})` - the reason is discarded inside the middleware and never reaches
-// us or the buyer. Our only hooks (onVerifyFailure / onAfterVerify) fire at the
+// us or the buyer. (This server then copies the PAYMENT-REQUIRED offer into
+// that body, src/payment-required-body.js, so it carries the offer; it still
+// carries no reason unless src/verify-hint.js names one.) Our only hooks (onVerifyFailure / onAfterVerify) fire at the
 // FACILITATOR stage, so anything refused before that - a header that will not
 // decode, a scheme or chain we do not sell on, an amount under the price, an
 // expired authorization, a payload built against different requirements - is
@@ -22,8 +24,10 @@
 // the facilitator's own hint (src/verify-hint.js) is the better answer whenever
 // the payment actually reached it.
 
-/** Decode a base64(url) JSON header. Null on anything unreadable. */
-function decodeB64Json(value) {
+/** Decode a base64(url) JSON header. Null on anything unreadable. Shared
+ *  with src/payment-required-body.js, so the 402 body mirror reads the header
+ *  with the same decoder the classifier uses. */
+export function decodeB64Json(value) {
   try {
     const s = String(value || "").trim();
     if (!s) return null;
@@ -84,8 +88,13 @@ export function isFacilitatorBillingRefusal(text) {
 /** An errorReason that is already a specific verdict about the PAYMENT or the
  *  chain (insufficient_funds, invalid_*, transaction_failed, ..._expired).
  *  Words in its errorMessage - an RPC's "quota exceeded", say - cannot turn
- *  such a verdict into a refusal on our account. */
+ *  such a verdict into a refusal on our account. Exported so the Algorand
+ *  sub-cent gate (src/avm-sponsorship.js) applies the same rule before it
+ *  pauses the rail or exempts a refusal. */
 const PAYMENT_VERDICT_REASON = /^(insufficient_|invalid_|transaction_)|_expired$/i;
+export function isPaymentVerdictReason(reason) {
+  return PAYMENT_VERDICT_REASON.test(String(reason || ""));
+}
 
 /** A decoded settle receipt (PAYMENT-RESPONSE) that failed on billing grounds:
  *  the errorReason names it, or - only when the reason is generic, as a thrown
@@ -94,7 +103,7 @@ export function isBillingRefusalReceipt(receipt) {
   if (!receipt || typeof receipt !== "object" || receipt.success !== false) return false;
   const reason = String(receipt.errorReason || "");
   if (isFacilitatorBillingRefusal(reason)) return true;
-  if (PAYMENT_VERDICT_REASON.test(reason)) return false;
+  if (isPaymentVerdictReason(reason)) return false;
   return isFacilitatorBillingRefusal(String(receipt.errorMessage || ""));
 }
 
@@ -106,6 +115,8 @@ const RAIL_FAMILY_NAMES = { algorand: "Algorand", solana: "Solana", stellar: "St
  * blamed their wallet ("Recent payments from this wallet failed to settle") -
  * measured 2026-09-28: one outside buyer served 175 times, refused 325 times,
  * with nothing wrong on their side. Null for every other settle outcome.
+ * A settle refusal carries PAYMENT-RESPONSE and no PAYMENT-REQUIRED header,
+ * so the 402 body mirror (src/payment-required-body.js) adds no offer to it.
  */
 export function classifySettlementRefusal(paymentResponseHeader) {
   const receipt = decodeB64Json(paymentResponseHeader);

@@ -87,7 +87,96 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   ok(!g.noteAvmSettleRefusal({ network: "eip155:43114", payTo: PAYTO, reason: "subcent_quota_exceeded", now: t1 }), "a non-Algorand network pauses nothing");
   ok(g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "[Algorand (x)] subcent_quota_exceeded", now: t1 }) && g.isSubcentPaused(PAYTO, t1 + 1), "a subcent_quota_exceeded settle pauses the payTo immediately");
   ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t1 + 500, readStartedAt: t1 - 200 }) === "predates-refusal" && g.isSubcentPaused(PAYTO, t1 + 500), "a headroom read that STARTED before the refusal does not clear it");
-  ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t1 + 900, readStartedAt: t1 + 600 }) === "headroom" && !g.isSubcentPaused(PAYTO, t1 + 900), "a headroom read started after it does");
+  // THE FLAP: a status that reads headroom while its own settles still refuse.
+  // A headroom read started after the refusal used to clear it, so the rail
+  // reopened every ~90 s read and served-then-refused a buyer each time
+  // (~960 a day per stream, each kept off the buyer's breaker count). A pause
+  // a refusal set now holds against headroom for REFUSAL_HOLD_MS.
+  ok(g.REFUSAL_HOLD_MS === 30 * 60_000 && g.REFUSAL_HOLD_MS > g.STALE_MS, `the refusal hold defaults to 30 min, longer than the stale window (got ${g.REFUSAL_HOLD_MS})`);
+  ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t1 + 900, readStartedAt: t1 + 600 }) === "held" && g.isSubcentPaused(PAYTO, t1 + 900), "a headroom read started after the refusal, inside the hold, does NOT clear it");
+  {
+    let heldAll = true;
+    for (let t = t1 + 90_000; t < t1 + g.REFUSAL_HOLD_MS; t += 90_000) {
+      if (g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t, readStartedAt: t - 500 }) !== "held" || !g.isSubcentPaused(PAYTO, t + 1)) heldAll = false;
+    }
+    ok(heldAll, "...nor does any headroom read every 90 s for the whole hold - past the 10 min stale window too, since those reads prove the status is being read");
+  }
+  ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t1 + g.REFUSAL_HOLD_MS + 1000, readStartedAt: t1 + g.REFUSAL_HOLD_MS }) === "headroom" && !g.isSubcentPaused(PAYTO, t1 + g.REFUSAL_HOLD_MS + 1000), "once the hold has passed since the refusal, a headroom read clears it");
+  ok(logs.filter((l) => /keeping sub-cent Algorand withdrawn/.test(l)).length === 1, "the hold is logged once, not per read");
+  {
+    // A NEW refusal is a new hold, and says so once more.
+    const t3 = t1 + g.REFUSAL_HOLD_MS + 5 * 60_000;
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded", now: t3 });
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + 90_000, readStartedAt: t3 + 89_000 });
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + 180_000, readStartedAt: t3 + 179_000 });
+    ok(logs.filter((l) => /keeping sub-cent Algorand withdrawn/.test(l)).length === 2, "a second refusal's hold is logged once more (and not per read)");
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + g.REFUSAL_HOLD_MS + 1000, readStartedAt: t3 + g.REFUSAL_HOLD_MS });
+  }
+  {
+    // A day of a facilitator whose status always reads headroom and whose
+    // every sub-cent settle refuses: each moment the rail is open, the next
+    // buyer is served and refused (and re-pauses it).
+    g._resetAvmSponsorshipForTest({ logger: () => {} });
+    const day0 = Date.UTC(2026, 8, 10, 0, 0, 0);
+    let refused = 0;
+    for (let t = day0; t < day0 + 86_400_000; t += 90_000) {
+      g.noteSponsorshipStatus(OTHER, headroomRow, { now: t, readStartedAt: t - 500 });
+      if (!g.isSubcentPaused(OTHER, t + 1)) { g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: t + 2 }); refused++; }
+    }
+    const bound = Math.ceil(86_400_000 / g.REFUSAL_HOLD_MS) + 1;
+    ok(refused <= bound, `a day of a status that contradicts its own settles costs at most one refused settle per hold (${refused} refused, bound ${bound}; ~960 before)`);
+    // The hold keeps a refusal fresh only while reads keep arriving: reads
+    // that stop being readable fail open the usual way, from the LAST held read.
+    const r0 = day0 + 2 * 86_400_000;
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: r0 });
+    g.noteSponsorshipStatus(OTHER, headroomRow, { now: r0 + 5 * 60_000, readStartedAt: r0 + 5 * 60_000 - 500 });
+    g.noteSponsorshipStatus(OTHER, null, { now: r0 + 6 * 60_000 });
+    ok(g.isSubcentPaused(OTHER, r0 + 5 * 60_000 + g.STALE_MS - 1000) && !g.isSubcentPaused(OTHER, r0 + 5 * 60_000 + g.STALE_MS + 1000), "held, then unreadable: fails open one stale window after the last held read");
+    // A status that CONFIRMS exhaustion takes over from the refusal, and its
+    // own later headroom clears at once (that is a recovery, not a contradiction).
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: r0 + 60 * 60_000 });
+    g.noteSponsorshipStatus(OTHER, exhaustedRow, { now: r0 + 61 * 60_000 });
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: r0 + 62 * 60_000 }) === "headroom" && !g.isSubcentPaused(OTHER, r0 + 62 * 60_000), "a pause the status itself confirmed clears on the status's own headroom");
+    // The hold keeps a pause in force; it never brings one back. A refusal
+    // whose pause already failed open (stale behind unreadable reads) is not
+    // revived by a headroom read inside the hold's 30 minutes.
+    const r1 = r0 + 3 * 60 * 60_000;
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: r1 });
+    for (let t = r1 + 60_000; t <= r1 + 11 * 60_000; t += 60_000) g.noteSponsorshipStatus(OTHER, null, { now: t });
+    ok(!g.isSubcentPaused(OTHER, r1 + 11 * 60_000), "(precondition: the refusal's pause failed open behind unreadable reads)");
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: r1 + 12 * 60_000, readStartedAt: r1 + 12 * 60_000 - 500 }) === "headroom" && !g.isSubcentPaused(OTHER, r1 + 12 * 60_000 + 1), "a headroom read inside the hold does not revive a pause that already failed open");
+    // The month turns under a hold: a refusal at 23:50 UTC on the 30th, held
+    // by headroom reads, is over at midnight - the allowance reset on the 1st
+    // whatever the hold's own clock says, and a held read after midnight
+    // neither keeps nor revives it.
+    const lateSep = Date.UTC(2026, 8, 30, 23, 50);
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: lateSep });
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: lateSep + 5 * 60_000, readStartedAt: lateSep + 5 * 60_000 - 500 }) === "held" && g.isSubcentPaused(OTHER, lateSep + 5 * 60_000 + 1), "(precondition: held at 23:55 on the 30th)");
+    const oct1 = Date.UTC(2026, 9, 1, 0, 0, 30);
+    ok(!g.isSubcentPaused(OTHER, oct1), "at 00:00:30 on the 1st the held pause is over (a new UTC month)");
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: oct1 + 30_000, readStartedAt: oct1 + 29_000 }) === "headroom" && !g.isSubcentPaused(OTHER, oct1 + 30_001), "...and a headroom read after midnight clears it rather than holding it into October");
+    g._resetAvmSponsorshipForTest({ logger: (m) => logs.push(m) });
+  }
+  // A refusal's pause names the hold on /api/rails.
+  {
+    const now = Date.now();
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded", now });
+    const r = g.avmSubcentOfferStatus(now + 1);
+    ok(r[0]?.source === "settle-refusal" && /no sooner than 30 minutes after the last refused settlement/.test(r[0]?.resumes || ""), `/api/rails says a refusal's pause holds (got ${r[0]?.resumes})`);
+    g._resetAvmSponsorshipForTest({ logger: (m) => logs.push(m) });
+  }
+  // A payment VERDICT (insufficient_funds, transaction_failed, ...) whose text
+  // merely mentions the allowance pauses nothing - the rule the billing
+  // receipt classifier applies (src/payment-reject.js).
+  {
+    const t2 = t1 + 2 * g.REFUSAL_HOLD_MS;
+    ok(!g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, errorReason: "transaction_failed", reason: "transaction_failed: simulate: subcent_quota_exceeded", now: t2 }) && !g.isSubcentPaused(PAYTO, t2 + 1), "a transaction_failed verdict whose message names subcent_quota_exceeded does not pause the rail");
+    ok(!g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, errorReason: "insufficient_funds", reason: "subcent_quota_exceeded", now: t2 }) && !g.isSubcentPaused(PAYTO, t2 + 1), "...nor does insufficient_funds");
+    ok(g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, errorReason: "unexpected_settle_error", reason: "Facilitator settle failed (400): subcent_quota_exceeded", now: t2 }) && g.isSubcentPaused(PAYTO, t2 + 1), "a GENERIC reason whose message names it does pause (the thrown-settle shape)");
+    g._resetAvmSponsorshipForTest({ logger: (m) => logs.push(m) });
+    ok(g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, errorReason: "subcent_quota_exceeded", reason: "", now: t2 }) && g.isSubcentPaused(PAYTO, t2 + 1), "...and so does the reason itself");
+    g._resetAvmSponsorshipForTest({ logger: (m) => logs.push(m) });
+  }
 
   // /api/rails wording: status words and times, never the payTo or the counts.
   g.noteSponsorshipStatus(PAYTO, exhaustedRow, { now: Date.now() });
@@ -110,8 +199,48 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     ok(g.isSponsorshipRowFromEarlierMonth(sepRow, Date.UTC(2026, 9, 1, 0, 0, 10)), "a row updated in September read on October 1 is from an earlier month");
     ok(g.isSponsorshipRowFromEarlierMonth({ ...sepRow, updatedTs: "2026-09-28T01:43:48Z" }, Date.UTC(2026, 9, 1, 0, 0, 10)), "...in ISO form too");
     ok(!g.isSponsorshipRowFromEarlierMonth(sepRow, Date.UTC(2026, 8, 30, 23, 59)), "...and is this month's on September 30");
-    ok(!g.isSponsorshipRowFromEarlierMonth(exhaustedRow, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: "soon" }, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: null }, Date.UTC(2026, 9, 1)), "no readable updatedTs: taken at its word");
+    ok(!g.isSponsorshipRowFromEarlierMonth(exhaustedRow, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: "soon" }, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: null }, Date.UTC(2026, 9, 1)), "no readable updatedTs is never read as an earlier month");
     ok(!g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: Date.UTC(2026, 9, 1, 0, 0, 5) }, Date.UTC(2026, 8, 30, 23, 59, 58)), "a row a few seconds AHEAD of our clock at the boundary is not an earlier month");
+
+    // The edges of the timestamp. 0, a negative or a small number is not a
+    // write time: it used to fall through to Date.parse, which reads "0" as a
+    // day in 2000 and "-5" as one in 2001, so a junk value decided the month
+    // by accident. Now it is unreadable, and a row with an unreadable (but
+    // PRESENT) updatedTs is not evidence - the gate fails open on it.
+    const oct1At = Date.UTC(2026, 9, 1, 0, 0, 10);
+    for (const v of [0, -5, "0", "-5", " -1 ", 5, "5", 2026, "2026", 999_999_999, "1e3", Number.NaN, Infinity, true, "soon", 1e17, "+275760-09-13T00:00:00Z"]) {
+      ok(g.sponsorshipRowUpdatedAt({ updatedTs: v }) === null && g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: v }, oct1At) === "unreadable" && !g.isSponsorshipRowEvidence({ ...exhaustedRow, updatedTs: v }, oct1At),
+        `updatedTs ${JSON.stringify(String(v))}: unreadable, not a month, not evidence`);
+    }
+    ok(g.sponsorshipRowUpdatedAt({ updatedTs: 1e9 }) === 1e12 && g.sponsorshipRowUpdatedAt({ updatedTs: "1000000000" }) === 1e12, "1e9 is the first value read (as seconds): 2001-09-09");
+    ok(g.sponsorshipRowMonth(exhaustedRow, oct1At) === "undated" && g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: null }, oct1At) === "undated" && g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: "" }, oct1At) === "undated", "a row with NO updatedTs (absent, null, empty) is undated");
+    ok(g.isSponsorshipRowEvidence(exhaustedRow, oct1At), "...and an undated row is taken at its word - the documented rule for a document without the field");
+    ok(g.sponsorshipRowMonth(sepRow, oct1At) === "earlier-month" && !g.isSponsorshipRowEvidence(sepRow, oct1At) && g.sponsorshipRowMonth(sepRow, Date.UTC(2026, 8, 29)) === "this-month" && g.isSponsorshipRowEvidence(sepRow, Date.UTC(2026, 8, 29)), "a dated row is this month's evidence in its month and not after it");
+    // A time more than a day AHEAD of ours cannot name this month either: a
+    // sentinel, an odd encoding or a skewed clock would otherwise keep a
+    // stale count "current" into every month that follows.
+    for (const v of [Date.UTC(9999, 11, 31), "3000-01-01T00:00:00Z", 1e13, 1.79e11]) {
+      ok(g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: v }, oct1At) === "unreadable" && !g.isSponsorshipRowEvidence({ ...exhaustedRow, updatedTs: v }, oct1At), `updatedTs ${JSON.stringify(v)} (far future) is not evidence`);
+    }
+    ok(g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: oct1At + 3_600_000 }, oct1At) === "this-month", "an hour ahead (clock skew) still reads as this month");
+    {
+      const logs3 = [];
+      g._resetAvmSponsorshipForTest({ logger: (m) => logs3.push(m) });
+      const at = Date.UTC(2026, 8, 20, 12, 0, 0);
+      let threw = null, got = null;
+      try { got = g.noteSponsorshipStatus(PAYTO, { ...exhaustedRow, updatedTs: 0 }, { now: at }); } catch (e) { threw = e; }
+      ok(!threw && got === "unreadable-timestamp" && !g.isSubcentPaused(PAYTO, at + 1), `an exhausted row whose updatedTs is 0 does not pause (fail open) (got ${got}${threw ? `, threw ${threw.message}` : ""})`);
+      threw = null;
+      try { got = g.noteSponsorshipStatus(PAYTO, { ...exhaustedRow, updatedTs: 1e17 }, { now: at + 1000 }); } catch (e) { threw = e; }
+      ok(!threw && got === "unreadable-timestamp", "an updatedTs past a Date's range is read the same, never a RangeError out of the refresher");
+      ok(logs3.filter((l) => /not a readable time/.test(l)).length === 1, "logged once");
+      g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded", now: at + 2000 });
+      g.noteSponsorshipStatus(PAYTO, { ...headroomRow, updatedTs: -5 }, { now: at + 92_000, readStartedAt: at + 91_000 });
+      ok(g.isSubcentPaused(PAYTO, at + 92_001), "a refusal still pauses while the rows are unreadable...");
+      ok(!g.isSubcentPaused(PAYTO, at + 2000 + g.STALE_MS + 1), "...and fails open one stale window later: an unreadable row neither clears it nor holds it");
+      g.noteSponsorshipStatus(PAYTO, { ...exhaustedRow, updatedTs: at + 3 * 3_600_000 }, { now: at + 3 * 3_600_000 });
+      ok(g.isSubcentPaused(PAYTO, at + 3 * 3_600_000 + 1), "a row with a readable time this month is evidence again");
+    }
 
     const logs2 = [];
     g._resetAvmSponsorshipForTest({ logger: (m) => logs2.push(m) });
@@ -138,23 +267,54 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   }
 
   // isWithdrawnSubcentRefusal: the one refusal the settle breaker keeps off a
-  // buyer's count - only while the gate is installed, armed and a payTo is
-  // paused, and only for the Algorand sub-cent reason.
+  // buyer's count - only while the gate is installed and armed, only for the
+  // Algorand sub-cent reason (never a payment verdict that mentions it), only
+  // for a requirement THIS request was offered that is under one cent and paid
+  // to a paused payTo, and only when the route's next 402 really drops it.
   {
     const rc = (over = {}) => ({ success: false, errorReason: "subcent_quota_exceeded", errorMessage: "subcent_quota_exceeded", network: ALGO, transaction: "", ...over });
+    // A request as the breaker sees it: the payment header @x402/express
+    // settles from, and (via the patched build) what its route offered.
+    const paidReq = (accepted, offered) => {
+      const hdr = Buffer.from(JSON.stringify({ x402Version: 2, accepted, payload: { paymentGroup: ["x"], paymentIndex: 0 } })).toString("base64");
+      const r = { header: (n) => (String(n).toLowerCase() === "payment-signature" ? hdr : undefined), headers: {} };
+      if (offered) g.rememberOfferedRequirements(r, offered);
+      return r;
+    };
+    const sub = req(1000), cent = req(10000), otherSub = req(1000, { payTo: OTHER });
+    const routeReq = () => paidReq(sub, [base(1000), sub]);   // the usual route: Base + Algorand
     g._resetAvmSponsorshipForTest({ logger: () => {}, installed: false });
     g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded" });
-    ok(!g.isWithdrawnSubcentRefusal(rc()), "gate not installed on the resource server: not withdrawn");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: routeReq() }), "gate not installed on the resource server: not withdrawn");
     g._resetAvmSponsorshipForTest({ logger: () => {}, installed: true });
-    ok(!g.isWithdrawnSubcentRefusal(rc()), "installed but nothing paused: not withdrawn");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: routeReq() }), "installed but nothing paused: not withdrawn");
     g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded" });
-    ok(g.isWithdrawnSubcentRefusal(rc()), "installed and paused: an Algorand subcent_quota_exceeded receipt is withdrawn");
-    ok(g.isWithdrawnSubcentRefusal(rc({ errorReason: "unexpected_settle_error", errorMessage: "Facilitator settle failed (400): subcent_quota_exceeded" })), "...named in the message of a thrown settle, too");
-    ok(!g.isWithdrawnSubcentRefusal(rc({ network: "eip155:43114" })), "the same reason on another network is not");
-    ok(!g.isWithdrawnSubcentRefusal(rc({ errorReason: "free_tier_exhausted", errorMessage: "free_tier_exhausted" })), "another billing reason is not");
-    ok(!g.isWithdrawnSubcentRefusal(rc({ success: true })) && !g.isWithdrawnSubcentRefusal(null), "a settled or absent receipt is not");
+    ok(g.isWithdrawnSubcentRefusal(rc(), { req: routeReq() }), "installed and paused: a sub-cent Algorand payment to the paused payTo, refused subcent_quota_exceeded on a route that also offers Base, is withdrawn");
+    ok(g.isWithdrawnSubcentRefusal(rc({ errorReason: "unexpected_settle_error", errorMessage: "Facilitator settle failed (400): subcent_quota_exceeded" }), { req: routeReq() }), "...named in the message of a thrown settle, too");
+    // (a) the verdict guard: a payment verdict is never exempt, whatever its message says.
+    ok(!g.isWithdrawnSubcentRefusal(rc({ errorReason: "insufficient_funds", errorMessage: "subcent_quota_exceeded" }), { req: routeReq() }), "insufficient_funds whose message names subcent_quota_exceeded is NOT withdrawn");
+    ok(!g.isWithdrawnSubcentRefusal(rc({ errorReason: "transaction_failed", errorMessage: "simulate failed: subcent_quota_exceeded" }), { req: routeReq() }), "...nor is transaction_failed");
+    ok(!g.isWithdrawnSubcentRefusal(rc({ network: "eip155:43114" }), { req: routeReq() }), "the same reason on another network is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc({ errorReason: "free_tier_exhausted", errorMessage: "free_tier_exhausted" }), { req: routeReq() }), "another billing reason is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc({ success: true }), { req: routeReq() }) && !g.isWithdrawnSubcentRefusal(null, { req: routeReq() }), "a settled or absent receipt is not");
+    // (b) the refused requirement itself: under one cent, paid to the paused payTo, one this request was offered.
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(cent, [base(10000), cent]) }), "a one-cent requirement is not (nothing withdraws it)");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(otherSub, [base(1000), otherSub]) }), "a sub-cent requirement paid to a payTo that is NOT paused is not");
+    // ...even on a route where the gate DOES withdraw something else: what
+    // counts is the requirement this call paid, not the route's other accepts.
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(cent, [base(1000), sub, cent]) }), "a one-cent requirement on a route whose sub-cent accept IS withdrawn is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(otherSub, [base(1000), sub, otherSub]) }), "a sub-cent payment to an unpaused payTo, beside a withdrawn one, is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(sub) }) && !g.isWithdrawnSubcentRefusal(rc()), "a request whose offer was never recorded (or no request) is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(req(2000), [base(1000), sub]) }), "a payment naming a requirement the route did not offer is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc({ network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe" }), { req: routeReq() }), "a receipt on a different Algorand network than the requirement paid is not");
+    // (c) the never-empty rule: a route whose ONLY accept is that one keeps it, so nothing was withdrawn.
+    ok(g.withoutPausedSubcentAvm([sub], (p) => g.isSubcentPaused(p)).includes(sub), "(the filter keeps a lone paused sub-cent Algorand accept)");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(sub, [sub]) }), "a route whose only accept is the paused one: nothing is withdrawn, so the refusal is NOT exempt");
+    ok(g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(sub, [sub, otherSub]) }), "a route of two Algorand payTos, only ours paused: ours IS dropped (the other remains), so it is withdrawn");
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded" });
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(sub, [sub, otherSub]) }), "...and with both paused the never-empty rule keeps both: not exempt");
     process.env.AVM_SUBCENT_GATE = "off";
-    ok(!g.isWithdrawnSubcentRefusal(rc()), "AVM_SUBCENT_GATE=off: nothing is withdrawn, so nothing is exempt");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: routeReq() }), "AVM_SUBCENT_GATE=off: nothing is withdrawn, so nothing is exempt");
     delete process.env.AVM_SUBCENT_GATE;
     g._resetAvmSponsorshipForTest({ logger: () => {}, installed: false });
   }
@@ -177,6 +337,20 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   g.noteSponsorshipStatus(PAYTO, exhaustedRow);
   const built = await new FakeServer().buildPaymentRequirementsFromOptions([base(1000), req(1000), req(10000)]);
   ok(built.length === 2 && built.every((r) => !g.isAvmSubcentRequirement(r)), "the patched build drops the paused sub-cent Algorand requirement and keeps the one-cent one");
+  {
+    // The patched build records what the route offered, against the request
+    // @x402/express hands it ({ adapter: { req } }), BEFORE filtering: the
+    // record isWithdrawnSubcentRefusal checks the paid requirement against.
+    g._resetAvmSponsorshipForTest({ logger: () => {} });
+    const httpReq = { header: (n) => (String(n).toLowerCase() === "payment-signature" ? Buffer.from(JSON.stringify({ x402Version: 2, accepted: req(1000), payload: {} })).toString("base64") : undefined), headers: {} };
+    await new FakeServer().buildPaymentRequirementsFromOptions([base(1000), req(1000)], { adapter: { req: httpReq } });
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded" });
+    const receipt = { success: false, errorReason: "subcent_quota_exceeded", network: ALGO, transaction: "" };
+    ok(g.isWithdrawnSubcentRefusal(receipt, { req: httpReq }), "the patched build records the route's offer for the request, so its refusal is recognised as withdrawn");
+    const loneReq = { ...httpReq };
+    await new FakeServer().buildPaymentRequirementsFromOptions([req(1000)], { adapter: { req: loneReq } });
+    ok(!g.isWithdrawnSubcentRefusal(receipt, { req: loneReq }), "...and a route built with only the Algorand accept is recorded as such (never exempt)");
+  }
 
   // The refresher: reads the live status on its own timer, fails open, recovers.
   g._resetAvmSponsorshipForTest({ logger: () => {} });
@@ -201,7 +375,9 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   // Where it is wired (source pins).
   const pay = readFileSync(new URL("../src/payments.js", import.meta.url), "utf8");
   ok(pay.indexOf("installAvmSubcentGate(x402ResourceServer)") > pay.indexOf("installAcceptOutputSchema(x402ResourceServer)"), "payments.js installs the gate after the outputSchema patch, so it filters the finished list");
-  ok(/if \(isFacilitatorBillingRefusal\([^)]*\)\) \{[\s\S]{0,700}noteAvmSettleRefusal\(/.test(pay), "the settle-failure hook flips the pause on the refusal itself");
+  ok(/if \(isBillingRefusalReceipt\(\{ success: false, errorReason: ctx\?\.error\?\.errorReason, errorMessage: failure \}\)\) \{[\s\S]{0,1100}noteAvmSettleRefusal\(\{[^}]*errorReason: ctx\?\.error\?\.errorReason/.test(pay), "the settle-failure hook flips the pause on the refusal itself, gated by the receipt rule and handing the gate the facilitator's own errorReason");
+  const brk = readFileSync(new URL("../src/gateway-settle-breaker.js", import.meta.url), "utf8");
+  ok(/isWithdrawnSubcentRefusal\(receipt, \{ req \}\)/.test(brk), "the settle breaker hands the gate the request, so it checks the requirement that call paid against");
   const callSites = (readFileSync(new URL("../src/server.js", import.meta.url), "utf8").match(/startAvmSponsorshipRefresher\(/g) || []).length;
   ok(callSites === 0 && (pay.match(/startAvmSponsorshipRefresher\(/g) || []).length === 1, "the status read starts once, at boot, never from a request path");
 }
@@ -226,6 +402,8 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
         if (settleMode === "quota") return reply(200, { success: false, errorReason: "subcent_quota_exceeded", errorMessage: "subcent_quota_exceeded", transaction: "", network: ALGO });
         if (settleMode === "quota-thrown") return reply(400, { success: false, errorReason: "subcent_quota_exceeded", transaction: "", network: ALGO });
         if (settleMode === "fail") return reply(200, { success: false, errorReason: "insufficient_funds", errorMessage: "insufficient_funds", transaction: "", network: ALGO });
+        // A payment VERDICT whose message happens to name the allowance.
+        if (settleMode === "verdict") return reply(200, { success: false, errorReason: "transaction_failed", errorMessage: "simulate: subcent_quota_exceeded", transaction: "", network: ALGO });
         return reply(200, { success: true, transaction: "TX" + settles, network: ALGO, payer: PAYTO });
       }
       if (pathOnly.endsWith("/settle")) { settles++; return reply(200, { success: true, transaction: "0x" + "cd".repeat(32), network: "eip155:8453" }); }
@@ -244,7 +422,7 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
         CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", FACILITATOR_URL: "", PAYAI_API_KEY_ID: "", PAYAI_API_KEY_SECRET: "",
         PAYAI_FACILITATOR_URL: `http://127.0.0.1:${FAC}/evm`, ALGORAND_FACILITATOR_URL: `http://127.0.0.1:${FAC}/avm`,
         ALGORAND_UPSTREAM_BUYER_ADDRESS: "", MPP_SECRET_KEY: "", PAYMENT_SETTLE_FALLBACK: "", AVM_SUBCENT_GATE: "",
-        AVM_SPONSORSHIP_REFRESH_MS: "250", AGENT402_BASE_RPC: `http://127.0.0.1:${FAC}/rpc`,
+        AVM_SPONSORSHIP_REFRESH_MS: "250", AVM_SPONSORSHIP_REFUSAL_HOLD_MS: "2000", AGENT402_BASE_RPC: `http://127.0.0.1:${FAC}/rpc`,
         GATEWAY_SETTLE_BREAKER_MAX: "3", GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000",
         X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off", SOLANA_LEADERBOARD: "off",
         ...extraEnv,
@@ -270,7 +448,8 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   const offer402At = async (B, t) => {
     const r = await fetch(`${B}${t.path}`, { method: "POST", headers: { "content-type": "application/json" }, body: t.body });
     const pr = r.status === 402 ? JSON.parse(Buffer.from(r.headers.get("payment-required") || "", "base64").toString("utf8")) : null;
-    return { status: r.status, pr, avm: (pr?.accepts || []).find((a) => String(a.network).startsWith("algorand:")) || null };
+    let body = null; try { body = await r.json(); } catch { body = null; }
+    return { status: r.status, pr, body, avm: (pr?.accepts || []).find((a) => String(a.network).startsWith("algorand:")) || null };
   };
   let n = 0;
   const payAvmAt = async (B, t, accepted) => fetch(`${B}${t.path}`, {
@@ -304,6 +483,10 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
       const parsed = parsePaymentRequired(h1.pr);
       ok(parsed.success && h1.pr.accepts[0]?.outputSchema !== undefined, `the withdrawn 402 is still valid under the protocol's own schema, first accept still carrying outputSchema (${parsed.success ? "valid" : parsed.error.issues[0]?.message})`);
     }
+    // The 402 body mirrors the FINAL header (src/payment-required-body.js):
+    // what the sub-cent gate withdrew from the header is gone from the body too.
+    ok(Array.isArray(h1.body?.accepts) && JSON.stringify(h1.body.accepts) === JSON.stringify(h1.pr.accepts) && !h1.body.accepts.some((a) => String(a.network).startsWith("algorand:")),
+      `the withdrawn 402's JSON body carries the filtered accepts, no Algorand entry (body networks: ${(h1.body?.accepts || []).map((a) => a.network).join(",")})`);
     ok(!!c1.avm, "the $0.01 route keeps its Algorand accept");
     const rails1 = await (await fetch(`${B}/api/rails`)).json();
     ok(rails1.restrictions?.[0]?.network === "algorand" && rails1.restrictions[0].status === "paused" && !JSON.stringify(rails1).includes(PAYTO), "/api/rails publishes the pause, status words only");
@@ -344,6 +527,14 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
       const after = await offer402(HASH);
       ok(!after.avm && after.pr.accepts.length > 0, `(${mode}) the very next sub-cent 402 no longer offers Algorand (flipped by the refusal)`);
       ok(!!(await offer402(CENT)).avm, `(${mode}) the $0.01 route keeps Algorand`);
+      if (mode === "quota") {
+        // The flap: the status reads headroom at once, while the refusal is
+        // under a second old. Reads every 250 ms used to reopen it on the
+        // first one; the refusal hold (2 s here) keeps it withdrawn.
+        status = "headroom"; await sleep(700);
+        ok(!(await offer402(HASH)).avm, "(quota) headroom reads inside the refusal hold do not reopen the sub-cent offer");
+        ok(serverLog.some((l) => /keeping sub-cent Algorand withdrawn/.test(l)), "...and the server says it is holding");
+      }
       ok(await reopen(HASH), `(${mode}) headroom read afterwards restores it`);
     }
 
@@ -363,8 +554,20 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     }
     ok(allServed, "four withdrawn refusals from one buyer (MAX 3): each served and refused at settle, never a 429 - none counted against the buyer");
     // Control, same buyer: genuine settle failures still count from zero and trip the 429 at MAX.
+    // The first is a payment VERDICT whose message names the allowance: it
+    // pauses nothing, is not called a quota, and counts like any failure.
+    {
+      settleMode = "verdict";
+      const quotaLogs = serverLog.filter((l) => /QUOTA exhausted/.test(l)).length;
+      const s = settles;
+      const r = await payAvm(RADAR, (await offer402(RADAR)).avm);
+      ok(r.status === 402 && settles === s + 1, `genuine failure 1 (transaction_failed naming subcent_quota_exceeded in its message) from the same buyer is served (status ${r.status})`);
+      await sleep(300);
+      ok(!!(await offer402(RADAR)).avm && (await (await fetch(`${B}/api/rails`)).json()).restrictions?.length === 0, "...and it does NOT pause the rail: the next sub-cent 402 still offers Algorand, /api/rails lists nothing");
+      ok(serverLog.filter((l) => /QUOTA exhausted/.test(l)).length === quotaLogs, "...nor is it logged as a facilitator quota");
+    }
     settleMode = "fail";
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 2; i <= 3; i++) {
       const s = settles;
       const r = await payAvm(RADAR, (await offer402(RADAR)).avm);
       ok(r.status === 402 && settles === s + 1, `genuine failure ${i} (insufficient_funds) from the same buyer is served (status ${r.status})`);

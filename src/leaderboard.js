@@ -119,6 +119,19 @@ export function payerFromLog(l) {
   return t && t.length >= 40 ? ("0x" + t.slice(-40)).toLowerCase() : null;
 }
 
+/** Does this accept pay on the scanned chain? x402 v2 names the chain by its
+ *  CAIP-2 id. A v1 listing names it by shorthand ("base"), and that shorthand
+ *  is the chain key NETWORKS already maps to the same id, so a v1 listing is
+ *  read as that chain rather than skipped. The index does the same through
+ *  NETWORK_SHORTHAND; this module keeps its own copy so it imports nothing
+ *  from the index. */
+function acceptOnChain(a, chain) {
+  const n = a?.network;
+  if (typeof n !== "string") return false;
+  if (n === String(chain.caip2 || BASE_MAINNET)) return true;
+  return n.toLowerCase() === String(chain.key || "base").toLowerCase();
+}
+
 /**
  * Pull the Base-mainnet payment wallet from a Bazaar item's `accepts[]`. An
  * item lists multiple payment options (different chains/schemes); for ranking
@@ -129,10 +142,9 @@ export function payerFromLog(l) {
  */
 export function baseUsdcPayToFromItem(item, chain = { caip2: BASE_MAINNET, token: USDC, key: "base" }) {
   const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
-  const want = String(chain.caip2 || BASE_MAINNET);
   const token = String(chain.token || USDC).toLowerCase();
   for (const a of accepts) {
-    if (a?.network !== want) continue;
+    if (!acceptOnChain(a, chain)) continue;
     const asset = String(a.asset || "").toLowerCase();
     if (asset && asset !== token) continue;
     const w = a.payTo;
@@ -150,10 +162,9 @@ export function baseUsdcPayToFromItem(item, chain = { caip2: BASE_MAINNET, token
  *  every chain we scan, so base units ARE micro-dollars. */
 export function advertisedMicroUsd(item, chain = { caip2: BASE_MAINNET, token: USDC, key: "base" }) {
   const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
-  const want = String(chain.caip2 || BASE_MAINNET);
   const token = String(chain.token || USDC).toLowerCase();
   for (const a of accepts) {
-    if (a?.network !== want) continue;
+    if (!acceptOnChain(a, chain)) continue;
     const asset = String(a.asset || "").toLowerCase();
     if (asset && asset !== token) continue;
     const raw = a.amount ?? a.maxAmountRequired;
