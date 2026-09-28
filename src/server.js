@@ -250,6 +250,7 @@ import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./f
 import { createWalletDigest } from "./wallet-digest.js";
 import { digestPage } from "./digest-page.js";
 import { createFollowups } from "./followups.js";
+import { createTweetQueue, tweetQueueOptionsFromEnv } from "./tweet-queue.js";
 import { monitorForKind as fuMonitorForKind } from "./report-upgrade.js";
 import { SAMPLES as fuSamples } from "./sample-reports.js";
 import { probeInsiderFilings as faProbeInsider } from "./tools/insider-flow-kit.js";
@@ -2285,6 +2286,17 @@ app.post("/followups/stop", (req, res) => { const r = _followups.stop(String(req
 app.get("/__operator/followups.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store").json(_followups.stats());
+});
+// The approved tweet queue, posted from here on the hour (src/tweet-queue.js).
+// Off unless the Railway variable TWEET_QUEUE is set; TWEET_QUEUE_POSTING=off
+// keeps it read-only (the operator read below still previews the next item).
+// It replaces .github/workflows/tweet-queue.yml, which is disabled at cutover
+// so exactly one poster runs. `draining` is read at tick time, long after boot.
+const _tweetQueue = createTweetQueue({ ...tweetQueueOptionsFromEnv(process.env), isDraining: () => draining });
+_tweetQueue.start();
+app.get("/__operator/tweet-queue.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_tweetQueue.status());
 });
 const alertsSignupLimiter = createRateLimiter("alerts-signup", { perMin: 6, perHour: 40 });
 // A second bound keyed on the ADDRESS (hashed), so a distributed source cannot
