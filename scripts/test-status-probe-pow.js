@@ -207,7 +207,16 @@ const sha = (t) => createHash("sha256").update(t).digest("hex");
   ok(!!wOff.skip && /did not honour the probe token/.test(wOff.skip), `against a server without the token it declines to solve and records nothing (${JSON.stringify(wOff)})`);
   ok(SOLVE_CAP_FACTOR * 2 ** PAID_CALL_MAX_DIFFICULTY <= 256, "the Worker's worst-case solve stays at 256 hashes");
 
-  // 10. Source guards: the grant is wired in one place and read in one file.
+  // 10. A wrong token on the challenge route is charged like a wrong operator
+  //     credential anywhere else (same per-source budget, same guessing
+  //     pager), so this public route is no better a place to guess from. Three
+  //     wrong ones were already spent above; the budget is ten a minute.
+  const opStats = () => fetch(`${base}/__operator/stats`, { headers: { "X-Operator-Token": OP } });
+  ok((await opStats()).status === 200, "control: the operator token still works from this source");
+  for (let i = 0; i < 10; i++) await challenge(base, "hash", { "X-Operator-Token": `wrong-guess-${i}-dddddddddddddddddddd` });
+  ok((await opStats()).status !== 200, "after a burst of wrong tokens on the challenge route, this source's operator budget is spent");
+
+  // 11. Source guards: the grant is wired in one place and read in one file.
   const src = await readFile("src/server.js", "utf8");
   ok([...src.matchAll(/statusProbeTokenOk\(/g)].length === 2, "statusProbeTokenOk is called from exactly two places (the probe route's gate and the challenge's)");
   ok([...src.matchAll(/statusProbeChallengeAuthed\(/g)].length === 2, "statusProbeChallengeAuthed is declared once and called once");
