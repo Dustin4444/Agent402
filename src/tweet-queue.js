@@ -197,7 +197,7 @@ function readState(path) {
   let raw;
   try { raw = readFileSync(path, "utf8"); }
   catch (e) {
-    if (e?.code === "ENOENT") return { records: new Map(), slots: new Map() };
+    if (e?.code === "ENOENT") return { records: new Map(), slots: new Map(), fresh: true };
     throw new StoreError("unreadable");
   }
   let j;
@@ -369,6 +369,10 @@ export function tweetQueueOptionsFromEnv(env = process.env, { dataDirExists } = 
     catchupHours: numEnv(env.TWEET_QUEUE_CATCHUP_HOURS, DEFAULT_CATCHUP_HOURS, 1, 48),
     maxWeighted: numEnv(env.TWEET_QUEUE_MAX_WEIGHTED, DEFAULT_MAX_WEIGHTED, 1, 25_000),
     firstTickMs: numEnv(env.TWEET_QUEUE_FIRST_TICK_MS, DEFAULT_FIRST_TICK_MS, 50, 3_600_000),
+    // An ISO time: on the first run (no state file) items due before it are
+    // recorded as dropped instead of posted. Unset or unreadable = the moment
+    // of that first run. See claimNext.
+    firstRunPostAfter: Number.isFinite(Date.parse(env.TWEET_QUEUE_POST_AFTER || "")) ? Date.parse(env.TWEET_QUEUE_POST_AFTER) : null,
   };
 }
 
@@ -391,6 +395,7 @@ export function createTweetQueue({
   catchupHours = DEFAULT_CATCHUP_HOURS, maxWeighted = DEFAULT_MAX_WEIGHTED,
   post = null, fetchImpl, now = () => Date.now(), log = console.log, isDraining = () => false,
   leaseMs = LOCK_LEASE_MS,
+  firstRunPostAfter = null,
   testHoldMs = 0, // tests only: hold the critical section open to widen a cross-process race
 } = {}) {
   const lockPath = `${storePath}.lock`;
@@ -460,6 +465,24 @@ export function createTweetQueue({
     const t = now();
     const hour = hourOf(t);
     let dropped = 0;
+    // No state file yet: this server has never posted, but the workflow it
+    // replaces may already have posted anything already due, and its record
+    // does not carry over. Items due before `firstRunPostAfter` (default: this
+    // first run) are recorded as dropped - a missed post, never a second copy.
+    if (st.fresh) {
+      const after = Number.isFinite(firstRunPostAfter) ? firstRunPostAfter : t + 1;
+      let skipped = 0;
+      for (const it of parsed.items) {
+        if (st.records.has(it.id) || it.when >= after) continue;
+        st.records.set(it.id, { id: it.id, state: "dropped", at: t, hour: it.hour, firstRun: true });
+        skipped++;
+      }
+      if (skipped) log(`[tweet-queue] first run: ${skipped} item(s) due before ${new Date(after).toISOString()} were not posted (the workflow may have posted them)`);
+      // Written even when nothing was skipped: without the file every later
+      // tick would read as a first run and skip what it came to post.
+      st.fresh = false;
+      persist(st);
+    }
     for (const it of parsed.items) {
       if (st.records.has(it.id) || t - it.when <= windowMs) continue;
       st.records.set(it.id, { id: it.id, state: "dropped", at: t, hour: it.hour });

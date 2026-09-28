@@ -7,7 +7,10 @@
 # posting:   gh workflow disable tweet-queue.yml
 # so exactly one poster runs. The two keep separate posted-id records (the
 # Actions cache here, /data on the server), so running both would leave only
-# X's duplicate-text refusal between them. Kept, not deleted, as the fallback:
+# X's duplicate-text refusal between them. The server's FIRST run (no state
+# file) posts nothing already due, since this workflow may have posted it; set
+# TWEET_QUEUE_POST_AFTER (ISO time) on Railway to move that line. Kept, not
+# deleted, as the fallback:
 # re-enable it (gh workflow enable) only after TWEET_QUEUE_POSTING=off is set
 # on Railway. The server refuses items that carry a card (its operator read
 # lists them by id); post those through announce.yml with its card input.

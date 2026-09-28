@@ -75,7 +75,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const x = stubX(script);
   const q = createTweetQueue({
     queueJson: raw ?? JSON.stringify(items), creds: CREDS, storePath, fetchImpl: x.fetchImpl,
-    now: () => t, log: (l) => { logs.push(String(l)); ALL_LOGS.push(String(l)); }, ...extra,
+    now: () => t, log: (l) => { logs.push(String(l)); ALL_LOGS.push(String(l)); }, firstRunPostAfter: 0, ...extra,
   });
   const status = () => { const s = q.status(); ALL_STATUS.push(JSON.stringify(s)); return s; };
   return { q, x, logs, dir, storePath, status, set: (ms) => { t = ms; } };
@@ -224,7 +224,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
     import { readFileSync, writeFileSync } from "node:fs";
     import { createTweetQueue } from ${JSON.stringify(SRC_QUEUE)};
     const [storePath, marker] = process.argv.slice(2);
-    const q = createTweetQueue({ queueJson: process.env.Q, creds: ${JSON.stringify(CREDS)}, storePath, now: () => ${T0 + MIN}, log: () => {},
+    const q = createTweetQueue({ queueJson: process.env.Q, creds: ${JSON.stringify(CREDS)}, storePath, now: () => ${T0 + MIN}, log: () => {}, firstRunPostAfter: 0,
       post: async () => { writeFileSync(marker, readFileSync(storePath, "utf8")); process.exit(137); } });
     await q.tick();
     process.exit(0);
@@ -236,7 +236,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const x = stubX();
   let t = T0 + 5 * MIN;
   const logs = [];
-  const q = createTweetQueue({ queueJson: JSON.stringify(items), creds: CREDS, storePath, fetchImpl: x.fetchImpl, now: () => t, log: (l) => { logs.push(l); ALL_LOGS.push(l); } });
+  const q = createTweetQueue({ firstRunPostAfter: 0, queueJson: JSON.stringify(items), creds: CREDS, storePath, fetchImpl: x.fetchImpl, now: () => t, log: (l) => { logs.push(l); ALL_LOGS.push(l); } });
   await q.tick();
   ok(x.calls.length === 0, "the restarted server posts nothing more in the crashed hour");
   for (let k = 1; k < 14; k++) { t = T0 + k * H + MIN; await q.tick(); }
@@ -250,7 +250,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
 {
   const s = mk([{ id: "solo", when: when(T0), text: text("solo") }]);
   const shared = [];
-  const mkTwin = () => createTweetQueue({ queueJson: JSON.stringify([{ id: "solo", when: when(T0), text: text("solo") }]), creds: CREDS, storePath: s.storePath, now: () => T0 + MIN, log: () => {}, post: async (tx) => { shared.push(tx); await wait(30); return { kind: "posted", tweetId: "1" }; } });
+  const mkTwin = () => createTweetQueue({ firstRunPostAfter: 0, queueJson: JSON.stringify([{ id: "solo", when: when(T0), text: text("solo") }]), creds: CREDS, storePath: s.storePath, now: () => T0 + MIN, log: () => {}, post: async (tx) => { shared.push(tx); await wait(30); return { kind: "posted", tweetId: "1" }; } });
   await Promise.all([mkTwin().tick(), mkTwin().tick(), mkTwin().tick()]);
   ok(shared.length === 1, "three schedulers in one process sharing a store post once");
 
@@ -261,7 +261,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
     import { appendFileSync } from "node:fs";
     import { createTweetQueue } from ${JSON.stringify(SRC_QUEUE)};
     const [storePath, postsLog, startAt, name] = process.argv.slice(2);
-    const q = createTweetQueue({ queueJson: process.env.Q, creds: ${JSON.stringify(CREDS)}, storePath, now: () => ${T0 + MIN}, log: () => {}, testHoldMs: 150,
+    const q = createTweetQueue({ queueJson: process.env.Q, creds: ${JSON.stringify(CREDS)}, storePath, now: () => ${T0 + MIN}, log: () => {}, firstRunPostAfter: 0, testHoldMs: 150,
       post: async () => { appendFileSync(postsLog, name + "\\n"); return { kind: "posted", tweetId: "7" }; } });
     while (Date.now() < Number(startAt)) { /* line both processes up */ }
     const r = await q.tick();
@@ -323,7 +323,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const gated = (env, extra = {}) => {
     const x = stubX();
     const lines = [];
-    const q = createTweetQueue({ ...tweetQueueOptionsFromEnv(env, extra), fetchImpl: x.fetchImpl, now: () => T0 + MIN, log: (l) => { lines.push(l); ALL_LOGS.push(l); } });
+    const q = createTweetQueue({ firstRunPostAfter: 0, ...tweetQueueOptionsFromEnv(env, extra), fetchImpl: x.fetchImpl, now: () => T0 + MIN, log: (l) => { lines.push(l); ALL_LOGS.push(l); } });
     return { q, x, lines };
   };
   const prod = gated(prodEnv);
@@ -411,7 +411,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   // that went out must still be recorded, or the next tick sends it again.
   const swapPath = join(mkdtempSync(join(tmpdir(), "tweetq-swap-")), "state.json");
   let swapSent = 0;
-  const swapQ = createTweetQueue({ queueJson: JSON.stringify(three), creds: CREDS, storePath: swapPath, now: () => T0 + MIN, log: () => {},
+  const swapQ = createTweetQueue({ firstRunPostAfter: 0, queueJson: JSON.stringify(three), creds: CREDS, storePath: swapPath, now: () => T0 + MIN, log: () => {},
     post: async () => { swapSent++; writeFileSync(swapPath, JSON.stringify({ v: 1, records: [], slots: [] })); return { kind: "posted", tweetId: "42" }; } });
   await swapQ.tick();
   const afterSwap = JSON.parse(readFileSync(swapPath, "utf8"));
@@ -475,7 +475,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   ok(full.inDoubt === 1 && full.mode === "posting" && !JSON.stringify(full).includes("r0"), "the operator word carries counts and never an id");
   // The operator checks X, re-queues the text under a new id if it did not
   // land, and removes the old id: that clears the word.
-  const cleared = createTweetQueue({ queueJson: JSON.stringify(three.slice(1)), creds: CREDS, storePath: twice.storePath, now: () => T0 + 8 * H, log: () => {} });
+  const cleared = createTweetQueue({ firstRunPostAfter: 0, queueJson: JSON.stringify(three.slice(1)), creds: CREDS, storePath: twice.storePath, now: () => T0 + 8 * H, log: () => {} });
   ok(cleared.alarmStatus().status === "ok", "removing the in-doubt id from the queue clears the word");
 
   // A retry across an hour boundary: the first attempt's hour keeps its slot;
@@ -559,7 +559,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const blocker = join(s.dir, "a-file");
   writeFileSync(blocker, "x");
   let sent = 0;
-  const nw = createTweetQueue({ queueJson: JSON.stringify(items), creds: CREDS, storePath: join(blocker, "state.json"), now: () => T0 + MIN, log: () => {}, post: async () => { sent++; return { kind: "posted" }; } });
+  const nw = createTweetQueue({ firstRunPostAfter: 0, queueJson: JSON.stringify(items), creds: CREDS, storePath: join(blocker, "state.json"), now: () => T0 + MIN, log: () => {}, post: async () => { sent++; return { kind: "posted" }; } });
   const r = await nw.tick();
   ok(sent === 0 && /^store_/.test(r.error || ""), "a state file that cannot be written means nothing is sent");
 
@@ -620,7 +620,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
     const PORT = await getFreePort();
     const spawnedAt = Date.now();
     const child = spawn(process.execPath, ["--import", pathToFileURL(preload).href, "src/server.js"], {
-      env: { ...baseEnv(), PORT: String(PORT), TQ_STUB_LOG: stubLog, TWEET_QUEUE_STATE_FILE: statePath, ...extraEnv },
+      env: { ...baseEnv(), PORT: String(PORT), TQ_STUB_LOG: stubLog, TWEET_QUEUE_STATE_FILE: statePath, TWEET_QUEUE_POST_AFTER: "2000-01-01T00:00:00Z", ...extraEnv },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let log = "";
@@ -705,6 +705,21 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const src = readFileSync("src/tweet-queue.js", "utf8");
   const logCalls = src.split("\n").filter((l) => /\blog\(/.test(l));
   ok(logCalls.length > 5 && !logCalls.some((l) => /\.text\b|body|said|creds|Authorization/.test(l)), "no log call in the module references text, a body or a credential");
+}
+
+// The first run on an empty store (the cutover from the workflow, whose
+// posted-id record does not carry over) posts nothing already due: those
+// items are recorded as dropped, a missed post and never a second copy.
+// TWEET_QUEUE_POST_AFTER moves that line; a later item still posts.
+{
+  const items = [{ id: "old", when: when(T0), text: text("old") }, { id: "new", when: when(T0 + 2 * H), text: text("new") }];
+  const s = mk(items, { clock: T0 + MIN, firstRunPostAfter: undefined });
+  await s.q.tick();
+  ok(s.x.calls.length === 0 && s.logs.some((l) => /first run: 1 item/.test(l)), "first run: an item already due is not posted and the log says so");
+  s.set(T0 + 2 * H + MIN); await s.q.tick();
+  ok(s.x.calls.length === 1 && s.x.calls[0].text === text("new"), "first run: the store is written, so a later item posts on its own hour");
+  const e = tweetQueueOptionsFromEnv({ TWEET_QUEUE_POST_AFTER: "2026-01-05T09:00:00Z" });
+  ok(e.firstRunPostAfter === Date.parse("2026-01-05T09:00:00Z") && tweetQueueOptionsFromEnv({ TWEET_QUEUE_POST_AFTER: "soon" }).firstRunPostAfter === null, "TWEET_QUEUE_POST_AFTER is read as an ISO time; anything else is unset");
 }
 
 console.log(`\ntest-tweet-queue: ${pass} passed`);
