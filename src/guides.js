@@ -972,16 +972,16 @@ it at your Coinbase Business address and every settled call lands there.
 
 \`\`\`bash
 npm i agent402-tollbooth @x402/express @x402/core @x402/evm @coinbase/x402
+set -a; . ./.env; set +a   # TOLLBOOTH_CDP_API_KEY_ID + TOLLBOOTH_CDP_API_KEY_SECRET
 TOLLBOOTH_PAYTO=0xYourCoinbaseBusinessBaseAddress \\
-TOLLBOOTH_CDP_API_KEY_ID=organizations/.../apiKeys/... \\
-TOLLBOOTH_CDP_API_KEY_SECRET='-----BEGIN EC PRIVATE KEY-----...' \\
 TOLLBOOTH_PRICE='$0.005' \\
 TOLLBOOTH_UPSTREAM=http://localhost:8080 \\
 npx agent402-tollbooth
 \`\`\`
 
-Keep the key out of your shell history: put the three values in a \`.env\`
-file and load it (\`set -a; . ./.env; set +a\`) or use your secret store.
+The CDP key stays out of your shell history: its id and secret (exactly as
+Coinbase issued it) live in a \`.env\` file kept out of version control, or in
+your secret store, and the first line loads them.
 
 That is a reverse proxy in front of your existing API on :8080. In the
 default mode known AI crawlers (matched by user agent) get a 402 quoting $0.005
@@ -1193,9 +1193,12 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 ## Any OpenAI SDK
 
+With the credits key exported as \`AGENT402_CREDITS_KEY\`:
+
 \`\`\`python
+import os
 from openai import OpenAI
-client = OpenAI(base_url="https://agent402.tools/v1/metered", api_key="a402_...")
+client = OpenAI(base_url="https://agent402.tools/v1/metered", api_key=os.environ["AGENT402_CREDITS_KEY"])
 r = client.chat.completions.create(model="openai/gpt-4o-mini",
     messages=[{"role": "user", "content": "One sentence on x402."}], max_tokens=60)
 print(r.choices[0].message.content)
@@ -1203,7 +1206,7 @@ print(r.choices[0].message.content)
 
 \`\`\`js
 import OpenAI from "openai";
-const client = new OpenAI({ baseURL: "https://agent402.tools/v1/metered", apiKey: "a402_..." });
+const client = new OpenAI({ baseURL: "https://agent402.tools/v1/metered", apiKey: process.env.AGENT402_CREDITS_KEY });
 const r = await client.chat.completions.create({ model: "openai/gpt-4o-mini",
   messages: [{ role: "user", content: "One sentence on x402." }], max_tokens: 60 });
 console.log(r.choices[0].message.content);
@@ -1224,8 +1227,9 @@ credits key as the SDK's \`auth_token\` (sent as \`Authorization: Bearer\`, whic
 the credits gate reads), not \`api_key\` (sent as \`x-api-key\`):
 
 \`\`\`python
+import os
 from anthropic import Anthropic
-client = Anthropic(base_url="https://agent402.tools/v1/metered", auth_token="a402_...")
+client = Anthropic(base_url="https://agent402.tools/v1/metered", auth_token=os.environ["AGENT402_CREDITS_KEY"])
 m = client.messages.create(model="anthropic/claude-haiku-4.5", max_tokens=60,
     messages=[{"role": "user", "content": "One sentence on x402."}])
 print(m.content[0].text)
@@ -1233,7 +1237,7 @@ print(m.content[0].text)
 
 \`\`\`js
 import Anthropic from "@anthropic-ai/sdk";
-const client = new Anthropic({ baseURL: "https://agent402.tools/v1/metered", authToken: "a402_..." });
+const client = new Anthropic({ baseURL: "https://agent402.tools/v1/metered", authToken: process.env.AGENT402_CREDITS_KEY });
 const m = await client.messages.create({ model: "anthropic/claude-haiku-4.5", max_tokens: 60,
   messages: [{ role: "user", content: "One sentence on x402." }] });
 console.log(m.content[0].text);
@@ -1516,7 +1520,9 @@ body from $${TIERS["v1-chat-metered"].price}) is the one to point OpenClaw at:
     providers: {
       agent402: {
         baseUrl: "https://agent402.tools${TIERS["v1-chat-metered"].route.split(" ")[1].replace("/chat/completions", "")}",
-        apiKey: "\${AGENT402_CREDITS_KEY}",
+        // A SecretRef: OpenClaw reads the key from the environment at runtime,
+        // so it never sits in this file.
+        apiKey: { source: "env", provider: "default", id: "AGENT402_CREDITS_KEY" },
         api: "openai-completions",
         timeoutSeconds: 120,
         models: [
