@@ -503,7 +503,7 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
     `a budget of 6 calls: the dense-history wallet stops at block ${saved?.lo}, keeps where it got to (${saved ? saved.l.length / 3 : 0} transfers below it) and its episode (${epAfter?.sp} spent), and does not wait (${r1.stats.history.calls} calls)`);
   rst = parseFundingState(serializeFundingState(rst), USDC);
   const back = rst.wallets.get(R).hp.find((g) => g.k === "o");
-  ok(back && back.lo === saved.lo && back.w === saved.w && back.l.length === saved.l.length && back.pg === saved.pg && rst.wallets.get(R).ep?.sp === epAfter.sp && rst.wallets.get(R).ep?.pl === epAfter.pl,
+  ok(back && back.lo === saved.lo && back.w === saved.w && back.l.length === saved.l.length && back.pg === saved.pg && !!epAfter && rst.wallets.get(R).ep?.sp === epAfter.sp && rst.wallets.get(R).ep?.pl === epAfter.pl,
     "its progress round-trips through the volume: the next block, the width it learned, the transfers below it, and the episode");
   const r2 = await scanOnce({ sellers: [seller(R, "resume.example")], pays: rp, outs: ro, state: rst, latest: latest + 1_800, span: SPAN, historyFrom: 2_797_221, now: NOW + 3_600_000 });
   const outCalls = r2.calls.filter((c) => Array.isArray(c.topics[2]) && c.topics[1].includes(topic(R)));
@@ -553,6 +553,21 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const wr0 = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: waited(0), latest, span: SPAN, historyFrom: 2_797_221 });
   ok(firstOut(wr)?.span === latest - 2_797_221 + 1 && firstOut(wr0)?.span === latest - 2_797_221 + 1, `a wallet back from a wait reads new payers across the whole history at once (${firstOut(wr)?.span} blocks), as one that never waited does (${firstOut(wr0)?.span})`);
 
+  // A WALLET WITH MANY NEW PAYERS never keeps the light wallets behind it
+  // from being read: first in priority, with 30,000 new payers (150 planned
+  // reads), on a budget of 60. The wallets with a little of their plan left
+  // go first; the big one takes what is left, and keeps its progress.
+  {
+    const BIG = addr("ef");
+    const bigPays = [...lp];
+    for (let j = 0; j < 30_000; j++) bigPays.push({ wallet: BIG, payer: "0x" + (0x20000000 + j).toString(16).padStart(40, "0"), usd: 0.01, pos: posOf(latest - 25_000 + (j % 20_000), 5 + Math.floor(j / 20_000)) });
+    const bst = createFundingState(USDC);
+    const bg = await scanOnce({ sellers: [seller(BIG, "big.example"), ...sells], pays: bigPays, outs: lo, state: bst, latest, span: SPAN, historyFrom: 2_797_221, readOpts: { maxCalls: 60, scanMaxCalls: 400 } });
+    const bigSegs = bst.wallets.get(BIG).hp.filter((g) => g.k === "o");
+    ok(lights.every((w) => bg.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => bg.ev[w].circular === true) && bg.ev[BIG].fundingRead === false && bigSegs.filter((g) => g.pg === 2).length > 0 && bigSegs.length === 150,
+      `a wallet with 30,000 new payers first in line, a budget of 60: all 20 light wallets read (${lights.filter((w) => bg.ev[w].fundingRead).length}), the big one reads ${bigSegs.filter((g) => g.pg === 2).length} of its 150 payer chunks and keeps each`);
+  }
+
   // A LIGHT WALLET PACKED WITH A HEAVY ONE is never made to wait for it: the
   // calls that isolate the heavy one are planned for every wallet in the job,
   // so when the budget runs out mid-way no light wallet is over its plan.
@@ -583,11 +598,12 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
     `a gap read stopped by the budget (${gb.stats.gap.calls} calls): it keeps where it got to (block ${gseg?.lo}) and the ${gseg ? gseg.l.length / 3 : 0} payments below it, and the wallet counts as it is`);
   const afterGb = serializeFundingState(gst);
   const lost = parseFundingState(afterGb, USDC);
-  lost.wallets.get(G).hp.find((g) => g.k === "g").l = [];
+  const lostSeg = lost.wallets.get(G).hp.find((g) => g.k === "g");
+  if (lostSeg) lostSeg.l = [];
   const gc = await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: gst, latest: 50_000, span: 1_000, now: NOW + 90_000_000 });
   const gapCalls = gc.calls.filter((c) => Array.isArray(c.topics[2]) && c.topics[2].includes(topic(G)) && c.topics[1].includes(topic(GP)));
-  ok(gc.stats.gap.resumed === 1 && gapCalls.length && gapCalls.every((c) => parseInt(c.fromBlock, 16) >= gseg.lo) && gc.ev[G].fundingRead === true && gc.ev[G].selfFundedCalls === 0,
-    `a day later the gap read resumes at block ${gseg.lo} (none of its ${gapCalls.length} call(s) below it), and with the first half kept the payer's window payments are its own money (${gc.ev[G].selfFundedCalls} netted)`);
+  ok(!!gseg && gc.stats.gap.resumed === 1 && gapCalls.length && gapCalls.every((c) => parseInt(c.fromBlock, 16) >= gseg.lo) && gc.ev[G].fundingRead === true && gc.ev[G].selfFundedCalls === 0,
+    `a day later the gap read resumes at block ${gseg?.lo} (none of its ${gapCalls.length} call(s) below it), and with the first half kept the payer's window payments are its own money (${gc.ev[G].selfFundedCalls} netted)`);
   const gl = await scanOnce({ sellers: [seller(G, "gap.example")], pays: gPays, outs: gOuts, state: lost, latest: 50_000, span: 1_000, now: NOW + 90_000_000 });
   ok(gl.ev[G].selfFundedCalls === 12, `(control: the same resume with the first half's payments lost would net all ${gl.ev[G].selfFundedCalls} of them)`);
 

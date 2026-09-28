@@ -280,11 +280,13 @@ try {
   // day of 150 retries - the refresh that spends them says so, and no more
   // retries are made all day - while a self-funded wallet whose payers first
   // pay it at hour 5 is still read in its first scan.
-  const capped = await run(200, { hours: 24, dayMaxCalls: 150, late: 5 });
+  const capped = await run(200, { hours: 30, dayMaxCalls: 150, late: 5 });
   const retries = capped.rows.map((r) => r.retries);
   const capAt = capped.rows.findIndex((r) => r.dayCap);
-  ok(capAt >= 0 && capAt <= 2 && /LEADERBOARD_FUNDING_DAY_MAX_CALLS/.test(capped.rows[capAt].notes) && sum(retries) === 150 && sum(retries.slice(capAt + 1)) === 0,
-    `a day's allowance of 150 retries: spent by refresh ${capAt}, which says so; the whole day ${sum(retries)} (${retries.slice(0, capAt + 1).join(", ")}), none after`);
+  ok(capAt >= 0 && capAt <= 2 && /LEADERBOARD_FUNDING_DAY_MAX_CALLS/.test(capped.rows[capAt].notes) && sum(retries.slice(0, 24)) === 150 && sum(retries.slice(capAt + 1, 24)) === 0,
+    `a day's allowance of 150 retries: spent by refresh ${capAt}, which says so; the whole day ${sum(retries.slice(0, 24))} (${retries.slice(0, capAt + 1).join(", ")}), none after`);
+  ok(capped.rows[23].heavySettled === 200 && capped.rows.every((r) => r.retryDay <= 150) && capped.rows.slice(1).every((r) => r.namingHeavy <= r.retries),
+    `...the heavy payTos it held back wait for it (${capped.rows[23].heavySettled} of 200 read or waiting), and when they come back their probes are retries too: no rolling day over 150, every later call naming one counted (${capped.rows.slice(24).map((r) => `${r.namingHeavy}/${r.retries}`).join(" ")})`);
   ok(capped.rows[0].lightsRead === 20 && capped.rows[0].lightsCircular === 4, `...first reads never wait for it: every light wallet read in the first refresh (${capped.rows[0].lightsRead} of 20)`);
   const lAt = capped.rows.findIndex((r) => r.L.read);
   ok(lAt === 5 && capped.rows[5].L.circular === true && capped.rows[5].L.net === 0, `...and the wallet whose payers first pay at hour 5 is read in that refresh (refresh ${lAt}), found paid with its own money, credited nothing`);
