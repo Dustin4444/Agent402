@@ -230,7 +230,10 @@ export function composeSellerDossier(a) {
   // ----------------------------------------------------------------- wallets
   const payTosByNetwork = detail.payTosByNetwork || {};
   const basePayTo = detail.payToByNetwork?.["eip155:8453"] || null;
-  const inherited = evidenceBinding?.payTos ? [...evidenceBinding.payTos] : [];
+  // The binding's payTos are EVERY wallet with evidence, the origin's own
+  // advertised wallet included; only the others are inherited.
+  const ownWallets = new Set([basePayTo, ...Object.values(payTosByNetwork).flat()].filter((w) => typeof w === "string").map((w) => w.toLowerCase()));
+  const inherited = evidenceBinding?.payTos ? [...evidenceBinding.payTos].filter((w) => !ownWallets.has(String(w).toLowerCase())) : [];
   const ownSettled = Number(evidenceBinding?.ownSettled) || 0;
   const ownPayers = evidenceBinding?.ownPayers;
   const claimsFor = basePayTo && sharedClaims ? sharedClaims[String(basePayTo).toLowerCase()] : null;

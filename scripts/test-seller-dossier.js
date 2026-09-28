@@ -16,6 +16,7 @@
 //   node scripts/test-seller-dossier.js
 import { strict as assert } from "node:assert";
 import { buildSellerDossierTool, composeSellerDossier, hostOf } from "../src/tools/seller-dossier.js";
+import { buildEvidenceBinding } from "../src/evidence-binding.js";
 
 let passed = 0, failed = 0;
 const check = (name, fn) => {
@@ -69,7 +70,7 @@ const thresholds = { sorThreshold: 50, sorPayers: 3, sorCap: 0.005 };
 const base = (over = {}) => composeSellerDossier({
   host: "seller.example", detail: DETAIL, entry: ENTRY,
   dispatch: { routerDispatchEligible: false, routerDispatchReason: "settlement_required", routerDispatchByChain: { base: { eligible: false, reason: "settlement_required" } } },
-  evidenceBinding: { payTos: new Set(), ownSettled: 12, ownPayers: 4 },
+  evidenceBinding: { payTos: new Set([WALLET]), ownSettled: 12, ownPayers: 4 },
   leaderboardRow: { callsSettled: 12, uniqueBuyers: 4, totalUsd: 0.18, wallets: [WALLET], window: "24h" },
   bazaar: { calls30d: 30, payers30d: 5, lastCalledAt: "2026-09-07T20:00:00.000Z", payTos: [WALLET] },
   solana: null, mpp: null, refusals: [], registration: { first_seen: NOW - 30 * DAY, last_routable_seen: NOW - DAY, last_settled_seen: null },
@@ -137,6 +138,16 @@ check("own chain evidence is reported as own, and an empty inherited set names n
   assert.equal(r.wallets.base.ownEvidence.payers, 4);
   assert.deepEqual(r.wallets.base.inheritedFrom, []);
   assert.equal(r.wallets.base.inheritedNote, null);
+});
+check("a single-wallet seller's binding (built by the real builder) inherits nothing", () => {
+  const binding = buildEvidenceBinding({ chainProven: new Map([["https://seller.example", { payTo: WALLET, settled: 80, payers: 6 }]]) }).get("https://seller.example");
+  assert.ok(binding.payTos.has(WALLET), "the builder names the origin's own wallet in payTos");
+  const r = base({ evidenceBinding: binding });
+  assert.deepEqual(r.wallets.base.inheritedFrom, []);
+  assert.equal(r.wallets.base.inheritedNote, null);
+  // A second wallet beside the own one is still named as inherited.
+  const r2 = base({ evidenceBinding: { ...binding, payTos: new Set([WALLET, OTHER]) } });
+  assert.deepEqual(r2.wallets.base.inheritedFrom, [OTHER]);
 });
 check("inherited-wallet evidence is named as inherited, never folded into own", () => {
   const r = base({ evidenceBinding: { payTos: new Set([OTHER]), ownSettled: 0, ownPayers: undefined }, dispatch: { routerDispatchEligible: false, routerDispatchReason: "settlement_required", routerDispatchDetail: "evidence_payto_mismatch" } });
