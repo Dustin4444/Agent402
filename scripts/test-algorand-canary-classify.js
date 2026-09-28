@@ -133,6 +133,19 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
   ok(blind.budget === 150 && blind.source === "cap-only",
      "an UNREADABLE quota falls back to the fixed cap alone - it is never treated as unlimited");
   ok(subcentBudget({ status: fresh, max: -5, reserve: 300 }).budget === 0, "a negative cap is zero, never a spend");
+  // A row last written in an EARLIER UTC month is last month's count (the
+  // document has no month field; its counter may only roll on the next
+  // write). Budgeted as reset, so the sweep's first sub-cent buy is the write
+  // that rolls it - or, if the facilitator has not reset, a refused settle the
+  // run reports - instead of a zero budget that excuses it every week.
+  {
+    const sepRow = { quota: 1000, usedMonth: 1013, suBalance: 0, updatedTs: "2026-09-28T01:43:00.000Z" };
+    const oct5 = Date.UTC(2026, 9, 5, 6, 41);
+    const b1 = subcentBudget({ status: sepRow, max: 150, reserve: 300, now: oct5 });
+    ok(b1.budget === 150 && b1.remaining === 1000 && /earlier month/.test(b1.source), `a September row read in October is budgeted as reset (got ${JSON.stringify(b1)})`);
+    ok(subcentBudget({ status: sepRow, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) }).budget === 0, "...and is still exhausted in September");
+    ok(subcentBudget({ status: { ...sepRow, updatedTs: "2026-10-05T06:00:00.000Z" }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row the facilitator rewrote this month is taken at its word");
+  }
 
   // Rotation: this week's window, and the next, cover the catalog in turn.
   const tools = [

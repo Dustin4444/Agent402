@@ -203,7 +203,18 @@ if (sd) {
   // says nothing true about the rail. It reads the live quota, proves the
   // rail at $0.01 when exhausted, says so, and still pages when that fails.
   ok(/sponsorship\/status\?wallet=\$\{payTo\}/.test(canarySrc), "the Algorand leg reads the facilitator's live sub-cent quota for our payTo");
-  ok(/const exhausted = subcentWithdrawn \|\| \(!!quota && Number\(quota\.usedMonth\) >= Number\(quota\.quota\) && Number\(quota\.suBalance \|\| 0\) <= 0\)/.test(canarySrc), "...and treats the month as exhausted when used >= quota with no purchased SUs, or when the server itself has withdrawn Algorand from sub-cent routes");
+  ok(/const exhausted = subcentWithdrawn \|\| \(!!quota && !quotaFromEarlierMonth && Number\(quota\.usedMonth\) >= Number\(quota\.quota\) && Number\(quota\.suBalance \|\| 0\) <= 0\)/.test(canarySrc), "...and treats the month as exhausted when used >= quota with no purchased SUs, or when the server itself has withdrawn Algorand from sub-cent routes");
+  // The status row carries no month field: a row last written in an EARLIER
+  // UTC month is last month's count, and taken at its word on the 1st it
+  // routes the leg around a reset that never gets a sub-cent settle to happen
+  // on. The leg applies the server's own rule (one definition), and says so
+  // loudly when a pause outlives the reset instead of "resets on the 1st".
+  ok(/import \{ isSponsorshipRowFromEarlierMonth \} from "\.\.\/src\/avm-sponsorship\.js"/.test(canarySrc) && /const quotaFromEarlierMonth = !!quota && isSponsorshipRowFromEarlierMonth\(quota\)/.test(canarySrc),
+    "a status row from an earlier UTC month is not read as this month's exhaustion (the server's own rule, imported)");
+  ok(/const pauseOutlivedReset = exhausted && \(dayOfMonth === 2 \|\| dayOfMonth === 3 \|\| \(subcentWithdrawn && quotaFromEarlierMonth\)\)/.test(canarySrc) && /if \(pauseOutlivedReset\) console\.warn\(`\\nWARN  algorand leg: the sub-cent pause is \$\{resetNote\}/.test(canarySrc),
+    "a pause still up on the 2nd or 3rd of the month (or held while the facilitator's row is last month's) is WARNed");
+  ok(/noteRail\("algorand", true, exhausted \? `settled at \$0\.01; sub-cent sponsored quota exhausted this month \(\$\{quotaText\}\), \$\{resetNote\}`/.test(canarySrc),
+    "...and the /status detail carries the same words instead of 'resets on the 1st'");
   // While the allowance is spent the server withdraws Algorand from sub-cent
   // 402s (src/avm-sponsorship.js), so the payTo must come from a one-cent route
   // or the leg reads nothing, takes the $0.001 path and pages on a rail that

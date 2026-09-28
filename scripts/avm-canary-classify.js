@@ -2,6 +2,7 @@
 // Extracted into a side-effect-free module so they can be unit-tested without
 // booting the sweep (the canary self-runs on import). See
 // scripts/test-algorand-canary-classify.js.
+import { isSponsorshipRowFromEarlierMonth } from "../src/avm-sponsorship.js";
 
 // A 402 that comes back faster than this never reached the chain (real Algorand
 // round trips measured 5s+): the AVM-specific shape of a throttle/burst reject.
@@ -87,13 +88,20 @@ export const outcomeOf = (a) =>
  *  /sponsorship/status row for our payTo (quota, usedMonth, suBalance), or
  *  null when it could not be read - then the fixed cap alone applies, because
  *  a quota we cannot read is not a licence to spend. Never negative. */
-export function subcentBudget({ status, max, reserve }) {
+export function subcentBudget({ status, max, reserve, now = Date.now() }) {
   const cap = Math.max(0, Math.floor(Number(max) || 0));
   if (!status || !Number.isFinite(Number(status.quota))) return { budget: cap, source: "cap-only", remaining: null };
-  const quota = Number(status.quota), used = Number(status.usedMonth) || 0, su = Number(status.suBalance) || 0;
+  // A row last written in an EARLIER UTC month is last month's count: the
+  // allowance reset on the 1st and the facilitator may only roll its counter on
+  // the next write. Budget it as reset (the server's rule, src/avm-sponsorship.js);
+  // if the facilitator has NOT reset, the first sub-cent buy is refused and
+  // that is a rail failure the run reports, instead of a zero budget that
+  // excuses it every week.
+  const earlierMonth = isSponsorshipRowFromEarlierMonth(status, now);
+  const quota = Number(status.quota), used = earlierMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
   const remaining = Math.max(0, quota - used) + Math.max(0, su);
   const spendable = Math.max(0, remaining - Math.max(0, Number(reserve) || 0));
-  return { budget: Math.min(cap, spendable), source: "live", remaining };
+  return { budget: Math.min(cap, spendable), source: earlierMonth ? "live (row from an earlier month, counted as reset)" : "live", remaining };
 }
 
 /** Order the sweep's tools so that this week's window of sub-cent tools comes

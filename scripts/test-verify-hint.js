@@ -106,6 +106,9 @@ ok(r5.out.hint === undefined, "no remembered failure for this credential -> no h
   const f = mkSettled({ success: false, errorReason: "insufficient_funds", network: ALGO });
   mw({ headers: { "payment-signature": H1 } }, f, () => {}); f.json({});
   ok(f.out.reason !== "facilitator-quota" && f.out.retry !== "other-network", "a genuine settle failure (insufficient_funds) is never answered as a facilitator quota");
+  const t = mkSettled({ success: false, errorReason: "transaction_failed", errorMessage: "rpc quota exceeded", network: "eip155:43114" });
+  mw({ headers: { "payment-signature": H1 } }, t, () => {}); t.json({});
+  ok(t.out.reason !== "facilitator-quota", "nor is a payment verdict (transaction_failed) whose message happens to mention a quota");
   _testResetForTest();
 }
 

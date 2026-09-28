@@ -68,28 +68,34 @@ export const REJECTION_REASONS = Object.freeze([
  * account: PayAI's `free_tier_exhausted`, the Algorand facilitator's
  * `subcent_quota_exceeded` (its monthly allowance of sponsored sub-cent
  * settlements for our payTo), a prepaid-credits wall. Such a refusal says
- * nothing about the buyer's wallet, so nothing that judges a buyer by its
- * settle failures (src/gateway-settle-breaker.js, the composite guard) may
- * count it. ONE definition: payments.js logs with it, the breakers skip with
- * it, and the 402 body below names it.
+ * nothing about the buyer's wallet - but the call behind it was served and
+ * never charged, so it is NOT free to ignore. ONE definition: payments.js logs
+ * with it, the 402 body below names it, and the settle breaker words its 429
+ * with it. Only the one refusal whose offer is actually withdrawn from the
+ * next 402 (src/avm-sponsorship.js isWithdrawnSubcentRefusal) is kept off a
+ * buyer's count; every other billing refusal still counts in both breakers
+ * and the composite guard, because their bounds are all that stop it looping.
  */
 export const FACILITATOR_BILLING_REFUSAL = /free_tier_exhausted|subcent_quota_exceeded|quota[_ ]exceeded|payment[_ ]required.*credit/i;
 export function isFacilitatorBillingRefusal(text) {
   return FACILITATOR_BILLING_REFUSAL.test(String(text || ""));
 }
 
-/** A decoded settle receipt (PAYMENT-RESPONSE) that failed on billing grounds. */
-export function isBillingRefusalReceipt(receipt) {
-  return !!receipt && typeof receipt === "object" && receipt.success === false &&
-    isFacilitatorBillingRefusal(`${receipt.errorReason || ""} ${receipt.errorMessage || ""}`);
-}
+/** An errorReason that is already a specific verdict about the PAYMENT or the
+ *  chain (insufficient_funds, invalid_*, transaction_failed, ..._expired).
+ *  Words in its errorMessage - an RPC's "quota exceeded", say - cannot turn
+ *  such a verdict into a refusal on our account. */
+const PAYMENT_VERDICT_REASON = /^(insufficient_|invalid_|transaction_)|_expired$/i;
 
-/** The settle receipt a response carries, decoded; null when absent or unreadable. */
-export function settleReceiptOf(res) {
-  try {
-    const h = typeof res?.getHeader === "function" ? (res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE")) : null;
-    return h ? decodeB64Json(h) : null;
-  } catch { return null; }
+/** A decoded settle receipt (PAYMENT-RESPONSE) that failed on billing grounds:
+ *  the errorReason names it, or - only when the reason is generic, as a thrown
+ *  non-2xx settle leaves it - the errorMessage does. */
+export function isBillingRefusalReceipt(receipt) {
+  if (!receipt || typeof receipt !== "object" || receipt.success !== false) return false;
+  const reason = String(receipt.errorReason || "");
+  if (isFacilitatorBillingRefusal(reason)) return true;
+  if (PAYMENT_VERDICT_REASON.test(reason)) return false;
+  return isFacilitatorBillingRefusal(String(receipt.errorMessage || ""));
 }
 
 const RAIL_FAMILY_NAMES = { algorand: "Algorand", solana: "Solana", stellar: "Stellar" };

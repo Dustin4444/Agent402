@@ -144,11 +144,14 @@ refund ledger all follow this rule. (`node_modules/@x402/express/dist/esm/index.
   tier whose 402 is a per-request quote. `handlerInputOf(req)` (`src/handler-input.js`) is the
   one input object for pricing and serving. Streams commit 200 only on the first `data:` frame.
 - **Settle-failure breakers:** `src/gateway-settle-breaker.js` (per wallet and global on `/v1`,
-  per wallet on other wallet-only tools). A facilitator billing/quota refusal
-  (`isFacilitatorBillingRefusal`, `src/payment-reject.js`) is never counted against the buyer.
+  per wallet on other wallet-only tools). Only a refusal whose offer the next 402 withdraws
+  (`isWithdrawnSubcentRefusal`) stays off the buyer's count, and it still feeds the `/v1`
+  global pause; every other facilitator billing refusal (`src/payment-reject.js`) counts in
+  both breakers and the composite guard, with a 429 that names it instead of the wallet.
 - **Algorand sub-cent offer gate:** `src/avm-sponsorship.js` drops the Algorand accept from
   sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent (fails open;
-  published on `/api/rails`; `AVM_SUBCENT_GATE=off`).
+  a status row last updated in an earlier UTC month is not evidence; published on
+  `/api/rails`; `AVM_SUBCENT_GATE=off`).
 - **External spend guard:** `src/external-spend-guard.js` (per payer and per chain wallet).
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.

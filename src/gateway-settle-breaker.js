@@ -40,6 +40,7 @@
 // call clears the wallet's count at once.
 import { payerFromRequest } from "./payer.js";
 import { isBillingRefusalReceipt } from "./payment-reject.js";
+import { isWithdrawnSubcentRefusal } from "./avm-sponsorship.js";
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
 /** Settle failures a wallet may accumulate inside the window before it is refused. */
@@ -51,6 +52,12 @@ export const WINDOW_MS = num(process.env.GATEWAY_SETTLE_BREAKER_WINDOW_MS, 15 * 
 export const GLOBAL_MAX_FAILS = num(process.env.GATEWAY_SETTLE_BREAKER_GLOBAL_MAX, 12);
 
 const fails = new Map(); // key -> number[] (failure timestamps inside the window)
+// key -> number[]: the subset of those failures that were a FACILITATOR billing
+// refusal (src/payment-reject.js). They still count - nothing withdraws their
+// offer, so the per-wallet bound is the only thing between them and an
+// unbounded served-never-charged loop - but the 429 must not tell the buyer to
+// check a wallet that was never the problem.
+const billingFails = new Map();
 let globalFails = [];
 let globalPausedUntil = 0;
 let globalTrips = 0;
@@ -74,13 +81,15 @@ function inWindow(arr, now) { return arr.filter((t) => now - t < WINDOW_MS); }
 /** Per-key state: blocked while MAX_FAILS or more failures sit inside the
  *  window; `until` is when the count next drops below the threshold. */
 export function gatewaySettleBreakerBlocked(key, now = Date.now()) {
-  if (!key) return { blocked: false, fails: 0 };
+  if (!key) return { blocked: false, fails: 0, billingFails: 0 };
   const arr = inWindow(fails.get(key) || [], now);
   if (arr.length) fails.set(key, arr); else fails.delete(key);
-  if (arr.length < MAX_FAILS) return { blocked: false, fails: arr.length };
+  const bill = inWindow(billingFails.get(key) || [], now);
+  if (bill.length) billingFails.set(key, bill); else billingFails.delete(key);
+  if (arr.length < MAX_FAILS) return { blocked: false, fails: arr.length, billingFails: bill.length };
   // The block lifts when the (len - MAX + 1)th newest failure ages out.
   const until = arr[arr.length - MAX_FAILS] + WINDOW_MS;
-  return { blocked: true, fails: arr.length, until };
+  return { blocked: true, fails: arr.length, billingFails: bill.length, until };
 }
 
 /** Global state: paused for WINDOW_MS once GLOBAL_MAX_FAILS failures land in a window. */
@@ -91,7 +100,7 @@ export function gatewaySettleBreakerGlobalPaused(now = Date.now()) {
 }
 
 /** A payment was presented, the handler served, and settlement FAILED. */
-export function recordGatewaySettleFailure(key, now = Date.now(), { global = true } = {}) {
+export function recordGatewaySettleFailure(key, now = Date.now(), { global = true, billing = false } = {}) {
   // `global:false` (the wallet-only catalog consult): the failure counts
   // against the WALLET only. A catalog read costs a fraction of a cent, so
   // twelve of them must never pause the LLM tiers - that would hand anyone
@@ -111,12 +120,17 @@ export function recordGatewaySettleFailure(key, now = Date.now(), { global = tru
   const arr = inWindow(fails.get(key) || [], now);
   arr.push(now);
   fails.set(key, arr);
+  if (billing) {
+    const bill = inWindow(billingFails.get(key) || [], now);
+    bill.push(now);
+    billingFails.set(key, bill);
+  }
   if (arr.length >= MAX_FAILS) console.warn(`[gateway-breaker] ${arr.length} settle failures inside the window for one buyer - refusing its gateway calls until the window clears`);
 }
 
 /** A settled 200 clears the key at once - a good buyer is never impeded. */
 export function recordGatewaySettleSuccess(key) {
-  if (key) fails.delete(key);
+  if (key) { fails.delete(key); billingFails.delete(key); }
 }
 
 function decodeReceipt(res) {
@@ -138,16 +152,24 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
     try {
       const st = res.statusCode;
       const receipt = decodeReceipt(res);
-      // The FACILITATOR refused to settle on a billing quota of OURS
-      // (subcent_quota_exceeded, free_tier_exhausted): the buyer did nothing
-      // wrong and their wallet would have settled. Neither counted nor
-      // cleared, per wallet or globally - counting it is how one outside
-      // buyer was refused 325 calls on 2026-09-28 with a message blaming
-      // their wallet. The loop it could otherwise open (served, never
-      // charged) is closed where the quota lives: src/avm-sponsorship.js
-      // withdraws the refused offer from the next 402.
-      if (isBillingRefusalReceipt(receipt)) return;
-      if (st === 402 || receipt?.success === false) recordGatewaySettleFailure(key, Date.now(), { global });
+      // The Algorand facilitator refused a SUB-CENT settle for our spent
+      // sponsored allowance (2026-09-28: one outside buyer refused 325 calls
+      // for it, told their wallet was the problem). The offer gate has
+      // already withdrawn Algorand from the next sub-cent 402
+      // (src/avm-sponsorship.js), so the loop is closed and this is not the
+      // buyer's to carry: kept off the WALLET's count, and not a clear either.
+      // It still feeds the /v1 global pause when this consult takes part in
+      // it - that pause names no wallet, and it is the backstop if requests
+      // already in flight keep arriving.
+      if (isWithdrawnSubcentRefusal(receipt)) {
+        if (global) recordGatewaySettleFailure(null, Date.now(), { global: true });
+        return;
+      }
+      // Any OTHER facilitator billing refusal (free_tier_exhausted, a credits
+      // wall, the gate switched off) has nothing withdrawing its offer, so it
+      // counts exactly like a failed settle - per wallet and globally - and is
+      // only marked, so the 429 says what happened instead of blaming the wallet.
+      if (st === 402 || receipt?.success === false) recordGatewaySettleFailure(key, Date.now(), { global, billing: isBillingRefusalReceipt(receipt) });
       else if (st === 200) recordGatewaySettleSuccess(key);
       // Anything else (a 4xx/5xx the handler threw) was never settled and is
       // not this wallet's doing: neither counted nor cleared.
@@ -178,7 +200,13 @@ export function gatewaySettleBreakerCheck(req, { now = Date.now(), global = true
   const b = gatewaySettleBreakerBlocked(key, now);
   if (b.blocked) {
     const secs = Math.max(1, Math.ceil((b.until - now) / 1000));
-    const e = new Error(`Recent payments from this wallet failed to settle (${b.fails} in the last ${Math.round(WINDOW_MS / 60_000)} min: they verified, the call was served, and the transfer did not go through); paid tools refuse new calls from it until ${new Date(b.until).toISOString()} (about ${secs} s). Nothing was charged for this request. Check the wallet's USDC balance on the paying chain before retrying.`);
+    const mins = Math.round(WINDOW_MS / 60_000);
+    const until = `paid tools refuse new calls from it until ${new Date(b.until).toISOString()} (about ${secs} s). Nothing was charged for this request.`;
+    // Every counted failure a facilitator billing refusal: say that, and do
+    // not send the buyer to a wallet balance that was never the problem.
+    const e = new Error(b.billingFails >= b.fails
+      ? `Recent payments from this wallet could not be settled (${b.fails} in the last ${mins} min: each verified and was served, then the paying network's facilitator refused to settle it under a billing limit on this server's own account - not because of the wallet); ${until} After that, pay on a network other than the one refused, from the route's current 402.`
+      : `Recent payments from this wallet failed to settle (${b.fails} in the last ${mins} min: they verified, the call was served, and the transfer did not go through${b.billingFails ? `; ${b.billingFails} of them ${b.billingFails === 1 ? "was" : "were"} a facilitator billing refusal on this server's account, not the wallet's` : ""}); ${until} Check the wallet's USDC balance on the paying chain before retrying.`);
     e.statusCode = 429;
     e.retryAfterMs = b.until - now;
     try { req?.res?.setHeader?.("Retry-After", String(secs)); } catch { /* headers are best-effort */ }
@@ -205,4 +233,4 @@ export function gatewaySettleBreakerStatus(now = Date.now()) {
 }
 
 /** Test-only. */
-export function _gatewaySettleBreakerReset() { fails.clear(); globalFails = []; globalPausedUntil = 0; globalTrips = 0; }
+export function _gatewaySettleBreakerReset() { fails.clear(); billingFails.clear(); globalFails = []; globalPausedUntil = 0; globalTrips = 0; }

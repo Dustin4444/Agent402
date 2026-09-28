@@ -32,7 +32,12 @@
 //     lags or fails.
 // Cleared by a status read STARTED after that evidence that shows headroom
 // (used < quota, or purchased units), and by the UTC month turning (the
-// allowance resets on the 1st). FAILS OPEN: evidence older than
+// allowance resets on the 1st). A status row LAST UPDATED in an earlier UTC
+// month is not evidence about this one: the document carries no month field,
+// and its `usedMonth` is a stored counter that may only roll over on the
+// facilitator's next write - which a paused rail would never send. So after
+// the 1st only a fresh `subcent_quota_exceeded` refusal (or a row the
+// facilitator has rewritten this month) can pause again. FAILS OPEN: evidence older than
 // AVM_SPONSORSHIP_STALE_MS (the status unreadable since) offers the rail
 // again, so an unreachable status endpoint costs at most one refused settle
 // per window, never a silently withdrawn rail. Transitions are logged once.
@@ -75,11 +80,22 @@ export function isSponsorshipExhausted(row) {
 }
 
 export const utcMonthOf = (ms) => new Date(ms).toISOString().slice(0, 7);
+
+/** Pure: the row was last written in an EARLIER UTC month than `now`, so its
+ *  usedMonth describes that month, not this one. A row without a readable
+ *  updatedTs is taken at its word (the rule the canaries already applied). */
+export function isSponsorshipRowFromEarlierMonth(row, now = Date.now()) {
+  const ts = Date.parse(String(row?.updatedTs ?? ""));
+  return Number.isFinite(ts) && utcMonthOf(ts) < utcMonthOf(now);
+}
 const mask = (a) => { const s = String(a || ""); return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s; };
 
 // payTo -> { exhausted, evidenceAt, source, detail, effective, pausedSince, lastRead }
 const state = new Map();
 let log = (msg) => console.warn(msg);
+// Set once the filter is on the resource server's prototype: only then does a
+// refusal the gate answers for actually leave the next 402.
+let gateInstalled = false;
 const entry = (payTo) => {
   const k = String(payTo);
   if (!state.has(k)) state.set(k, { exhausted: false, evidenceAt: 0, source: null, detail: null, effective: false, pausedSince: null, lastRead: null });
@@ -115,7 +131,9 @@ function reconcile(payTo, now) {
 /**
  * Record a /sponsorship/status read. `readStartedAt` guards the one race that
  * matters: a read that began before a settle refusal cannot clear the pause
- * that refusal set. Returns "exhausted" | "headroom" | "unreadable" | "predates-refusal".
+ * that refusal set. A row last updated in an earlier UTC month is not
+ * evidence either way (see the header). Returns "exhausted" | "headroom" |
+ * "unreadable" | "predates-refusal" | "earlier-month".
  */
 export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStartedAt = now } = {}) {
   if (!payTo) return "unreadable";
@@ -125,6 +143,12 @@ export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStarte
     s.lastRead = "unreadable";
     reconcile(payTo, now);
     return "unreadable";
+  }
+  if (isSponsorshipRowFromEarlierMonth(row, now)) {
+    if (s.lastRead !== "earlier-month") log(`[avm-subcent] sponsorship status for payTo ${mask(payTo)} was last updated ${new Date(Date.parse(row.updatedTs)).toISOString()}, before this UTC month began - not evidence for this month; only a fresh subcent_quota_exceeded refusal can pause sub-cent Algorand until the facilitator rewrites it`);
+    s.lastRead = "earlier-month";
+    reconcile(payTo, now);
+    return "earlier-month";
   }
   s.lastRead = "ok";
   const exhausted = isSponsorshipExhausted(row);
@@ -154,6 +178,26 @@ export function noteAvmSettleRefusal({ network, payTo, reason, now = Date.now() 
   return true;
 }
 
+/**
+ * A settle receipt (decoded PAYMENT-RESPONSE) that THIS gate answers for: an
+ * Algorand settle refused `subcent_quota_exceeded` while the gate is armed and
+ * installed and a payTo is paused right now. The settle-failure hook has
+ * already paused that payTo (it runs before the response is written), so the
+ * next sub-cent 402 no longer offers Algorand and the loop is closed here.
+ * The settle breaker uses this, and only this, to keep such a refusal off the
+ * BUYER's count. Every other billing refusal - another network, another
+ * facilitator, the gate switched off - has nothing withdrawing its offer, so
+ * the breakers' bounds stay on it.
+ */
+export function isWithdrawnSubcentRefusal(receipt, now = Date.now()) {
+  if (!gateInstalled || !avmSubcentGateEnabled()) return false;
+  if (!receipt || typeof receipt !== "object" || receipt.success !== false) return false;
+  if (!String(receipt.network || "").startsWith(ALGORAND_PREFIX)) return false;
+  if (!/subcent_quota_exceeded/i.test(`${receipt.errorReason || ""} ${receipt.errorMessage || ""}`)) return false;
+  for (const payTo of state.keys()) if (isSubcentPaused(payTo, now)) return true;
+  return false;
+}
+
 /** Pure: an Algorand USDC requirement priced under one cent. Anything unreadable is not. */
 export function isAvmSubcentRequirement(r) {
   if (!r || typeof r !== "object" || !String(r.network || "").startsWith(ALGORAND_PREFIX)) return false;
@@ -176,7 +220,7 @@ export function withoutPausedSubcentAvm(requirements, isPaused = isSubcentPaused
 export function installAvmSubcentGate(ResourceServerClass) {
   const proto = ResourceServerClass?.prototype;
   if (!proto || typeof proto.buildPaymentRequirementsFromOptions !== "function") return false;
-  if (proto.buildPaymentRequirementsFromOptions[PATCHED]) return false;
+  if (proto.buildPaymentRequirementsFromOptions[PATCHED]) { gateInstalled = true; return false; }
   const orig = proto.buildPaymentRequirementsFromOptions;
   const build = async function buildPaymentRequirementsFromOptions(paymentOptions, context) {
     const requirements = await orig.call(this, paymentOptions, context);
@@ -187,6 +231,7 @@ export function installAvmSubcentGate(ResourceServerClass) {
   for (const sym of Object.getOwnPropertySymbols(orig)) build[sym] = orig[sym];
   build[PATCHED] = true;
   proto.buildPaymentRequirementsFromOptions = build;
+  gateInstalled = true;
   return true;
 }
 
@@ -241,8 +286,10 @@ export function avmSubcentOfferStatus(now = Date.now()) {
   }];
 }
 
-/** Test-only. */
-export function _resetAvmSponsorshipForTest({ logger } = {}) {
+/** Test-only. `installed` overrides the install flag (the prototype patch
+ *  itself is process-wide and cannot be undone). */
+export function _resetAvmSponsorshipForTest({ logger, installed } = {}) {
   state.clear();
   log = logger || ((msg) => console.warn(msg));
+  if (typeof installed === "boolean") gateInstalled = installed;
 }

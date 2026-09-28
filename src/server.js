@@ -48,7 +48,6 @@ import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
-import { isBillingRefusalReceipt, settleReceiptOf } from "./payment-reject.js";
 import { avmSubcentOfferStatus } from "./avm-sponsorship.js";
 import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
@@ -8838,12 +8837,15 @@ for (const tool of ALL_KIT) {
             // synthesis, upstream outage): both burned upstream with no revenue.
             // A 4xx input/evidence error happens before meaningful spend and is
             // NOT counted - three typos must not block a legitimate buyer.
-            // A 402 whose settle receipt says the FACILITATOR refused on a
-            // billing quota of ours is not this buyer's doing either: never
-            // counted against them (same rule as the settle breaker).
+            // A 402 from a FACILITATOR billing refusal counts here too: a
+            // composite is EVM exact only (acceptsForItem), so the Algorand
+            // sub-cent refusal the offer gate withdraws can never reach it,
+            // and on any other rail nothing withdraws the refused offer - this
+            // guard's per-payer and global bounds are all that stop a billing
+            // lapse becoming an unbounded run of served, never-charged reports.
             const st = res.statusCode;
             if (st === 200) recordCompositeSpendSuccess(guardKey);
-            else if ((st === 402 && !isBillingRefusalReceipt(settleReceiptOf(res))) || st >= 500) recordCompositeSpendFailure(guardKey);
+            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
           } catch { /* never break a response */ }
         });
       }

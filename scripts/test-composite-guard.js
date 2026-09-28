@@ -67,19 +67,27 @@ const fast = acceptsForItem({ slug: "uuid", price: "$0.001" }, rails);
 ok(slow.every((a) => a.network.startsWith("eip155:")) && slow.length === 1, "a longRunning composite advertises EVM exact only");
 ok(fast.some((a) => a.network.startsWith("solana:")) && fast.some((a) => a.network.startsWith("algorand:")), "a normal tool still advertises every configured rail");
 
-// A 402 whose settle receipt says the FACILITATOR refused on a billing quota of
-// ours (free_tier_exhausted on a composite's EVM rail) is not the buyer's doing:
-// the composite guard never counts it, same rule as the settle breaker.
+// A 402 from a FACILITATOR billing refusal COUNTS here. A composite is EVM
+// exact only (above), so the Algorand sub-cent refusal the offer gate
+// withdraws (src/avm-sponsorship.js) never reaches it, and on an EVM rail
+// nothing withdraws a refused offer: the guard's per-payer and global bounds
+// are all that stop a billing lapse becoming unbounded served, never-charged
+// reports. The predicate itself is pinned too, since the settle breaker words
+// its 429 with it.
 {
-  const { isBillingRefusalReceipt, settleReceiptOf } = await import("../src/payment-reject.js");
-  const resWith = (receipt) => ({ getHeader: (k) => (/^payment-response$/i.test(k) && receipt ? Buffer.from(JSON.stringify(receipt)).toString("base64") : undefined) });
-  ok(isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "free_tier_exhausted" }))), "a free_tier_exhausted receipt is a billing refusal");
-  ok(isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "subcent_quota_exceeded" }))), "so is subcent_quota_exceeded");
-  ok(!isBillingRefusalReceipt(settleReceiptOf(resWith({ success: false, errorReason: "insufficient_funds" }))), "insufficient_funds is the buyer's, and still counts");
-  ok(!isBillingRefusalReceipt(settleReceiptOf(resWith({ success: true, errorReason: "free_tier_exhausted" }))) && !isBillingRefusalReceipt(settleReceiptOf(resWith(null))), "a settled or absent receipt is never one");
+  const { isBillingRefusalReceipt } = await import("../src/payment-reject.js");
+  ok(isBillingRefusalReceipt({ success: false, errorReason: "free_tier_exhausted" }), "a free_tier_exhausted receipt is a billing refusal");
+  ok(isBillingRefusalReceipt({ success: false, errorReason: "subcent_quota_exceeded" }), "so is subcent_quota_exceeded");
+  ok(isBillingRefusalReceipt({ success: false, errorReason: "unexpected_settle_error", errorMessage: "Facilitator settle failed (403): payment required: buy more credits" }), "so is a credits wall named only in the message of a generic reason");
+  ok(!isBillingRefusalReceipt({ success: false, errorReason: "insufficient_funds" }), "insufficient_funds is the buyer's");
+  ok(!isBillingRefusalReceipt({ success: false, errorReason: "transaction_failed", errorMessage: "rpc quota exceeded" }), "a payment verdict (transaction_failed) is never relabelled by words in its message");
+  ok(!isBillingRefusalReceipt({ success: true, errorReason: "free_tier_exhausted" }) && !isBillingRefusalReceipt(null), "a settled or absent receipt is never one");
   const { readFileSync } = await import("node:fs");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  ok(/else if \(\(st === 402 && !isBillingRefusalReceipt\(settleReceiptOf\(res\)\)\) \|\| st >= 500\) recordCompositeSpendFailure\(guardKey\);/.test(server), "the composite finish listener skips a billing-refusal 402 and still counts every other 402 and 5xx");
+  const from = server.indexOf("if (compositeGuardBlocked(guardKey))");
+  const listener = server.slice(from, server.indexOf("let cacheKey = null;", from));
+  ok(/else if \(st === 402 \|\| st >= 500\) recordCompositeSpendFailure\(guardKey\);/.test(listener), "the composite finish listener counts every 402 and 5xx, billing refusals included");
+  ok(!/isBillingRefusalReceipt|isWithdrawnSubcentRefusal/.test(listener), "...with no billing exemption anywhere in it");
 }
 
 await new Promise((r) => setTimeout(r, 700));
