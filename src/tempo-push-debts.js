@@ -75,3 +75,21 @@ export function createTempoPushDebts({ recordOwed, voidOnClaim, renoteOwed, refu
     },
   };
 }
+
+// A Tempo push credential's sender is read from the chain BESIDE the handler
+// (src/mpp-tempo.js sets req.mppTempoLedgerPayerRead, a promise that always
+// resolves, bounded at PUSH_SENDER_WAIT_MS). A booking that names the payer
+// runs once that read has settled; everything else, the handler included,
+// never waits on it. Own properties only.
+export function tempoLedgerPayerPending(req) {
+  return !!req && Object.hasOwn(req, "mppTempoLedgerPayerRead")
+    && !(Object.hasOwn(req, "mppTempoLedgerPayerReadDone") && req.mppTempoLedgerPayerReadDone === true)
+    && typeof req.mppTempoLedgerPayerRead?.then === "function";
+}
+/** Run `fn` now when no sender read is pending, else once it settles. */
+export function whenTempoLedgerPayerKnown(req, label, fn) {
+  if (!tempoLedgerPayerPending(req)) return fn();
+  const run = () => { try { fn(); } catch (e) { console.error(`[${label}] deferred booking failed: ${e?.message || e}`); } };
+  req.mppTempoLedgerPayerRead.then(run, run);
+  return undefined;
+}

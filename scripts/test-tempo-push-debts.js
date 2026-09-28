@@ -24,8 +24,8 @@ process.env.TEMPO_API_KEY = "test-tempo-key";
 process.env.TEMPO_RECIPIENT_ADDRESS = TREASURY;
 process.env.TEMPO_CURRENCY = CUR;
 
-const { createTempoGate } = await import("../src/mpp-tempo.js");
-const { createTempoPushDebts, PUSH_INPUT_REFUSED_NOTE, PUSH_CLAIMED_NOTE, PUSH_FINALIZE_FAILURE_STATUS, PUSH_HANGUP_AFTER_CLAIM_NOTE } = await import("../src/tempo-push-debts.js");
+const { createTempoGate, PUSH_SENDER_WAIT_MS } = await import("../src/mpp-tempo.js");
+const { createTempoPushDebts, PUSH_INPUT_REFUSED_NOTE, PUSH_CLAIMED_NOTE, PUSH_FINALIZE_FAILURE_STATUS, PUSH_HANGUP_AFTER_CLAIM_NOTE, whenTempoLedgerPayerKnown } = await import("../src/tempo-push-debts.js");
 const { isRepeatHangup, isLastingEffectHangup, HANGUP_STATUS } = await import("./refund-run.js");
 const ledger = await import("../src/refund-ledger.js");
 const { createReplayGuard } = await import("../src/replay-guard.js");
@@ -199,6 +199,59 @@ const rowsFor = (hash) => ledger.listRefunds({ status: "all", limit: 1000 }).fil
   await post(pushCred(hf), { text: "x" });
   ok(debts.hungUp(hf, "no ticket") === false && rowsFor(hf)[0].httpStatus === 402, "a finalize-refused row is not a disconnect and is never rewritten");
   ok(debts.hungUp(hashFor(14), "no ticket") === false && rowsFor(hashFor(14)).length === 0, "no row, nothing written");
+}
+
+// THE HANDLER NEVER WAITS ON THE SENDER READ (2026-09-28). A slow Tempo RPC
+// used to hold an honest push buyer before the handler for up to the read's
+// bound; now the read runs beside the handler and only the booking waits.
+{
+  const slowApp = express();
+  slowApp.use(express.json());
+  let readDelayMs = 600;
+  let readStartedAt = 0;
+  const booked = [];
+  const handlerStarts = [];
+  slowApp.use((req, res, next) => {
+    res.on("finish", () => { if (res.statusCode === 200 && req.tempoSettled) whenTempoLedgerPayerKnown(req, "test", () => booked.push({ hash: req.mppTempoPushHash, payer: req.mppTempoLedgerPayer, at: Date.now() })); });
+    next();
+  });
+  slowApp.use(createTempoGate({
+    secretKey: SECRET, realm: REALM, priceFor, replayGuard: createReplayGuard(),
+    validate: async () => ({ ok: true, validation: {} }),
+    broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: `0xs${++n}`, timestamp: new Date().toISOString() } }),
+    pushSender: () => { readStartedAt = Date.now(); return readDelayMs === Infinity ? new Promise(() => {}) : new Promise((r) => setTimeout(() => r(SENDER.toUpperCase().replace("0X", "0x")), readDelayMs)); },
+  }));
+  slowApp.use((req, res, next) => (req.tempoSettling ? next() : res.status(402).json({ error: "Payment Required" })));
+  slowApp.post("/paid", (req, res) => { handlerStarts.push(Date.now()); res.json({ ok: true }); });
+  const srv = slowApp.listen(0);
+  await new Promise((r) => srv.once("listening", r));
+  const slowUrl = `http://127.0.0.1:${srv.address().port}/paid`;
+  const buy = async (h) => { const t0 = Date.now(); const r = await fetch(slowUrl, { method: "POST", headers: { "content-type": "application/json", Authorization: pushCred(h) }, body: JSON.stringify({ text: "x" }) }); return { status: r.status, ms: Date.now() - t0 }; };
+  const waitFor = async (pred, ms) => { const end = Date.now() + ms; while (!pred() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return pred(); };
+
+  const h = hashFor(20);
+  const r = await buy(h);
+  ok(r.status === 200 && r.ms < readDelayMs && handlerStarts.length === 1 && handlerStarts[0] - readStartedAt < readDelayMs / 2,
+    `a push buy is served without waiting on a ${readDelayMs} ms sender read (answered in ${r.ms} ms, handler started ${handlerStarts[0] - readStartedAt} ms after the read began)`);
+  ok(booked.length === 0, "the booking that names the payer has not run yet: it waits for the read");
+  ok(await waitFor(() => booked.length === 1, 2000) && booked[0].hash === h && booked[0].payer === SENDER && booked[0].at - readStartedAt >= readDelayMs - 20,
+    `once the read completes inside its bound, the sale is booked under the chain-read sender, lowercased (${JSON.stringify(booked[0])})`);
+
+  // A read that never answers: still served at once, booked after the bound
+  // with nobody named, exactly as a failed read did before.
+  readDelayMs = Infinity;
+  const h2 = hashFor(21);
+  const r2 = await buy(h2);
+  ok(r2.status === 200 && r2.ms < 500, `a hung sender read does not hold the answer (${r2.ms} ms)`);
+  ok(await waitFor(() => booked.length === 2, PUSH_SENDER_WAIT_MS + 1500) && booked[1].hash === h2 && booked[1].payer === null && booked[1].at - readStartedAt >= PUSH_SENDER_WAIT_MS - 20,
+    `past the ${PUSH_SENDER_WAIT_MS} ms bound the booking runs with the payer null (${JSON.stringify(booked[1])})`);
+  srv.close();
+  const src = (await import("node:fs")).readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/if \(!FREE_MODE\) whenTempoLedgerPayerKnown\(req, "sales", \(\) => \{/.test(src), "server.js books the sale through the wait");
+  ok(/whenTempoLedgerPayerKnown\(req, "refund-ledger", \(\) => recordRefundOwed\(/.test(src), "...and a Tempo/Stripe handler-failure debt");
+  ok(/if \(req\.tempoSettled && tempoLedgerPayerPending\(req\)\) \{\s*\n\s*whenTempoLedgerPayerKnown\(req, "hangup"/.test(src), "...and a disconnect debt");
+  const tempoSrc = (await import("node:fs")).readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8");
+  ok(!/req\.mppTempoLedgerPayer = await readPushSender\(\)/.test(tempoSrc), "the gate no longer awaits the sender read before next()");
 }
 
 // The void path never touches a row that is not owed, and needs a note.

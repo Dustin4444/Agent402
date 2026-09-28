@@ -25,6 +25,7 @@ import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, temp
 import { Transaction as TempoTransaction } from "viem/tempo";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { createReplayGuard } from "../src/replay-guard.js";
+import { whenTempoLedgerPayerKnown } from "../src/tempo-push-debts.js";
 import { paymentRequiredBodyMiddleware, PAYMENT_REQUIRED_OFFER_KEYS } from "../src/payment-required-body.js";
 import { isDeepStrictEqual } from "node:util";
 
@@ -812,7 +813,8 @@ async function withWarnings(fn) {
   app.post("/paid", (req, res) => {
     order.push("handler");
     seenSettled.push(req.tempoSettled === true);
-    seenLedger.push(req.mppTempoLedgerPayer ?? null);
+    // The sender read runs beside the handler; a booking waits for it.
+    whenTempoLedgerPayerKnown(req, "test", () => seenLedger.push(req.mppTempoLedgerPayer ?? null));
     if (!req.body?.text || req.body.text === "bad") return res.status(400).json({ error: "handler refused the input" });
     if (req.body?.text === "slow") return setTimeout(() => res.json({ late: true }), 400);
     res.json({ ok: 1 });
@@ -821,6 +823,7 @@ async function withWarnings(fn) {
   const post = (cred, text, extra = {}) => fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json", Authorization: cred }, body: JSON.stringify(text === undefined ? {} : { text }), ...extra });
   const r1 = await post(buildTempoCredential({ push: true, source: "did:pkh:eip155:4217:0x1111111111111111111111111111111111111111" }), "x");
   ok(r1.status === 200 && !!r1.headers.get("payment-receipt") && isDeepOrderOk(order, ["validate", "broadcast", "handler"]) && seenSettled[0] === true, `case S: a push credential is finalized BEFORE the handler, which sees the request settled (order ${order.join(",")})`);
+  for (let i = 0; i < 50 && seenLedger.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
   ok(seenLedger[0] === PUSH_FROM, `case S: a push sale is booked under the sender the chain reports, never the client-written source (${seenLedger[0]})`);
   order.length = 0;
   const r2 = await post(buildTempoCredential({ push: true }), "bad");

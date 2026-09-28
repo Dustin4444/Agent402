@@ -440,6 +440,10 @@ export function tempoReplayKey(authorizationHeader) {
   }
 }
 
+/** How long a push credential's sender read may take before it names
+ *  nobody (the same bound tempoPushSender applies to its RPC call). */
+export const PUSH_SENDER_WAIT_MS = 3000;
+
 /** The transaction hash a PUSH credential names (lowercased), else null.
  *  The evidence a refund-owed row for an unclaimed push transfer is keyed on. */
 export function pushHashOf(authorizationHeader) {
@@ -1171,9 +1175,15 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         // refund. Nothing is claimed yet, so the same credential still pays
         // for this request once the body is corrected (until the challenge
         // expires): say so, and release the replay key so it can.
+        // Bounded here as well as inside tempoPushSender: an injected reader
+        // gets the same ceiling, and a read past it names nobody.
         const readPushSender = async () => {
           if (typeof pushSender !== "function") return null;
-          try { return lcAddress(await pushSender(auth)); } catch { return null; }
+          let timer = null;
+          try {
+            const bound = new Promise((resolve) => { timer = setTimeout(() => resolve(null), PUSH_SENDER_WAIT_MS); timer.unref?.(); });
+            return lcAddress(await Promise.race([Promise.resolve().then(() => pushSender(auth)), bound]));
+          } catch { return null; } finally { if (timer) clearTimeout(timer); }
         };
         const pushHash = pushHashOf(auth);
         req.mppTempoPushHash = pushHash;
@@ -1237,7 +1247,18 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         }
         const receiptHeader = tempoReceiptHeader(f.receipt);
         if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);
-        req.mppTempoLedgerPayer = await readPushSender();
+        // THE HANDLER NEVER WAITS ON THE SENDER READ (2026-09-28). It is one
+        // Tempo RPC round trip (bounded at PUSH_SENDER_WAIT_MS) and was awaited
+        // here, so an honest buyer waited on it whenever the RPC was slow. It
+        // now runs beside the handler; only the bookings that name the payer
+        // (the sale, a debt) wait for it, at finish (server.js
+        // whenTempoLedgerPayerKnown). A read that fails or times out leaves
+        // the payer null, as before.
+        req.mppTempoLedgerPayerRead = readPushSender().then((p) => {
+          if (p) req.mppTempoLedgerPayer = p;
+          req.mppTempoLedgerPayerReadDone = true;
+          return p;
+        });
         settleReplay();
         req.tempoSettled = true;
         console.log(`[mpp-tempo] settled push credential before the handler ${req.method} ${req.path} tx=${f.receipt?.reference || "?"} [validate=${tValidated - t0}ms finalize=${Date.now() - tFinal0}ms]`);

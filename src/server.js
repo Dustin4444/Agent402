@@ -144,6 +144,12 @@ function tempoPushHashOf(req) {
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
+  // The debt names the chain-read sender: book it once that read is done.
+  // Truthy meanwhile, so recordHangupOutcome does not log it as uncharged.
+  if (req.tempoSettled && tempoLedgerPayerPending(req)) {
+    whenTempoLedgerPayerKnown(req, "hangup", () => { recordHangupDebt(req, res); });
+    return { deferred: true };
+  }
   const synthetic = isSyntheticRequest(req);
   let row = null;
   const settleReceipt = res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE");
@@ -635,7 +641,7 @@ const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
-import { createTempoPushDebts } from "./tempo-push-debts.js";
+import { createTempoPushDebts, tempoLedgerPayerPending, whenTempoLedgerPayerKnown } from "./tempo-push-debts.js";
 import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -8700,7 +8706,7 @@ app.use((req, res, next) => {
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing
         // was paid, so a "settlement" event would be a lie.
-        if (!FREE_MODE) {
+        if (!FREE_MODE) whenTempoLedgerPayerKnown(req, "sales", () => {
           const rail = method;
           const network = method === "usdc" ? networkFor() : method === "credits" ? "stripe" : null;
           const priceUsd = settledPriceUsd(def, req, res);
@@ -8758,7 +8764,7 @@ app.use((req, res, next) => {
           // can change what the buyer was charged, what was served, or what
           // /revenue reports - see src/stripe-shadow-ledger.js.
           recordShadowSettlement({ slug: def.slug, priceUsd, rail, network, tx: settleTx, synthetic });
-        }
+        });
       } else if (settleReceipt) {
         // A non-200 carrying the settle-receipt header. The receipt's `success`
         // field decides which incident this is: the middleware attaches the
@@ -8843,7 +8849,7 @@ app.use((req, res, next) => {
         // relay's receipt reference comes back in.
         const tx = req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
         recordChargedFailure(def.slug, res.statusCode);
-        recordRefundOwed({
+        whenTempoLedgerPayerKnown(req, "refund-ledger", () => recordRefundOwed({
           slug: def.slug,
           network: req.tempoSettled ? "tempo" : "stripe",
           payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
@@ -8852,7 +8858,7 @@ app.use((req, res, next) => {
           httpStatus: res.statusCode,
           synthetic: isSyntheticRequest(req),
           wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
-        });
+        }));
       }
     });
   }
