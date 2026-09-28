@@ -457,6 +457,40 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const e2 = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: midway(null), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { walletMaxCalls: 8 } });
   ok(e2.ev[E].fundingRead === true && e2.ev[E].circular === true && eCalls(e2) > 2, `(control: the same progress on a new episode is planned what it needs, and read in full on the same share, ${eCalls(e2)} calls)`);
 
+  // THE ACCOUNTING ROUND-TRIPS through the volume: the episode, the waits,
+  // the learned width and the day's record.
+  const rt = parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: { [E]: { c: latest, t: 0, s: 0, x: 0, seen: NOW, lc: null, ep: [3, 9, NOW - 3_600_000], st: 2, hw: 40_000, ra: NOW + 5, p: {}, k: {}, b: {} } }, d: [[NOW - 1000, 7]] }), USDC);
+  const rt2 = parseFundingState(serializeFundingState(rt), USDC);
+  const rw = rt2.wallets.get(E);
+  ok(rw.ep?.pl === 3 && rw.ep?.sp === 9 && rw.ep?.t === NOW - 3_600_000 && rw.st === 2 && rw.hw === 40_000 && rw.retryAt === NOW + 5 && SF.fundingDayCalls(rt2, NOW) === 7,
+    "the episode, the waits, the learned width and the day's record all round-trip through the volume");
+
+  // A READ THAT GOT NO TURN is not marked as having got nowhere: a budget
+  // spent before it keeps it as it was, so it is not put last next time.
+  const nt = midway([3, 3, NOW - 3_600_000]);
+  const ntr = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: nt, latest, span: SPAN, historyFrom: 2_797_221, readOpts: { maxCalls: 0, scanMaxCalls: 400 } });
+  ok(ntr.stats.history.calls === 0 && ntr.stats.history.budgetExhausted && nt.wallets.get(E).hp.find((g) => g.k === "o")?.pg === 1, "a resumed read the budget never reached keeps its mark of progress (not put last next scan)");
+  const nf = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { maxCalls: 0 } });
+  ok(nf.stats.history.calls === 0 && nf.ev[E].fundingRead === false, "(a new read on no budget: nothing read, the wallet counts as it is)");
+
+  // A WALLET THAT HAS HAD TO WAIT starts a NEW read (payers it had not seen)
+  // at the width it learned, doubled, not at the whole history again.
+  const waited = (st) => parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: { [E]: { c: latest, t: posOf(latest - SPAN, 0) - 1, s: latest - SPAN, x: 0, seen: NOW, lc: null, ...(st ? { st, ra: NOW - 1, hw: 10_000_000 } : {}), p: {}, k: {}, b: {} } } }), USDC);
+  const firstOut = (r) => r.calls.find((c) => Array.isArray(c.topics[2]) && c.topics[1].includes(topic(E)));
+  const wr = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: waited(1), latest, span: SPAN, historyFrom: 2_797_221 });
+  const wr0 = await scanOnce({ sellers: [seller(E, "episode.example")], pays: ep, outs: eo, state: waited(0), latest, span: SPAN, historyFrom: 2_797_221 });
+  ok(firstOut(wr)?.span === 20_000_000 && firstOut(wr0)?.span === latest - 2_797_221 + 1, `a wallet back from a wait reads new payers at the width it learned, doubled (${firstOut(wr)?.span} blocks); one that never waited reads the whole history at once (${firstOut(wr0)?.span})`);
+
+  // A LIGHT WALLET PACKED WITH A HEAVY ONE is never made to wait for it: the
+  // calls that isolate the heavy one are planned for every wallet in the job,
+  // so when the budget runs out mid-way no light wallet is over its plan.
+  const H2 = addr("ec");
+  const h2p = [...lp];
+  for (let k = 0; k < 20; k++) for (let c = 0; c < 5; c++) h2p.push({ wallet: H2, payer: P(6800 + k), usd: 0.01, pos: posOf(latest - 5_000 + k * 5 + c, 1) });
+  const h2st = createFundingState(USDC);
+  const h2 = await scanOnce({ sellers: [seller(H2, "heavy2.example"), ...sells], pays: h2p, outs: lo, state: h2st, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(H2)) && span > 10_000 ? SIZE_REFUSAL : false) }, readOpts: { maxCalls: 4 } });
+  ok(h2.stats.history.budgetExhausted && lights.every((w) => !h2st.wallets.get(w).retryAt), `four calls, spent isolating the heavy wallet in the packed job: no light wallet waits for it (${lights.filter((w) => h2st.wallets.get(w).retryAt).length} waiting)`);
+
   // A STALE EPISODE starts over: one that nothing was charged to for a day
   // does not count against a wallet's next read.
   const S = addr("ea");
