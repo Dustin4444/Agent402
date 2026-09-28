@@ -65,9 +65,9 @@ const receipts = {
 };
 
 const ROWS = [
-  { id: 1, slug: "route-execute", network: "eip155:8453", payer: BUYER_A, priceUsd: 0.01, evidence: TX.reBase, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
+  { id: 1, slug: "route-execute", network: "eip155:8453", payer: BUYER_A, priceUsd: 0.01, evidence: TX.reBase, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 499 },
   { id: 2, slug: "route-execute", network: ALGO_NET, payer: BUYER_ALGO, priceUsd: 0.01, evidence: ALGO_TXID, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
-  { id: 3, slug: "hash", network: "eip155:8453", payer: BUYER_B, priceUsd: 0.001, evidence: TX.hash, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
+  { id: 3, slug: "hash", network: "eip155:8453", payer: BUYER_B, priceUsd: 0.001, evidence: TX.hash, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000, httpStatus: 502 },
   { id: 4, slug: "route-execute", network: "eip155:8453", payer: BUYER_C, priceUsd: 0.01, evidence: TX.stranger, status: "owed", synthetic: 0, createdAt: Date.now() - 60_000 },
 ];
 
@@ -184,6 +184,14 @@ ok(confirmed(shipped.out, 2), "...and one paid to the Algorand spending wallet v
 ok(confirmed(shipped.out, 3), "the treasury-paid debt still verifies (honest path unchanged)");
 ok(unverified(shipped.out, 4) && !confirmed(shipped.out, 4),
   "a route-execute debt paid to a stranger is still held: the set grew by our own wallets only");
+
+// A route-execute row can now pass verification, so the plan a reviewer reads
+// before approving a live run names the status each debt was recorded on: a
+// 499 is a buyer who disconnected, not an answer that failed.
+ok(/#1 eip155:8453 \$0\.01 -> payer:[0-9a-f]{8} \(route-execute, http 499\)/.test(shipped.out)
+   && /#3 eip155:8453 \$0\.001 -> payer:[0-9a-f]{8} \(hash, http 502\)/.test(shipped.out)
+   && /#2 \S+ \$0\.01 -> payer:[0-9a-f]{8} \(route-execute\)/.test(shipped.out),
+   "the plan names each row's recorded status, and a row with none prints as before");
 
 ok(seen.claims > 0 && seen.updatesOtherThanClaim === 0 && seen.sendRaw === 0,
   `nothing was sent: the job stopped at the refused claim (claims ${seen.claims}, other updates ${seen.updatesOtherThanClaim}, raw sends ${seen.sendRaw})`);

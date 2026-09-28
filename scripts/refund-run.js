@@ -361,12 +361,16 @@ async function main() {
     includeSynthetic: /^(1|true|yes)$/i.test(process.env.REFUND_INCLUDE_SYNTHETIC || ""),
     senders,
   });
+  // Each line names the response status the debt was recorded on, so a
+  // reviewer reading the dry run can tell a failed answer from a buyer who
+  // disconnected (499) before approving a live run.
+  const what = (r) => `${r.slug}${r.httpStatus ? `, http ${r.httpStatus}` : ""}`;
   for (const [reason, rows] of Object.entries(plan.held)) {
     console.log(`\nHELD (${reason}): ${rows.length}`);
-    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
+    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${what(r)})`);
   }
   console.log(`\nTO SEND: ${plan.send.length} refund(s), $${plan.totalUsd} total`);
-  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
+  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${what(r)})`);
 
   if (!LIVE) { console.log("\nDRY RUN - no money moved. Set REFUND_LIVE=true to execute."); return; }
   if (!plan.send.length) { console.log("nothing to send."); return; }
