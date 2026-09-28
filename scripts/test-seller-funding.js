@@ -898,11 +898,16 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
     rangeLimitedTargeted = 0;
     // Switched off, the scan itself: no funding read at all, the evidence is
     // gross, and no verdict is carried from the previous scan.
+    const gone = addr("9f");
+    const prevEv = { ...direct.walletEvidence, [gone]: { callsSettled: 0, uniqueBuyers: 0, circular: true, lastCircularAt: new Date(NOW).toISOString(), origins: [] } };
     process.env.LEADERBOARD_FUNDING_SCAN = "off";
     rpcCalls.length = 0;
-    const off = await runLeaderboard({ ...opts, now: NOW, previousWalletEvidence: direct.walletEvidence });
+    const off = await runLeaderboard({ ...opts, now: NOW, previousWalletEvidence: prevEv });
+    const offCalls = [...rpcCalls];
     delete process.env.LEADERBOARD_FUNDING_SCAN;
-    ok(!off.routerFundingScan && rpcCalls.every((p) => !Array.isArray(p.topics?.[1])) && off.walletEvidence[LOOP]?.grossCallsSettled === undefined && Object.values(off.walletEvidence).every((e) => !e.circular && !e.lastCircularAt),
+    const on = await runLeaderboard({ ...opts, now: NOW, previousWalletEvidence: prevEv });
+    ok(on.walletEvidence[gone]?.carried === true, "(control: switched on, the verdict of a wallet the scan no longer sees is carried)");
+    ok(!off.routerFundingScan && offCalls.every((p) => !Array.isArray(p.topics?.[1])) && off.walletEvidence[LOOP]?.grossCallsSettled === undefined && !off.walletEvidence[gone] && Object.values(off.walletEvidence).every((e) => !e.circular && !e.lastCircularAt),
       "switched off, the scan makes no funding read, publishes gross per-wallet evidence and carries no verdict");
   } finally {
     LB.stopLeaderboardRefresh();
