@@ -13,8 +13,12 @@
 // once (real child processes racing a widened critical section); the kill
 // switch, missing credentials and a bad queue post nothing; malformed items
 // are refused; X's answers are classified (duplicate and 400 move on, 5xx and
-// timeouts are in doubt and never re-sent, 401/429 pause the queue, a refused
-// connection retries); an unreadable state file halts posting; a live lock
+// timeouts are in doubt, 401/429 pause the queue, a refused connection
+// retries); an in-doubt post gets exactly one retry at least ten minutes
+// later, inside its window and inside the one-post-per-hour rule, and a
+// duplicate refusal of that retry records it as posted; the alarm word on
+// /api/gateway-status pages on halted, missing keys, an X account refusal and
+// a final in-doubt post; an unreadable state file halts posting; a live lock
 // blocks and a stale one is taken over; only the production server posts (a
 // FREE_MODE boot, a process without NODE_ENV=production and a process with no
 // volume stay read-only - proven on booted servers against a control boot that
@@ -366,9 +370,6 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const five = mk(three, { script: [{ status: 503 }] });
   await five.q.tick();
   ok(five.x.calls.length === 1 && five.status().counts.inDoubt === 1, "a 5xx leaves the item in doubt and nothing else posts that hour");
-  five.set(T0 + H + MIN); await five.q.tick();
-  five.set(T0 + 2 * H + MIN); await five.q.tick();
-  ok(five.x.calls.length === 3 && five.x.calls.filter((c) => c.text === text("x0")).length === 1, "an in-doubt item is never re-sent");
   ok(five.logs.some((l) => /x0 is IN DOUBT \(http_503\)/.test(l)), "the in-doubt line names the id and the class");
 
   const slow = mk(three, { script: [{ throw: () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }) }] });
@@ -404,7 +405,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
 
   const thrower = mk(three, { post: async () => { throw new Error("boom"); } });
   await thrower.q.tick();
-  ok(thrower.status().counts.inDoubt === 1, "a poster that throws is in doubt, never retried");
+  ok(thrower.status().counts.inDoubt === 1, "a poster that throws is in doubt");
 
   // The state file is replaced mid-post (a restore from a backup): the post
   // that went out must still be recorded, or the next tick sends it again.
@@ -421,6 +422,123 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   const poster = createXPoster({ creds: CREDS, fetchImpl: async () => new Response("not json", { status: 201 }) });
   const out = await poster(text("p"));
   ok(out.kind === "posted" && out.tweetId === null, "a 2xx without a readable body still counts as posted");
+}
+
+// ---- 9b. an in-doubt post: one retry, then final; the alarm word -----------
+// A 5xx, a timeout or a dropped socket may or may not have created the post.
+// It gets ONE retry at least ten minutes later: X refuses the retry as a
+// duplicate if the first attempt landed (recorded as posted), and the retry
+// posts it if it did not. A retry that is in doubt again is final.
+{
+  const three = [0, 1, 2].map((k) => ({ id: `r${k}`, when: when(T0), text: text(`r${k}`) }));
+  const DUP = { status: 403, detail: "You are not allowed to create a Tweet with duplicate content." };
+  const sentOf = (s, id) => s.x.calls.filter((c) => c.text === text(id)).length;
+
+  // The first attempt landed behind a 503: the retry is refused as a duplicate.
+  const landed = mk(three, { script: [{ status: 503 }, DUP] });
+  await landed.q.tick();
+  ok(landed.q.alarmStatus().status === "retrying" && landed.status().counts.retryPending === 1 && landed.status().inDoubt[0].retry === "pending", "in doubt with its retry owed: the word is retrying and the read says pending");
+  landed.set(T0 + 9 * MIN); await landed.q.tick();
+  ok(landed.x.calls.length === 1, "no retry before ten minutes have passed");
+  landed.set(T0 + 12 * MIN); const rr = await landed.q.tick();
+  ok(landed.x.calls.length === 2 && sentOf(landed, "r0") === 2 && rr.retried === 1, "the retry runs in the same hour, the one item allowed to use that hour");
+  let st = landed.status();
+  ok(st.counts.posted === 1 && st.counts.inDoubt === 0 && st.lastPosted?.id === "r0" && st.lastPosted.hour === hourOf(T0), "a duplicate refusal of the retry records it as posted in the first attempt's hour");
+  ok(landed.logs.some((l) => /r0 was already on X \(its retry was refused as a duplicate\)/.test(l)), "and says so");
+  ok(landed.x.calls.length === 2, "nothing else posts in the hour the first attempt used");
+  for (let h = 1; h < 6; h++) { landed.set(T0 + h * H + MIN); await landed.q.tick(); }
+  ok(sentOf(landed, "r0") === 2 && landed.x.calls.map((c) => c.text).slice(2).join("|") === [text("r1"), text("r2")].join("|"), "it is never sent a third time; the queue moves on one per hour");
+  ok(landed.q.alarmStatus().status === "ok", "then the word is ok");
+
+  // The first attempt did NOT land: the retry posts it, and that is the hour's one post.
+  const lost = mk(three, { script: [{ status: 503 }, { status: 201 }] });
+  await lost.q.tick();
+  lost.set(T0 + 15 * MIN); await lost.q.tick();
+  st = lost.status();
+  ok(sentOf(lost, "r0") === 2 && st.counts.posted === 1 && lost.logs.some((l) => /posted r0 on its retry in hour/.test(l)), "a post that did not land is posted by its retry");
+  lost.set(T0 + 40 * MIN); await lost.q.tick();
+  ok(lost.x.calls.length === 2, "the next item still waits for the next hour");
+
+  // In doubt twice: final, never sent again, and the alarm pages.
+  const twice = mk(three, { script: [{ status: 503 }, { throw: () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }) }] });
+  await twice.q.tick();
+  twice.set(T0 + 11 * MIN); await twice.q.tick();
+  for (let h = 1; h < 8; h++) { twice.set(T0 + h * H + 20 * MIN); await twice.q.tick(); }
+  st = twice.status();
+  ok(sentOf(twice, "r0") === 2, "a retry that is in doubt again is final: two sends at most");
+  ok(st.counts.inDoubt === 1 && st.counts.retryPending === 0 && st.inDoubt.find((d) => d.id === "r0")?.retry === "used", "the read says its retry is used");
+  ok(twice.logs.some((l) => /r0 is still IN DOUBT after its one retry \(TimeoutError\)/.test(l)), "the final in-doubt line names the id and the class");
+  ok(twice.q.alarmStatus().status === "in_doubt" && st.alarm === "in_doubt", "the word is in_doubt, on the operator read too");
+  const pub = twice.q.alarmStatus();
+  ok(Object.keys(pub).join() === "status", "the public word carries nothing else");
+  const full = twice.q.alarmStatus({ full: true });
+  ok(full.inDoubt === 1 && full.mode === "posting" && !JSON.stringify(full).includes("r0"), "the operator word carries counts and never an id");
+  // The operator checks X, re-queues the text under a new id if it did not
+  // land, and removes the old id: that clears the word.
+  const cleared = createTweetQueue({ queueJson: JSON.stringify(three.slice(1)), creds: CREDS, storePath: twice.storePath, now: () => T0 + 8 * H, log: () => {} });
+  ok(cleared.alarmStatus().status === "ok", "removing the in-doubt id from the queue clears the word");
+
+  // A retry across an hour boundary: the first attempt's hour keeps its slot;
+  // a duplicate frees the new hour for the next item in the same tick.
+  const late = mk(three, { clock: T0 + 55 * MIN, script: [{ status: 502 }, DUP] });
+  await late.q.tick();
+  late.set(T0 + H + 6 * MIN); await late.q.tick();
+  ok(late.x.calls.map((c) => c.text).join("|") === [text("r0"), text("r0"), text("r1")].join("|"), "a retry refused as a duplicate in a later hour lets the next item take that hour");
+  const late2 = mk(three, { clock: T0 + 55 * MIN, script: [{ status: 502 }, { status: 201 }] });
+  await late2.q.tick();
+  late2.set(T0 + H + 6 * MIN); await late2.q.tick();
+  late2.set(T0 + H + 30 * MIN); await late2.q.tick();
+  ok(late2.x.calls.length === 2, "a retry that posts in a later hour is that hour's one post");
+
+  // An hour another item already posted in is closed to a different item's
+  // retry, even once that retry is due.
+  const busy = mk(three, { clock: T0 + 55 * MIN, script: [{ status: 503 }] });
+  await busy.q.tick();
+  busy.set(T0 + H + MIN); await busy.q.tick();
+  ok(busy.x.calls.map((c) => c.text).join("|") === [text("r0"), text("r1")].join("|"), "before r0's retry is due, the next item takes the next hour");
+  busy.set(T0 + H + 20 * MIN); await busy.q.tick();
+  ok(busy.x.calls.length === 2, "r0's retry does not share an hour r1 already posted in");
+  busy.set(T0 + 2 * H + MIN); await busy.q.tick();
+  ok(busy.x.calls.length === 3 && busy.x.calls[2].text === text("r0"), "it runs in the next free hour, ahead of the newer item");
+
+  // An outright refusal of the retry (401) creates nothing: the retry is still owed.
+  const acct = mk(three, { script: [{ status: 503 }, { status: 401, detail: "Unauthorized" }, DUP] });
+  await acct.q.tick();
+  acct.set(T0 + 11 * MIN); await acct.q.tick();
+  ok(acct.status().inDoubt[0]?.retry === "pending" && acct.q.alarmStatus().status === "refused", "a 401 on the retry keeps it owed, and the word is refused");
+  acct.set(T0 + 45 * MIN); await acct.q.tick();
+  ok(sentOf(acct, "r0") === 3 && acct.status().counts.posted === 1 && acct.q.alarmStatus().status === "ok", "after the pause the retry runs; a duplicate records it posted and clears the word");
+
+  // A record that says its retry is used is never retried again, whatever
+  // else it carries (a state file restored or edited by hand).
+  const used = mk([{ id: "u0", when: when(T0), text: text("u0") }], { clock: T0 + 30 * MIN });
+  writeFileSync(used.storePath, JSON.stringify({ v: 1, records: [{ id: "u0", state: "in_doubt", at: T0 + MIN, hour: hourOf(T0), cls: "http_503", retryAt: T0 + 11 * MIN, retried: true }], slots: [{ hour: hourOf(T0), id: "u0" }] }));
+  for (let k = 0; k < 5; k++) { used.set(T0 + k * H + 30 * MIN); await used.q.tick(); }
+  ok(used.x.calls.length === 0 && used.q.alarmStatus().status === "in_doubt", "a used retry is never run again, and it pages");
+
+  // The retry stays inside the catch-up window.
+  const edge = mk([{ id: "w0", when: when(T0), text: text("w0") }], { catchupHours: 1, clock: T0 + 55 * MIN, script: [{ status: 503 }] });
+  await edge.q.tick();
+  edge.set(T0 + 66 * MIN); await edge.q.tick();
+  ok(edge.x.calls.length === 1 && edge.status().inDoubt[0]?.retry === "none" && edge.q.alarmStatus().status === "in_doubt", "past the window the retry is not sent and the post is final in doubt");
+
+  // A SENDING record (a crash mid-post, including mid-retry) is never retried;
+  // once it is older than a post in flight could be, it pages.
+  const crash = mk([{ id: "c0", when: when(T0), text: text("c0") }], { clock: T0 + 3 * MIN });
+  writeFileSync(crash.storePath, JSON.stringify({ v: 1, records: [{ id: "c0", state: "sending", at: T0 + MIN, hour: hourOf(T0), retry: true }], slots: [{ hour: hourOf(T0), id: "c0" }] }));
+  ok(crash.q.alarmStatus().status === "ok", "a SENDING record younger than a post in flight is not an alarm");
+  for (let k = 0; k < 6; k++) { crash.set(T0 + k * H + 20 * MIN); await crash.q.tick(); }
+  ok(crash.x.calls.length === 0 && crash.q.alarmStatus().status === "in_doubt", "a crash-left SENDING record is never retried, and it pages");
+
+  // The other words.
+  const words = async (items, extra, pre) => { const q = mk(items, extra); if (pre) await pre(q); return q.q.alarmStatus().status; };
+  ok(await words(three) === "ok", "posting with nothing in doubt: ok");
+  ok(await words(three, { postingSwitch: "off" }) === "off" && await words(three, { freeMode: true }) === "off" && await words(three, { notProduction: true }) === "off" && await words(null, { raw: "" }) === "off", "switched off, FREE_MODE, not production and no queue: off");
+  ok(await words(three, { creds: {} }) === "no_credentials", "a missing X key: no_credentials");
+  ok(await words(null, { raw: "{nope" }) === "halted" && await words(three, { storePath: null }) === "halted", "an invalid queue or no volume: halted");
+  ok(await words(three, {}, async (s) => { writeFileSync(s.storePath, "{corrupt"); }) === "halted", "a corrupt state file: halted");
+  ok(await words(three, { script: [{ status: 402, detail: "Payment Required" }] }, (s) => s.q.tick()) === "refused", "X refusing the account (402): refused");
+  ok(await words(three, { script: [{ status: 429, detail: "Too Many Requests" }] }, (s) => s.q.tick()) === "ok", "a rate limit alone is not an alarm");
 }
 
 // ---- 10. an unreadable state file halts posting; the lock -------------------
@@ -536,6 +654,14 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
     const { j } = await ctl.read();
     ok(j.mode === "posting" && j.counts.posted === 1 && j.lastPosted?.id === "boot-1", "control: the operator read shows it posted");
     ok(/\[tweet-queue\] posting: 2 postable item\(s\), 1 refused/.test(ctl.log()), "control: the boot line says posting");
+    const pubText = await (await fetch(`${ctl.base}/api/gateway-status`)).text();
+    ALL_STATUS.push(pubText);
+    ok(JSON.stringify(JSON.parse(pubText).tweetQueue) === '{"status":"ok"}', "control: /api/gateway-status publishes the word ok and nothing else");
+    ok(!pubText.includes("boot-1") && !pubText.includes("boot-2"), "the public status never names a queue id");
+    const opText = await (await fetch(`${ctl.base}/api/gateway-status`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+    ALL_STATUS.push(opText);
+    const op = JSON.parse(opText).tweetQueue;
+    ok(op.status === "ok" && op.mode === "posting" && op.inDoubt === 0, "the operator's gateway status adds the mode and counts");
   } finally { ctl.stop(); }
   // Each negative boot is watched until well past the moment the control had
   // posted, counted from its own spawn.
@@ -554,6 +680,7 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
     ok(j.mode === "free_mode" && j.queue.items === 3 && j.queue.valid === 2 && j.queue.refusedByReason.when_not_whole_utc_hour === 1, "FREE_MODE: it reports the mode and the queue counts");
     ok(j.nextDue?.id === "boot-1" && j.nextUpcoming?.id === "boot-2" && j.lastPosted === null, "FREE_MODE: it still previews the next item and hour");
     ok(/\[tweet-queue\] free_mode: 2 postable item\(s\), 1 refused \(when_not_whole_utc_hour 1\), catch-up 12 h/.test(free.log()), "FREE_MODE: the boot log line names the mode, counts only");
+    ok((await (await fetch(`${free.base}/api/gateway-status`)).json()).tweetQueue?.status === "off", "FREE_MODE: the public word is off, which never pages");
   } finally { free.stop(); }
 
   // Paid mode without NODE_ENV=production (a bare local boot): read-only.

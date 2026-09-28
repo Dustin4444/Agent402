@@ -556,6 +556,39 @@ for (const [name, over, detail] of failCases) {
     assert.deepEqual(r.opened, ["Upstream buyer wallet LOW (x402)"]);
   });
 
+  // The server tweet queue (src/tweet-queue.js) publishes one word. Four words
+  // page, ok and off close, and retrying (a post waiting for its one retry) or
+  // an unrecognised word does neither.
+  const TQ = "Tweet queue needs attention (server poster)";
+  await acheck("each tweet-queue word maps to page, clear or quiet", async () => {
+    for (const w of ["halted", "no_credentials", "refused", "in_doubt"]) assert.equal(judge(withGateway({ tweetQueue: { status: w } }))[TQ], "bad", w);
+    for (const w of ["ok", "off"]) assert.equal(judge(withGateway({ tweetQueue: { status: w } }))[TQ], "good", w);
+    for (const w of ["retrying", "unknown", "something-new"]) assert.equal(judge(withGateway({ tweetQueue: { status: w } }))[TQ], "quiet", w);
+    assert.equal(judge(HEALTHY)[TQ], "quiet", "a gateway without the field (an older build) changes nothing");
+  });
+  await acheck("an in-doubt tweet post confirmed by a second read opens the issue", async () => {
+    mkGh();
+    const bad = withGateway({ tweetQueue: { status: "in_doubt" } });
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(bad, bad) });
+    assert.deepEqual(r.opened, [TQ]);
+    assert.match(created[0].body, /tweetQueue\.status=in_doubt/);
+    assert.match(created[0].body, /\/__operator\/tweet-queue\.json/);
+  });
+  await acheck("a retrying queue neither opens nor closes the issue", async () => {
+    mkGh([{ number: 31, title: TQ }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(withGateway({ tweetQueue: { status: "retrying" } })) });
+    assert.deepEqual(r.opened, []); assert.deepEqual(r.closed, []);
+  });
+  await acheck("ok closes it", async () => {
+    mkGh([{ number: 31, title: TQ }]);
+    const r = await syncAlarms(ENV, { ...nosleep, fetchStatus: feed(withGateway({ tweetQueue: { status: "ok" } })) });
+    assert.deepEqual(r.closed, [TQ]);
+  });
+  await acheck("the issue body echoes only a known word", async () => {
+    const a = ALARMS.find((x) => x.title === TQ);
+    assert.match(a.body({ gateway: { tweetQueue: { status: "<script>" } } }), /tweetQueue\.status=unknown/);
+  });
+
   await acheck("every alarm title also exists in heartbeat.yml, so the two never fork", async () => {
     const yml = await readFile(new URL("../.github/workflows/heartbeat.yml", import.meta.url), "utf8");
     for (const a of ALARMS) assert.ok(yml.includes(a.title), `heartbeat.yml has no "${a.title}"`);

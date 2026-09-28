@@ -26,8 +26,16 @@
 //    crash mid-post, or another process mid-post) is never sent again. X's
 //    refusal of duplicate text is the belt, not the mechanism.
 //  - Anything that may have reached X without a definitive answer (a timeout,
-//    a dropped socket, a 5xx) is IN DOUBT and never retried automatically.
-//    If it did not land, re-queue the text under a new id.
+//    a dropped socket, a 5xx) is IN DOUBT and gets exactly ONE retry, at least
+//    IN_DOUBT_RETRY_MS later and inside its catch-up window. If the first
+//    attempt landed, X refuses the retry as a duplicate and the item is
+//    recorded as posted; if it did not, the retry posts it. The retry holds to
+//    the one-post-per-hour rule: it takes the slot of the hour it runs in, and
+//    in the hour of the first attempt only that same item may use the slot. A
+//    retry that is in doubt again is final and never re-sent; if it did not
+//    land, re-queue the text under a new id. A SENDING record left by a crash
+//    is never retried (nothing says whether its request left or is still in
+//    flight).
 //  - A refusal X states outright is final for the item (400) or pauses the
 //    whole queue (401/402/403/429: credentials, balance or rate limit), and a
 //    request that never connected is retried after a short pause.
@@ -42,6 +50,11 @@
 //    variables must never become a second poster: its record of what was
 //    posted would be empty, and X's duplicate refusal would be all that stood
 //    between it and a second copy of every post.
+//  - alarmStatus() is one bucketed word for /api/gateway-status, so the status
+//    Worker can open an issue: halted, no_credentials, refused (X refused the
+//    account: credentials or balance) and in_doubt (a post may not have landed
+//    and will not be retried again) page; ok and off clear; retrying does
+//    neither.
 //  - Logs and the operator read carry ids, hours, counts and status codes.
 //    Never tweet text, never a credential.
 import { randomBytes } from "node:crypto";
@@ -58,6 +71,8 @@ export const DEFAULT_TICK_MS = 3 * 60_000;
 export const DEFAULT_FIRST_TICK_MS = 90_000;
 export const POST_TIMEOUT_MS = 20_000;
 export const LOCK_LEASE_MS = 30_000;
+export const IN_DOUBT_RETRY_MS = 10 * 60_000;
+const SENDING_STALE_MS = 5 * 60_000; // a SENDING record older than this is a crash, not a post in flight
 const LOCK_RETRY_MS = 25;
 const MAX_POSTS_TRIED_PER_TICK = 5; // duplicates and 400s move on to the next item inside one tick
 const RETAIN_MS = 30 * 24 * 3_600_000; // records of ids no longer in the queue
@@ -295,7 +310,7 @@ function retryAtFrom(res) {
  *   rejected   X refused THIS request (4xx): final for the item
  *   account    401/402/403/429: credentials, balance or rate limit - pause the queue
  *   not_sent   the connection never opened: safe to try again later
- *   in_doubt   a timeout, dropped socket or 5xx: it may have landed - never retried
+ *   in_doubt   a timeout, dropped socket or 5xx: it may have landed - one retry, later
  * Only the status and error class are kept; the response body is read for the
  * duplicate marker and the new post's id, and never logged.
  */
@@ -382,6 +397,11 @@ export function createTweetQueue({
   const windowMs = catchupHours * HOUR_MS;
   const parsed = parseTweetQueue(queueJson, { maxWeighted });
   const queueIds = new Set(parsed.items.map((it) => it.id));
+  const itemById = new Map(parsed.items.map((it) => [it.id, it]));
+  // An in-doubt record still owed its one retry (inside the item's window),
+  // and whether that retry is due at t.
+  const retryPending = (r, it, t) => r?.state === "in_doubt" && Number.isFinite(r.retryAt) && !r.retried && t - it.when <= windowMs;
+  const retryDue = (r, it, t) => retryPending(r, it, t) && t >= r.retryAt;
   const configured = String(queueJson || "").trim() !== "";
   const switchedOff = /^(off|false|0|no)$/i.test(String(postingSwitch || "").trim());
   const missing = missingXCredentials(creds);
@@ -393,6 +413,7 @@ export function createTweetQueue({
   let backoffUntil = 0;
   let lastError = null;
   let lastTickAt = null;
+  let accountRefused = null; // the last X answer was a 401/402/403, until a post goes through
 
   function mode() {
     if (!configured) return "off";
@@ -445,33 +466,64 @@ export function createTweetQueue({
       dropped++;
     }
     if (dropped) log(`[tweet-queue] dropped ${dropped} item(s) past the ${catchupHours} h catch-up window`);
-    const pick = parsed.items.find((it) => !st.records.has(it.id) && it.when <= t);
-    if (st.slots.has(hour) || !pick) {
-      if (dropped) persist(st);
-      return { dropped, item: null, why: st.slots.has(hour) ? "hour_used" : "nothing_due" };
+    // A used hour is open only to its own in-doubt item's retry: if the first
+    // attempt landed in this hour the retry is refused as a duplicate, and if
+    // it did not, the retry is this hour's one post.
+    const holder = st.slots.get(hour);
+    let pick = null;
+    if (holder) {
+      const it = itemById.get(holder);
+      if (it && retryDue(st.records.get(holder), it, t)) pick = it;
+    } else {
+      pick = parsed.items.find((it) => {
+        const r = st.records.get(it.id);
+        return r ? retryDue(r, it, t) : it.when <= t;
+      }) || null;
     }
-    st.records.set(pick.id, { id: pick.id, state: "sending", at: t, hour });
+    if (!pick) {
+      if (dropped) persist(st);
+      return { dropped, item: null, why: holder ? "hour_used" : "nothing_due" };
+    }
+    const prior = st.records.has(pick.id) ? { ...st.records.get(pick.id) } : null; // set only for a retry
+    st.records.set(pick.id, { id: pick.id, state: "sending", at: t, hour, ...(prior ? { retry: true, firstHour: prior.hour ?? null } : {}) });
     st.slots.set(hour, pick.id);
     persist(st);
-    return { dropped, item: pick, hour };
+    return { dropped, item: pick, hour, prior };
   }
 
   // Under the lock: turn the SENDING record into its outcome. The file is
   // re-read, and if it no longer holds our record (restored from a backup, or
   // replaced by hand mid-post) the outcome is written anyway: anything that
   // may have posted must stay recorded, or the next tick would send it again.
-  function recordOutcome(item, hour, out) {
+  function recordOutcome(item, hour, out, prior = null) {
     const st = readState(storePath);
     const id = item.id;
     const ours = st.records.get(id)?.state === "sending";
     const t = now();
     const releaseSlot = () => { if (st.slots.get(hour) === id) st.slots.delete(hour); };
     const holdSlot = () => { if (!st.slots.has(hour)) st.slots.set(hour, id); };
+    if (prior) {
+      // The one retry of an in-doubt item. The slot of the first attempt's hour
+      // is never released: that attempt may have landed in it.
+      const firstHour = prior.hour ?? hour;
+      const releaseRetrySlot = () => { if (hour !== firstHour) releaseSlot(); };
+      const stillInDoubt = (retryCls) => st.records.set(id, { id, state: "in_doubt", at: t, hour: firstHour, cls: prior.cls ?? null, retried: true, retryHour: hour, retryCls: safeCls(retryCls) });
+      if (out.kind === "posted") { st.records.set(id, { id, state: "posted", at: t, hour, retried: true, firstHour, ...(out.tweetId ? { tweetId: out.tweetId } : {}) }); holdSlot(); }
+      else if (out.kind === "duplicate") { st.records.set(id, { id, state: "posted", at: t, hour: firstHour, retried: true, via: "duplicate_on_retry" }); releaseRetrySlot(); }
+      else if (out.kind === "rejected") { stillInDoubt(`http_${out.status}`); releaseRetrySlot(); }
+      else if (out.kind === "account" || out.kind === "not_sent") {
+        // X created nothing: the retry is still owed. Put the in-doubt record back.
+        if (ours || !st.records.has(id)) st.records.set(id, prior);
+        releaseRetrySlot();
+      } else { stillInDoubt(out.cls || `http_${out.status}`); holdSlot(); }
+      persist(st);
+      return true;
+    }
     if (out.kind === "posted") { st.records.set(id, { id, state: "posted", at: t, hour, ...(out.tweetId ? { tweetId: out.tweetId } : {}) }); holdSlot(); }
     else if (out.kind === "duplicate") { st.records.set(id, { id, state: "duplicate", at: t, hour }); releaseSlot(); }
     else if (out.kind === "rejected") { st.records.set(id, { id, state: "rejected", at: t, status: out.status }); releaseSlot(); }
     else if (out.kind === "account" || out.kind === "not_sent") { if (ours) st.records.delete(id); releaseSlot(); }
-    else { st.records.set(id, { id, state: "in_doubt", at: t, hour, cls: safeCls(out.cls || `http_${out.status}`) }); holdSlot(); }
+    else { st.records.set(id, { id, state: "in_doubt", at: t, hour, cls: safeCls(out.cls || `http_${out.status}`), retryAt: t + IN_DOUBT_RETRY_MS }); holdSlot(); }
     persist(st);
     return true;
   }
@@ -485,8 +537,20 @@ export function createTweetQueue({
     }
   }
 
-  function report(item, hour, out) {
+  function report(item, hour, out, prior = null) {
     const t = now();
+    if (out.kind === "posted" || out.kind === "duplicate") accountRefused = null;
+    if (prior) {
+      const firstHour = prior.hour ?? hour;
+      if (out.kind === "posted") { log(`[tweet-queue] posted ${item.id} on its retry in hour ${hour}: the attempt in hour ${firstHour} had not landed`); return; }
+      if (out.kind === "duplicate") { log(`[tweet-queue] ${item.id} was already on X (its retry was refused as a duplicate): the attempt in hour ${firstHour} landed, recorded as posted`); return; }
+      if (out.kind === "rejected" || out.kind === "in_doubt") {
+        const cls = out.kind === "rejected" ? `http_${out.status}` : safeCls(out.cls || `http_${out.status}`);
+        noteError("in_doubt", { cls, retried: true });
+        log(`[tweet-queue] ${item.id} is still IN DOUBT after its one retry (${cls}): never re-sent; re-queue it under a new id if it did not land`);
+        return;
+      }
+    }
     if (out.kind === "posted") { log(`[tweet-queue] posted ${item.id} in hour ${hour}`); return; }
     if (out.kind === "duplicate") { log(`[tweet-queue] ${item.id} is already on X (duplicate refused): recorded, not re-sent`); return; }
     if (out.kind === "rejected") { noteError("rejected", { status: out.status }); log(`[tweet-queue] X rejected ${item.id} (HTTP ${out.status}): not retried`); return; }
@@ -494,18 +558,19 @@ export function createTweetQueue({
       const dflt = out.status === 429 ? BACKOFF.rateLimit : BACKOFF.account;
       const until = out.retryAt && out.retryAt > t ? Math.min(out.retryAt, t + BACKOFF.max) : t + dflt;
       backoffUntil = until;
+      if (out.status !== 429) accountRefused = { status: out.status, at: t };
       noteError("refused_account", { status: out.status });
-      log(`[tweet-queue] X refused the post (HTTP ${out.status}): queue paused until ${new Date(until).toISOString()}, ${item.id} stays queued`);
+      log(`[tweet-queue] X refused the post (HTTP ${out.status}): queue paused until ${new Date(until).toISOString()}, ${item.id} stays queued${prior ? " (its retry is still owed)" : ""}`);
       return;
     }
     if (out.kind === "not_sent") {
       backoffUntil = t + BACKOFF.notSent;
       noteError("not_sent", { cls: safeCls(out.cls) });
-      log(`[tweet-queue] could not reach X (${safeCls(out.cls)}): ${item.id} stays queued`);
+      log(`[tweet-queue] could not reach X (${safeCls(out.cls)}): ${item.id} stays queued${prior ? " (its retry is still owed)" : ""}`);
       return;
     }
     noteError("in_doubt", { cls: safeCls(out.cls || `http_${out.status}`) });
-    log(`[tweet-queue] ${item.id} is IN DOUBT (${safeCls(out.cls || `http_${out.status}`)}): never re-sent automatically; re-queue it under a new id if it did not land`);
+    log(`[tweet-queue] ${item.id} is IN DOUBT (${safeCls(out.cls || `http_${out.status}`)}): one retry in ${IN_DOUBT_RETRY_MS / 60_000} min or later (refused as a duplicate if the first attempt landed), then never re-sent`);
   }
 
   async function tick() {
@@ -517,7 +582,7 @@ export function createTweetQueue({
     if (backoffUntil && t0 < backoffUntil) return { skipped: "backoff" };
     ticking = true;
     lastTickAt = t0;
-    const result = { posted: 0, dropped: 0, duplicate: 0, rejected: 0, inDoubt: 0 };
+    const result = { posted: 0, dropped: 0, duplicate: 0, rejected: 0, inDoubt: 0, retried: 0 };
     try {
       for (let n = 0; n < MAX_POSTS_TRIED_PER_TICK; n++) {
         const claim = await withLock(claimNext, 40);
@@ -527,7 +592,7 @@ export function createTweetQueue({
         if (!c.item) { result.idle = c.why; break; }
         const out = await safePost(c.item.text);
         let recorded;
-        try { recorded = await withLock(() => recordOutcome(c.item, c.hour, out), 120); }
+        try { recorded = await withLock(() => recordOutcome(c.item, c.hour, out, c.prior), 120); }
         catch (e) { recorded = { ok: false, error: e }; }
         if (!recorded.ok || !recorded.value) {
           // The outcome could not be written: the SENDING record stands, so the
@@ -537,7 +602,8 @@ export function createTweetQueue({
           if (recorded.error instanceof StoreError) storeError = recorded.error.cls;
           break;
         }
-        report(c.item, c.hour, out);
+        report(c.item, c.hour, out, c.prior);
+        if (c.prior) result.retried++;
         if (out.kind === "duplicate") { result.duplicate++; continue; }
         if (out.kind === "rejected") { result.rejected++; continue; }
         if (out.kind === "posted") result.posted++;
@@ -569,15 +635,20 @@ export function createTweetQueue({
       try { st = readState(storePath); } catch (e) { readError = e instanceof StoreError ? e.cls : "unreadable"; }
     }
     const records = st ? st.records : new Map();
-    const counts = { posted: 0, duplicate: 0, rejected: 0, dropped: 0, inDoubt: 0, sending: 0, due: 0, upcoming: 0, pastWindow: 0 };
+    const counts = { posted: 0, duplicate: 0, rejected: 0, dropped: 0, inDoubt: 0, retryPending: 0, sending: 0, due: 0, upcoming: 0, pastWindow: 0 };
     let nextDue = null;
     let nextUpcoming = null;
     const inDoubt = [];
     for (const it of parsed.items) {
       const r = records.get(it.id);
       if (r) {
-        if (r.state === "in_doubt") { counts.inDoubt++; inDoubt.push({ id: it.id, hour: r.hour || null, class: r.cls || null }); }
-        else if (r.state === "sending") { counts.sending++; inDoubt.push({ id: it.id, hour: r.hour || null, class: "sending" }); }
+        if (r.state === "in_doubt") {
+          counts.inDoubt++;
+          const pending = retryPending(r, it, t);
+          if (pending) counts.retryPending++;
+          inDoubt.push({ id: it.id, hour: r.hour || null, class: r.cls || null, retry: pending ? "pending" : r.retried ? "used" : "none", ...(pending ? { retryAt: new Date(r.retryAt).toISOString() } : {}) });
+        }
+        else if (r.state === "sending") { counts.sending++; inDoubt.push({ id: it.id, hour: r.hour || null, class: "sending", retry: "none" }); }
         else counts[r.state]++;
         continue;
       }
@@ -595,6 +666,7 @@ export function createTweetQueue({
     const hour = hourOf(t);
     return {
       mode: readError && mode() === "posting" ? "store_unreadable" : mode(),
+      alarm: alarmStatus().status,
       missingCredentials: configured ? missing : [],
       queueError: parsed.error,
       catchupHours,
@@ -611,6 +683,43 @@ export function createTweetQueue({
       backoffUntil: backoffUntil > t ? new Date(backoffUntil).toISOString() : null,
       lastTickAt: lastTickAt ? new Date(lastTickAt).toISOString() : null,
     };
+  }
+
+  /**
+   * One bucketed word for /api/gateway-status (public: the word only; the
+   * operator also gets the mode and counts, never an id or text):
+   *   off             not configured, switched off, or not the production server
+   *   ok              posting, nothing in doubt
+   *   retrying        an in-doubt post is waiting for its one retry
+   *   in_doubt        a post may not have landed and will not be retried again
+   *   refused         X's last answer was 401/402/403 (credentials or balance)
+   *   no_credentials  an X key is missing
+   *   halted          the queue or the state file cannot be read, or no volume
+   * Removing an in-doubt id from TWEET_QUEUE (after checking X) clears it.
+   */
+  function alarmStatus({ full = false } = {}) {
+    const m = mode();
+    const t = now();
+    let status;
+    let finalInDoubt = 0;
+    let pending = 0;
+    if (m === "off" || m === "switched_off" || m === "free_mode" || m === "not_production") status = "off";
+    else if (m === "no_credentials") status = "no_credentials";
+    else if (m !== "posting" && m !== "store_unreadable") status = "halted";
+    else {
+      let st = null;
+      try { st = readState(storePath); } catch { st = null; }
+      if (!st || storeError) status = "halted";
+      else {
+        for (const it of parsed.items) {
+          const r = st.records.get(it.id);
+          if (r?.state === "in_doubt") { if (retryPending(r, it, t)) pending++; else finalInDoubt++; }
+          else if (r?.state === "sending" && t - r.at > SENDING_STALE_MS) finalInDoubt++;
+        }
+        status = finalInDoubt ? "in_doubt" : accountRefused ? "refused" : pending ? "retrying" : "ok";
+      }
+    }
+    return full ? { status, mode: m, inDoubt: finalInDoubt, retryPending: pending, ...(accountRefused ? { refusedStatus: accountRefused.status } : {}) } : { status };
   }
 
   function start({ intervalMs = DEFAULT_TICK_MS, firstMs = firstTickMs } = {}) {
@@ -633,5 +742,5 @@ export function createTweetQueue({
 
   function stopTimer() { if (timer) clearInterval(timer); timer = null; }
 
-  return { tick, status, start, stopTimer, mode };
+  return { tick, status, alarmStatus, start, stopTimer, mode };
 }

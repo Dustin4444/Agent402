@@ -3031,6 +3031,10 @@ app.get("/api/gateway-status", async (req, res) => {
     // Daily MPP reconciliation (src/mpp-reconcile.js): status words + counts,
     // never an address; the itemized rows are /__operator/mpp-reconcile.json.
     mppReconcile: await mppReconciler.status({ full }).catch(() => ({ status: "unknown", chargedFailedStatus: "unknown" })),
+    // The server tweet queue (src/tweet-queue.js): one word publicly, so the
+    // status Worker can page on halted / no_credentials / refused / in_doubt;
+    // the operator also gets the mode and counts. Never an id or text.
+    tweetQueue: (() => { try { return _tweetQueue.alarmStatus({ full }); } catch { return { status: "unknown" }; } })(),
   };
   // An operator-authed read must not land in a shared cache.
   res.set("Cache-Control", full ? "private, no-store" : "public, max-age=60").json(body);

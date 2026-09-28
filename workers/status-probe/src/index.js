@@ -409,6 +409,29 @@ export const ALARMS = [
       `/api/gateway-status reports operatorAuth.status=elevated: ${b.operatorAuth?.failures1h ?? "?"} wrong operator credentials in the last hour (threshold OPERATOR_AUTH_FAIL_ALERT). The per-IP limiter caps each source; this is the aggregate. If it persists, rotate AGENT402_OPERATOR_TOKEN on Railway and in Actions secrets. Auto-closes when the rate drops.`,
   },
   {
+    // The server posts the approved tweet queue itself (src/tweet-queue.js),
+    // and a post that fails loses an approved slot for good unless someone
+    // looks. One word on /api/gateway-status: these four page, ok and off
+    // clear, and retrying (a post waiting for its one retry) does neither.
+    title: "Tweet queue needs attention (server poster)",
+    verdict: ({ gateway: b }) => {
+      const w = b.tweetQueue?.status;
+      if (TWEET_QUEUE_BAD.has(w)) return "bad";
+      return w === "ok" || w === "off" ? "good" : "quiet";
+    },
+    body: ({ gateway: b }) => {
+      const w = TWEET_QUEUE_BAD.has(b.tweetQueue?.status) ? b.tweetQueue.status : "unknown";
+      return `/api/gateway-status reports tweetQueue.status=${w}. The server posts the approved queue (Railway TWEET_QUEUE) one item per clock hour; nothing else posts it once tweet-queue.yml is disabled.
+
+- in_doubt: a post may not have reached X, and its one retry has been used (or its window closed, or the process died mid-post). Read /__operator/tweet-queue.json for the ids and hours, check the account on X, and if a post did not land re-queue its text under a new id. Removing the old id from TWEET_QUEUE clears this.
+- refused: X answered 401/402/403 (credentials or the API balance). The queue pauses and retries; items older than the catch-up window are dropped.
+- no_credentials: one of X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET is missing on Railway.
+- halted: TWEET_QUEUE is not a JSON array, the state file on /data cannot be read, or the service has no /data volume. Nothing posts until it is fixed.
+
+The server log carries a [tweet-queue] line for every outcome (ids and status codes, never text). TWEET_QUEUE_POSTING=off stops posting and closes this issue. Auto-closes when the word is ok.`;
+    },
+  },
+  {
     // Settlement freshness. The daily canary must actually BUY, not merely
     // conclude green: on 2026-08-02 a gate skipped every scheduled purchase for
     // five days while the workflow reported success, so this watches the
@@ -441,6 +464,8 @@ This observer cannot dispatch the canary itself (it holds an issues-only credent
     },
   },
 ];
+
+const TWEET_QUEUE_BAD = new Set(["halted", "no_credentials", "refused", "in_doubt"]);
 
 // The shape shared by every wallet balance: low pages, ok clears, and
 // unknown/unconfigured do neither.

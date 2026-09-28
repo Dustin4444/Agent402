@@ -189,7 +189,9 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
 - **X posting:** one-off posts go through `announce.yml` / `scripts/tweet.js` (dispatched via
   Actions). The approved queue posts from the server (`src/tweet-queue.js`, Railway `TWEET_QUEUE`,
   off unless set, `TWEET_QUEUE_POSTING=off` read-only, `GET /__operator/tweet-queue.json`): one
-  post per clock hour, recorded before it is sent, in-doubt posts never re-sent. Only the
+  post per clock hour, recorded before it is sent; a post in doubt (5xx, timeout) gets one retry
+  ten minutes later (X's duplicate refusal records it posted), then never. `tweetQueue` on
+  `/api/gateway-status` is one word the status Worker pages on. Only the
   production server posts: FREE_MODE, no `NODE_ENV=production` (`TWEET_QUEUE_FORCE=true`
   overrides that check only) or no `/data` volume keeps it read-only. It replaces
   `tweet-queue.yml`, which is disabled at cutover so exactly one poster runs. Both sign through
