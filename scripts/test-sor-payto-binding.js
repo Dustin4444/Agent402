@@ -83,7 +83,7 @@ ok(typeof DISPATCH_DETAILS.evidence_payto_mismatch === "string" && dispatchLegen
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const fn = server.slice(server.indexOf("async function resolveExternalSeller("), server.indexOf("async function diagnoseExternalSeller("));
   ok(/const bindingByOrigin = buildEvidenceBindingByOrigin\(\)/.test(fn) && /binding: bindingByOrigin\.get\(norm\(r\.seller\)\)/.test(fn), "the resolver's Base branch reads the binding map onto every candidate");
-  ok(/baseLiveGate\(\{[^\n]*binding: r\.binding, livePayTo: await readLivePayTo\(\)/.test(fn) && fn.indexOf("baseLiveGate({") > fn.indexOf("live = probe.status === 402"), "the resolver re-runs the labelled gate AFTER the probe with the candidate's binding and the live 402's payTo");
+  ok(/const livePayTo = await readLivePayTo\(\);\s*\n\s*const gate = baseLiveGate\(\{[^\n]*binding: r\.binding, livePayTo \}\)/.test(fn) && fn.indexOf("baseLiveGate({") > fn.indexOf("live = probe.status === 402"), "the resolver re-runs the labelled gate AFTER the probe with the candidate's binding and the live 402's payTo");
   ok(/if \(!gate\.ok\) \{[\s\S]{0,400}live = false;/.test(fn), "a failed binding gate drops the candidate (live = false), it is never paid");
   ok(/evidence: ev\.binding\.get\(origin\)/.test(server) && /livePayTo: \(typeof row\.payToByNetwork\?\.\["eip155:8453"\]/.test(server), "withDispatchFields labels rows with the binding and the advertised Base payTo");
   const settledFn = server.slice(server.indexOf("function buildEvidenceBindingByOrigin()"), server.indexOf("function buildEvidenceBindingByOrigin()") + 1500);

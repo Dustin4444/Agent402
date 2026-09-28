@@ -228,6 +228,19 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   await unbound.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
   ok(paidWith?.opts && "provenPayTo" in paidWith.opts && paidWith.opts.provenPayTo === null,
     "external ON: no proven address forwards an explicit null (UNKNOWN), never a missing key");
+  ok(paidWith?.opts && "evidenceWallets" in paidWith.opts && paidWith.opts.evidenceWallets === null,
+    "external ON: a candidate with no bound evidence forwards evidenceWallets null, never a missing key");
+
+  // The same caller-path rule for the EVIDENCE wallets (2026-09-28): the payer
+  // refuses an accept outside them, which is inert unless this forwards them.
+  paidWith = null;
+  const evidenceBound = buildRouteExecuteTool({
+    getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+    resolveExternal: async () => ({ ...EXT, evidenceWallets: [proven] }), payExternal, externalEnabled: () => true,
+  });
+  await evidenceBound.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
+  ok(Array.isArray(paidWith?.opts?.evidenceWallets) && paidWith.opts.evidenceWallets[0] === proven,
+    "external ON: the resolver's evidenceWallets reach payExternal, so the spend re-checks the accept it signs");
 
   // over-cap external is refused (not paid): resolver returns a $0.60 tool > $0.50 cap
   paidWith = null;

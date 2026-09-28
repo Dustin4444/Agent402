@@ -523,7 +523,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false, slug = null } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null, evidenceWallets = null, sellerProof = null, notDebited = null, allowUnproven = false, refusalMaxWaitMs = refusalMaxWaitMsDefault(), memoizeDelivery = false, slug = null } = {}) {
   assertSigningAllowed("an external x402 payment");
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
@@ -668,6 +668,30 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       throw bad(
         `Refusing to pay ${verdict.livePayTo}: ${verdict.reason} (proven ${verdict.provenPayTo}). ` +
         `Nothing was signed.`,
+        502,
+      );
+    }
+  }
+  // THE WALLETS AN INHERITED HISTORY BELONGS TO MUST BE THE WALLET WE PAY
+  // (2026-09-28). The resolver clears a seller on settlement history measured
+  // at a wallet and, when that history was inherited, checks that the PROBE's
+  // 402 pays one of the wallets it came from. The probe is one request and this
+  // is another, and the seller answers both, so a seller could show the bound
+  // wallet to the probe and any other address here. `evidenceWallets` carries
+  // that binding to the accept we are about to sign.
+  //
+  // Unlike provenPayTo above, an unreadable payTo REFUSES here: the history
+  // belongs to a specific wallet, and an address we cannot read is not shown
+  // to be it (the same rule baseLiveGate applies to the probe). Base only - the
+  // binding is a Base construct. Reports the normalized address or the words
+  // "an unreadable address", never the seller's raw string.
+  if (chain === "base" && Array.isArray(evidenceWallets) && evidenceWallets.length) {
+    const bound = new Set(evidenceWallets.map((w) => String(w || "").toLowerCase()));
+    const raw = typeof payable.payTo === "string" ? payable.payTo : "";
+    const live = /^0x[0-9a-f]{40}$/i.test(raw) ? raw.toLowerCase() : null;
+    if (!live || !bound.has(live)) {
+      throw bad(
+        `Refusing to pay ${live || "an unreadable address"}: the settlement history that made this seller eligible belongs to a different wallet. Nothing was signed.`,
         502,
       );
     }

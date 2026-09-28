@@ -472,7 +472,7 @@ import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDail
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
-import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
+import { dispatchEligibility, dispatchLegend, evidencePayToVerdict } from "./dispatch-eligibility.js";
 import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
@@ -1483,6 +1483,10 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
   const { sellerRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
   for (const r of candidates) {
     let live = false;
+    // The wallets this candidate's INHERITED evidence belongs to, when that
+    // binding is what made it eligible. Set by the Base binding gate below and
+    // carried to the payer, which re-checks the accept it SIGNS against them.
+    let evidenceWallets = null;
     // A seller that refused our payment on this chain (paid retry 402/401,
     // chain showed no debit) is skipped until its memo expires - otherwise it
     // keeps ranking first and every call burns a full round trip on it.
@@ -1643,10 +1647,21 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
         // one of the wallets it came from; unreadable is not a match. An origin
         // whose own evidence clears the floor is untouched by this.
         if (live && chain === "base" && r.binding) {
-          const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo: await readLivePayTo() });
+          const livePayTo = await readLivePayTo();
+          const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo });
           if (!gate.ok) {
             console.warn(`[sor] refusing ${r.seller}: ${gate.detail} (evidence wallets ${gate.payTos.length ? gate.payTos.join(",") : "none"}, live ${gate.livePayTo || "unreadable"})`);
             live = false;
+          } else {
+            // THE PROBE IS NOT THE PAYMENT (2026-09-28). The gate above read the
+            // PROBE's 402. payX402 makes its own unpaid request and signs whatever
+            // THAT 402 names, and the seller answers both, so a seller could show
+            // the bound wallet to the probe and another address to the payment.
+            // When the binding is what made this candidate eligible, its wallets
+            // ride with the candidate and the payer refuses an accept naming any
+            // other address. Own evidence clearing the floor binds nothing (null).
+            const bound = evidencePayToVerdict({ evidence: r.binding, livePayTo, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).bound;
+            evidenceWallets = bound ? [...r.binding.payTos] : null;
           }
         }
       }
@@ -1664,7 +1679,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // `wire` rides through: a Tempo candidate settles over MPP and its receipt
     // must say so (the first live Tempo SOR buy labelled it x402, 2026-08-27).
     if (live) {
-      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}), ...(r.judgedSelection ? { selection: r.judgedSelection } : {}) });
+      resolved.push({ seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, priceUsd: r.priceUsd, networks: r.networks, settled: r.settled, wire: r.wire || "x402", provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || r.chainProvenPayTo || null, evidenceWallets, route: r.route || null, guaranteedPaths: r.responseContract?.guaranteedPaths || [], ...(r.unproven ? { unproven: true } : {}), ...(r.judgedSelection ? { selection: r.judgedSelection } : {}) });
       // Only PROVEN candidates count toward the limit: an unproven one must
       // never crowd out a proven seller ranked below it.
       if (resolved.filter((x) => !x.unproven).length >= Math.max(1, limit)) break;
