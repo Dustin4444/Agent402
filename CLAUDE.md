@@ -186,8 +186,12 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   no `error`, so `error`-first clients read the explanation. Keyed on the header, so
   settle-failure, credits and Tempo/Stripe direct 402s are untouched. It wraps `res.send`, so it
   is mounted before the MPP shim and the Tempo/Stripe gates.
-- **X posting:** `announce.yml` / `scripts/tweet.js`, dispatched via Actions only; tweet copy is
-  never committed.
+- **X posting:** one-off posts go through `announce.yml` / `scripts/tweet.js` (dispatched via
+  Actions). The approved queue posts from the server (`src/tweet-queue.js`, Railway `TWEET_QUEUE`,
+  off unless set, `TWEET_QUEUE_POSTING=off` read-only, `GET /__operator/tweet-queue.json`): one
+  post per clock hour, recorded before it is sent, in-doubt posts never re-sent. It replaces
+  `tweet-queue.yml`, which is disabled at cutover so exactly one poster runs. Both sign through
+  `src/x-oauth.js`. Tweet copy is never committed.
 
 ## Environment
 Configuration and secrets are set on Railway (and, where a workflow needs them, as GitHub
