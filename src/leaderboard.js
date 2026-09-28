@@ -1190,8 +1190,6 @@ export async function runLeaderboard(overrides = {}) {
   // not see it at all (no longer listed, or no payments this window).
   const walletEvidenceOut = { ...(ranked.walletEvidence || {}) };
   const carryAt = new Map();
-  // Switched off (sellerFundingEnabled), nothing is carried: the evidence is
-  // the gross per-wallet figures and no verdict.
   if (fundingOn) for (const k of circularWalletsFrom(opts.previousWalletEvidence || null, { now: opts.now ?? Date.now() })) carryAt.set(k, opts.previousWalletEvidence[k]);
   for (const [k, ws] of fundingStateUsed?.wallets || []) {
     if (typeof ws.lastCircularAt === "string" && circularWalletsFrom({ [k]: { lastCircularAt: ws.lastCircularAt } }, { now: opts.now ?? Date.now() }).size) carryAt.set(k, { ...(carryAt.get(k) || {}), lastCircularAt: [carryAt.get(k)?.lastCircularAt, ws.lastCircularAt].filter((x) => typeof x === "string").sort().pop() });
