@@ -160,8 +160,10 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   both breakers and the composite guard, with a 429 that names it instead of the wallet.
 - **Algorand sub-cent offer gate:** `src/avm-sponsorship.js` drops the Algorand accept from
   sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent (fails open;
-  a status row last updated in an earlier UTC month is not evidence; published on
-  `/api/rails`; `AVM_SUBCENT_GATE=off`).
+  a status row last updated in an earlier UTC month, or with an unreadable `updatedTs`, is
+  not evidence; a pause a settle refusal set holds against headroom reads for
+  `AVM_SPONSORSHIP_REFUSAL_HOLD_MS`; published on `/api/rails`, the only excuse the canaries
+  accept for a missing sub-cent accept; `AVM_SUBCENT_GATE=off`).
 - **External spend guard:** `src/external-spend-guard.js` (per payer and per chain wallet).
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
