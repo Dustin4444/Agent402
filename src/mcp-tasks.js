@@ -333,7 +333,7 @@ export function createTaskStore({ dir, now = () => Date.now(), log = console.log
     // without a ticket, or caught mid-settlement, is: that charge is recorded
     // as owed and refunded. Which one happened is not known here, so the
     // message cannot promise "not charged".
-    rec.statusMessage = "Cancelled at your request. The run may still have completed and been charged; if it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
+    rec.statusMessage = "Cancelled at your request. The run may still have completed and been charged; if it was, the charge is recorded as owed in our refund ledger and repaid after review. Do not retry blindly: a retry is a new paid call.";
     write(rec);
     return true;
   }

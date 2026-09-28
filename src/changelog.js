@@ -7,7 +7,7 @@ const ENTRIES = [
     items: [
       "Every 402 from the paywall carries the same payment requirements in its JSON body as in the PAYMENT-REQUIRED header: x402Version, resource, accepts and extensions. A refused payment keeps its own explanation in the body beside them.",
       "agent402-mcp 0.13.5, agent402-openclaw 0.4.4 and agent402-client 0.8.9 report a refused payment by its reason.",
-      "A paid call whose buyer disconnects before the answer is sent is not settled, within a daily allowance. Routes whose effect outlives the answer (memory writes, attestations, feedback, and purchases from other sellers) settle as before, and an undelivered answer on them is recorded in the refund ledger.",
+      "A paid call whose buyer disconnects before the answer is sent is not settled, within a daily allowance. A call priced above that allowance, a call once it is spent, and a call on a route whose effect outlives the answer (memory writes, attestations, feedback, and purchases from other sellers) settle as before, and the undelivered answer is recorded in the refund ledger and repaid after review.",
       "A Tempo credential whose transfer is already on chain is finalized before the call runs.",
       "Algorand on routes under one cent follows the facilitator's sponsored allowance: while the month's allowance is spent, those routes offer the other rails and GET /api/rails names the restriction. Routes of one cent and more keep Algorand throughout.",
       "Seller index: chains and pay-to addresses learned from a live 402 stay with the method that answered them, and a row with no read of its own is read first.",

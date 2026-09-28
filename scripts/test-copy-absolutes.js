@@ -122,6 +122,23 @@ const FORBIDDEN = [
     why: "scope it: say what does not happen on THIS rail",
   },
   {
+    // AN AUTOMATIC-REFUND PROMISE IS TRUE OF ONE PATH ONLY. The card
+    // storefront refunds a failed report through Stripe in the failure path
+    // itself (src/human-checkout.js), so "refunded automatically" is right
+    // there and stays. A settled charge on the x402 and MPP rails that reached
+    // no buyer is recorded as owed in the refund ledger and repaid by the
+    // dispatch-only refund job after review (scripts/refund-run.js: dry by
+    // default, capped, approved per run). A buyer told "automatically" waits
+    // for money that arrives on a review cycle, so the claim is allowed only
+    // where the same passage names the card path.
+    re: /\b(?:refunded|repaid|reimbursed)\s+automatically\b|\bautomatic(?:ally)?[- ](?:refund|repa|reimburs)|\bauto-?refund|\b(?:refunds?|repayments?)\b[^.]{0,40}\b(?:is|are) automatic\b/i,
+    why: "only the card path refunds on its own; a charge on the x402/MPP rails is recorded as owed in the refund ledger and repaid after review",
+    // A card passage names its rail within a line or two (the wiki states the
+    // Stripe-verified session one bullet above its refund bullet).
+    scopedBy: /\bcard\b|\bStripe\b|\bCheckout\b/i,
+    scopeWindow: 2,
+  },
+  {
     // "500+ deterministic web tools" slipped past this for months: the "+"
     // between the count and the word broke the old digit-then-space match.
     re: /(?:\d\+?|\}\+?|\b[Aa]ll|\b[Ee]very) deterministic (?:\w+ )?tools\b/,
@@ -208,8 +225,9 @@ function sweep(entries) {
 const control = sweep([["<control>", "Only sellers with proven on-chain settlement are routable."],
                        ["<control>", "Agent402 never holds funds."],
                        ["<control>", "Flat pricing for ${n} deterministic web tools."],
-                       ["<control>", "Every tool is deterministic."]]);
-ok(control.length === 4, `control: the sweep reports all 4 planted violations through its real code path (got ${control.length})`);
+                       ["<control>", "Every tool is deterministic."],
+                       ["<control>", "If it was, the charge is recorded as owed and refunded automatically."]]);
+ok(control.length === 5, `control: the sweep reports all 5 planted violations through its real code path (got ${control.length})`);
 
 for (const hit of sweep(files.map((rel) => [rel, read(rel)]))) { fail++; console.error(`FAIL - ${hit}`); }
 ok(files.length >= 300, `swept ${files.length} copy surfaces (a collapsed file list must fail, not pass quietly)`);
@@ -364,7 +382,14 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
     "The full history is in /api/index for anyone to verify",
     "public on-chain ranking of every seller by Base USDC settled volume (/api/leaderboard)",
     // Wrapped, the way a table row or a paragraph really wraps.
-    "the on-chain ranking of every x402 seller\nby Base USDC settled volume - see /api/leaderboard"
+    "the on-chain ranking of every x402 seller\nby Base USDC settled volume - see /api/leaderboard",
+    // The automatic-refund class: the two connector messages as they shipped,
+    // and the other phrasings of the same promise.
+    "The call may still have completed and been charged. If it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.",
+    "Cancelled at your request. The run may still have completed and been charged; if it was, the charge is recorded as owed and refunded automatically.",
+    "A charge that reached no answer is automatically refunded to the paying wallet.",
+    "Undelivered calls are auto-refunded on chain.",
+    "Refunds for a failed paid call are automatic.",
   ];
   const MUST_PASS = [
     "On Base we route ONLY to sellers with proven settled volume",
@@ -388,6 +413,13 @@ ok(files.some((f) => /^scripts\/.*card.*\.js$/.test(f)),
     // or the rule pushes authors into hedging true sentences.
     "every route and price is in /openapi.json and /api/pricing",
     "The catalog is capped - every tool here earns its place and answers its own example on every deploy",
+    // The card path really does refund on its own, and says so in these forms.
+    "<span> If a report fails, you're auto-refunded</span><span><span class=\"dot\"></span> Secured by Stripe</span>",
+    "Payment is verified before anything is generated; if generation fails after payment, the card is refunded automatically and the x402 settlement is cancelled.",
+    "- No report is generated without a Stripe-verified paid session, and a session generates **once**.\n- A run that fails is **refunded automatically**; a refund that could not be issued is recorded as owed and retried.",
+    "Checkout, generate-once per paid session, auto-refund on failure, report at",
+    // What the connector says now.
+    "The call may still have completed and been charged. If it was, the charge is recorded as owed in our refund ledger and repaid after review. Do not retry blindly: a retry is a new paid call.",
   ];
   const hits = (t) => sweep([["<case>", t]]).length;
   const missed = MUST_FAIL.filter((t) => hits(t) === 0);
