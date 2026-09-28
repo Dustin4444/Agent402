@@ -134,8 +134,18 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
 // books as owed. A connected control is captured once.
 {
   const { createHangupSettlementHook, clientGoneBeforeFirstByte } = await import("../src/hangup-settlement.js");
-  const { reserveHangupForgiveness, settleHangupTicket, _resetHangupForgiveness } = await import("../src/hangup-forgiveness.js");
+  const { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, _resetHangupForgiveness } = await import("../src/hangup-forgiveness.js");
   _resetHangupForgiveness();
+  // A card charge is at least $0.50, above the default per-key budget ($0.25),
+  // so by default a Stripe hang-up is never forgiven: it is captured and
+  // booked as owed. The gate's forgiven branch is exercised under a wider
+  // budget set for this case only.
+  const savedKeyBudget = process.env.HANGUP_FORGIVE_KEY_USD;
+  delete process.env.HANGUP_FORGIVE_KEY_USD;
+  const byDefault = {}; reserveHangupForgiveness(byDefault, { keys: ["ip:stripe-default"], priceUsd: 0.5 });
+  ok(!hangupForgiven(byDefault) && byDefault.__a402HangupTicket.reason === "ip budget", `gate F: under the default budget a $0.50 card charge takes no forgiveness ticket (${byDefault.__a402HangupTicket.reason})`);
+  _resetHangupForgiveness();
+  process.env.HANGUP_FORGIVE_KEY_USD = "1";
   const replay = new Map();
   const replayGuard = { begin: async (k) => (replay.has(k) ? replay.get(k) : (replay.set(k, "inflight"), "ok")), settle: async (k) => { replay.set(k, "consumed"); }, release: async (k) => { replay.delete(k); } };
   let captures = 0, handlerRuns = 0;
@@ -169,6 +179,7 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
   ok(served.status === 200 && captures === 2 && undelivered.length === 2, "gate F: a connected buyer is captured once; the hook stays quiet");
   s.close();
   _resetHangupForgiveness();
+  if (savedKeyBudget === undefined) delete process.env.HANGUP_FORGIVE_KEY_USD; else process.env.HANGUP_FORGIVE_KEY_USD = savedKeyBudget;
 }
 
 // ---- wiring pin: server.js MUST bypass the x402 paywall for a validated

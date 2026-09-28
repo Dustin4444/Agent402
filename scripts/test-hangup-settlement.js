@@ -133,8 +133,9 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const connected = {}; reserveHangupForgiveness(connected, { keys: ["0xab", "ip:1.1.1.2"], priceUsd: 0.01 });
   ok(hangupForgiven(connected) && !chargeCancelledForClientGone(connected), "a granted ticket on a connected buyer cancels nothing");
   ok(!chargeCancelledForClientGone(gone()), "gone with NO ticket: the charge stands (settled, then booked as owed)");
-  // $6: over the default per-key budget, under the service-wide one.
-  const g2 = gone(); reserveHangupForgiveness(g2, { keys: ["ip:1.1.1.3"], priceUsd: 6 });
+  // $0.50: over the default per-key budget ($0.25), under the service-wide
+  // one ($2.00).
+  const g2 = gone(); reserveHangupForgiveness(g2, { keys: ["ip:1.1.1.3"], priceUsd: 0.5 });
   ok(!hangupForgiven(g2) && !chargeCancelledForClientGone(g2) && g2.__a402HangupTicket.reason === "ip budget", `gone with a DENIED ticket: the charge stands (${g2.__a402HangupTicket.reason})`);
   const g3 = Object.assign(Object.create({ __a402HangupTicket: { granted: true } }), { __a402ClientGoneAt: Date.now() });
   ok(!hangupForgiven(g3) && !chargeCancelledForClientGone(g3), "a ticket on the PROTOTYPE is ignored (a polluted prototype must not make every request unsettled)");
@@ -146,6 +147,22 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
 // of concurrent hang-ups, and rotation across wallets.
 {
   const saved = { k: process.env.HANGUP_FORGIVE_KEY_USD, g: process.env.HANGUP_FORGIVE_GLOBAL_USD, w: process.env.HANGUP_FORGIVE_WINDOW_MS, o: process.env.HANGUP_FORGIVE };
+  // The defaults, read with nothing set: $0.25 per key and $2.00 for the whole
+  // service over 24 h, sized for micro-transactions. Stated as literals on
+  // purpose, so a change to the defaults has to change this line too.
+  for (const k of ["HANGUP_FORGIVE_KEY_USD", "HANGUP_FORGIVE_GLOBAL_USD", "HANGUP_FORGIVE_WINDOW_MS", "HANGUP_FORGIVE"]) delete process.env[k];
+  const dflt = hangupForgivenessConfig();
+  ok(dflt.enabled && dflt.keyMicro === 250_000 && dflt.globalMicro === 2_000_000 && dflt.windowMs === 86_400_000, `defaults: $0.25 per key and $2.00 service-wide per 24 h (${JSON.stringify(dflt)})`);
+  _resetHangupForgiveness();
+  // A single call priced above the per-key default is never forgiven, even
+  // with nothing spent: $0.26 on a fresh wallet and IP.
+  const pricey = {}; reserveHangupForgiveness(pricey, { keys: ["0xdefault", "ip:10.10.0.1"], priceUsd: 0.26 });
+  ok(!hangupForgiven(pricey) && pricey.__a402HangupTicket.reason === "payer budget", `defaults: a $0.26 call is over the per-key budget on its own (${pricey.__a402HangupTicket.reason})`);
+  // The service-wide default binds after $2.00 of abandoned runs across
+  // rotating wallets and IPs: eight $0.25 runs fit, the ninth does not.
+  const rotDefault = Array.from({ length: 9 }, (_, i) => { const req = {}; const t = reserveHangupForgiveness(req, { keys: [`0xdg${i}`, `ip:10.10.1.${i}`], priceUsd: 0.25 }); settleHangupTicket(req, { abandoned: true }); return t.granted; });
+  ok(rotDefault.slice(0, 8).every(Boolean) && rotDefault[8] === false, `defaults: rotating wallets and IPs, eight $0.25 hang-ups fit the $2.00 service budget and the ninth is charged (${JSON.stringify(rotDefault)})`);
+  _resetHangupForgiveness();
   process.env.HANGUP_FORGIVE_KEY_USD = "0.009"; process.env.HANGUP_FORGIVE_GLOBAL_USD = "0.05"; process.env.HANGUP_FORGIVE_WINDOW_MS = "60000";
   _resetHangupForgiveness();
   const T0 = 1_000_000;
@@ -187,7 +204,9 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const noKey = {}; reserveHangupForgiveness(noKey, { keys: [null, ""], priceUsd: 0.001 });
   ok(!hangupForgiven(noKey) && noKey.__a402HangupTicket.reason === "no key", "a run with no key at all is never forgiven");
   process.env.HANGUP_FORGIVE_KEY_USD = "not-a-number";
-  ok(hangupForgivenessConfig().keyMicro === 5_000_000, "a malformed per-key budget reads as the default, never as unbounded");
+  ok(hangupForgivenessConfig().keyMicro === 250_000, "a malformed per-key budget reads as the default ($0.25), never as unbounded");
+  process.env.HANGUP_FORGIVE_GLOBAL_USD = "-1";
+  ok(hangupForgivenessConfig().globalMicro === 2_000_000, "a negative service-wide budget reads as the default ($2.00)");
   process.env.HANGUP_FORGIVE = "off";
   const off = {}; reserveHangupForgiveness(off, { keys: ["0xoff", "ip:10.8.0.1"], priceUsd: 0.001 });
   ok(!hangupForgiven(off) && off.__a402HangupTicket.reason === "disabled", "HANGUP_FORGIVE=off: nothing is forgiven (every hang-up is settled and owed)");

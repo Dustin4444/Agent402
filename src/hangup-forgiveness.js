@@ -38,6 +38,17 @@
 const MICRO = 1_000_000;
 const MAX_KEYS = 20_000;
 
+// Default budgets, per 24 h window, sized for micro-transactions: most
+// catalog calls cost a fraction of a cent, so a quarter per key still covers
+// dozens of abandoned runs from an honest short-timeout client, and the
+// service-wide figure bounds what everyone together can walk away from. A
+// single call priced above the per-key budget (a report, a card charge, the
+// dearer router tiers) is never forgiven: its hang-up is settled and booked as
+// owed, like any run past the budget. HANGUP_FORGIVE_KEY_USD and
+// HANGUP_FORGIVE_GLOBAL_USD override them.
+export const DEFAULT_KEY_BUDGET_USD = 0.25;
+export const DEFAULT_GLOBAL_BUDGET_USD = 2;
+
 function envNumber(name, dflt) {
   const raw = String(process.env[name] ?? "").trim();
   if (raw === "") return dflt;
@@ -51,8 +62,8 @@ export function hangupForgivenessConfig() {
   const off = String(process.env.HANGUP_FORGIVE || "").trim().toLowerCase() === "off";
   return {
     enabled: !off,
-    keyMicro: Math.round(envNumber("HANGUP_FORGIVE_KEY_USD", 5) * MICRO),
-    globalMicro: Math.round(envNumber("HANGUP_FORGIVE_GLOBAL_USD", 10) * MICRO),
+    keyMicro: Math.round(envNumber("HANGUP_FORGIVE_KEY_USD", DEFAULT_KEY_BUDGET_USD) * MICRO),
+    globalMicro: Math.round(envNumber("HANGUP_FORGIVE_GLOBAL_USD", DEFAULT_GLOBAL_BUDGET_USD) * MICRO),
     windowMs: Math.max(1_000, envNumber("HANGUP_FORGIVE_WINDOW_MS", 24 * 60 * 60 * 1000)),
   };
 }
