@@ -20,6 +20,13 @@ const MAX_CHALLENGE_BYTES = 12_000;
 // the header's echo ceiling; it is a ratchet so a mirrored body cannot grow
 // without anyone noticing.
 const MAX_BODY_BYTES = 12_000;
+// That ceiling is checked on this boot's single rail, where bodies run about
+// half the size a many-rail offer produces, so on its own it cannot see a
+// production-shaped body. The composition check can: a mirrored body is the
+// decoded header plus our own fields and nothing more, so it is bounded by the
+// header (which scripts/test-challenge-size.js caps against production) plus
+// our own fields, and those are capped here.
+const MAX_OWN_FIELD_BYTES = 2_048;
 const CURRENT_PRODUCTION_ROUTE_FLOOR = 560;
 const CONCURRENCY = 12;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -126,6 +133,7 @@ try {
   let rawRoutes = 0;
   let largest = { route: "", bytes: 0 };
   let largestBody = { route: "", bytes: 0 };
+  let largestOwn = { route: "", bytes: 0 };
   let speechSeen = false;
   let specificTagSeen = false;
 
@@ -151,6 +159,12 @@ try {
     if (body) {
       const differs = Object.keys(paymentRequired).filter((k) => !isDeepStrictEqual(body[k], paymentRequired[k]));
       if (differs.length) fail(route, `402 body does not mirror the header on: ${differs.join(",")}`);
+      const own = Object.fromEntries(Object.entries(body).filter(([k]) => !(k in paymentRequired)));
+      const ownBytes = Buffer.byteLength(JSON.stringify(own));
+      if (ownBytes > largestOwn.bytes) largestOwn = { route, bytes: ownBytes };
+      if (ownBytes > MAX_OWN_FIELD_BYTES) fail(route, `402 body's own fields (${Object.keys(own).join(",")}) take ${ownBytes} bytes, over ${MAX_OWN_FIELD_BYTES}`);
+      const headerJsonBytes = Buffer.from(encoded, "base64").length;
+      if (bodyBytes > headerJsonBytes + ownBytes) fail(route, `402 body is ${bodyBytes} bytes, more than the decoded header (${headerJsonBytes}) plus its own fields (${ownBytes})`);
       const bodyParsed = parsePaymentRequired(body);
       if (!bodyParsed.success) fail(route, `402 body PaymentRequiredSchema: ${bodyParsed.error.issues[0]?.message || "invalid"}`);
       // Our own grader, run on our own mirrored body: no tool description or
@@ -223,7 +237,7 @@ try {
   console.log(`catalog routes: ${endpoints.length}`);
   console.log(`route-aware required schemas: ${requiredRoutes}; variable schemas without required: ${variableRoutes}; raw/array schemas: ${rawRoutes}`);
   console.log(`largest challenge: ${largest.route} at ${largest.bytes} bytes`);
-  console.log(`largest 402 body: ${largestBody.route} at ${largestBody.bytes} bytes`);
+  console.log(`largest 402 body: ${largestBody.route} at ${largestBody.bytes} bytes; largest own fields: ${largestOwn.route} at ${largestOwn.bytes} bytes`);
   if (failures.length) {
     for (const problem of failures.slice(0, 40)) console.error(`FAIL - ${problem}`);
     if (failures.length > 40) console.error(`... ${failures.length - 40} more failure(s)`);
