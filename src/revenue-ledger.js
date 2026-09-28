@@ -592,7 +592,7 @@ export function ledgerRecent(chain, wallets, { limit = 8 } = {}) {
     const rows = db.prepare(
       `SELECT tx_hash, block, when_ts, payer, usd, asset, external
          FROM transfers WHERE chain = ? AND wallet IN (${placeholders})
-        ORDER BY COALESCE(block, 0) DESC, COALESCE(when_ts, 0) DESC
+        ORDER BY block DESC, when_ts DESC
         LIMIT ?`
     ).all(chain, ...list, Math.max(1, Math.min(50, limit)));
     return rows.map((r) => ({
