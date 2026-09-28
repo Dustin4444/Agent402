@@ -60,7 +60,7 @@ export function x402TestPage(baseUrl) {
   <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Retry with your client's <code>PAYMENT-SIGNATURE</code> header. If it is wrong, the 402 body carries a <code>reason</code>, a <code>hint</code> in words, and a <code>retry</code> telling you what kind of change is needed, ahead of the same offer the header carries. The header's one-line <code>error</code> is left out of a refusal's body, so a client that reads <code>error</code> first reads the hint instead. Here is a real one, with the offer trimmed. A route that also takes proof-of-work puts an <code>altPayment</code> pointer first.</p>
   ${pre(`{
   "reason": "unsupported-scheme",
-  "hint": "Scheme \\"lightning\\" is not offered on this route. Offered: exact.",
+  "hint": "Scheme \\"lightning\\" is not offered on this route. Offered: exact, upto.",
   "retry": "choose-offered-option",
   "x402Version": 2,
   "resource": { ... },

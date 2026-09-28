@@ -43,6 +43,7 @@ import {
 } from "../src/payment-required-body.js";
 import { REJECTION_REASONS } from "../src/payment-reject.js";
 import { Agent402 } from "../client/index.js";
+import { x402TestPage } from "../src/x402-test-page.js";
 
 let pass = 0, proc = null, facilitator = null;
 const serverLog = [];
@@ -205,7 +206,10 @@ facilitator = createServer((req, res) => {
   let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
     const reply = (status, obj) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     let payer = PAYER; try { payer = JSON.parse(body)?.paymentPayload?.payload?.authorization?.from || payer; } catch { /* not json */ }
-    if (req.url === "/supported") return reply(200, { kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }], extensions: [], signers: {} });
+    // exact AND upto on Base (X402_UPTO_NETWORKS below), the configuration the
+    // /x402-test sample reflects, so the refusal B5 reads is the one that page
+    // prints ("Offered: exact, upto.").
+    if (req.url === "/supported") return reply(200, { kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }, { x402Version: 2, scheme: "upto", network: "eip155:8453" }], extensions: [], signers: {} });
     if (req.url === "/verify") {
       fac.verify++;
       if (verifyMode === "graceful") return reply(200, { isValid: false, invalidReason: "insufficient_funds", payer });
@@ -233,7 +237,7 @@ const bootServer = (port, extraEnv = {}) => {
       ...process.env, PORT: String(port), FREE_MODE: "", BASE_URL,
       WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", PAYMENT_NETWORKS: "base",
       FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`,
-      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: SECRET, PAYMENT_REQUIRED_BODY: "",
+      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: SECRET, PAYMENT_REQUIRED_BODY: "", X402_UPTO_NETWORKS: "eip155:8453",
       X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
       STATS_ALLOW_EPHEMERAL: "true", OPENROUTER_TTS_ENABLED: "true",
       ...extraEnv,
@@ -381,6 +385,16 @@ try {
     ok(typeof body.hint === "string" && body.hint && typeof body.retry === "string" && body.retry, "B5 hint and retry are present");
     ok(isDeepStrictEqual(Object.keys(body).slice(0, 3), ["reason", "hint", "retry"]), `B5 the first three keys are reason, hint, retry (${Object.keys(body).join(",")})`);
     await assertErrorFirstReaders("B5", r.status, text, decoded, body.hint);
+    ok((decoded.accepts || []).some((a) => a.scheme === "upto"), "B5 control: this boot offers upto on Base (the configuration the /x402-test sample reflects)");
+    // The /x402-test page calls its sample "a real one": it must be this body,
+    // key for key and word for word, with only the offer's values elided.
+    const html = x402TestPage(BASE_URL);
+    const pres = [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)].map((m) => m[1].replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"));
+    const sampleText = pres.find((t) => t.includes('"unsupported-scheme"'));
+    let sample = null;
+    try { sample = JSON.parse(String(sampleText).replace(/\{ \.\.\. \}|\[ \.\.\. \]/g, "null")); } catch { sample = null; }
+    ok(!!sample && isDeepStrictEqual(Object.keys(sample), Object.keys(body)), `B5 the /x402-test sample has this body's keys, in order (${sample ? Object.keys(sample).join(",") : "unparsed"})`);
+    ok(!!sample && ["reason", "hint", "retry", "x402Version"].every((k) => sample[k] === body[k]), `B5 the /x402-test sample's reason, hint and retry are this body's (${body.hint})`);
     console.log("   B5 body (the /x402-test sample):", JSON.stringify({ ...body, resource: "...", accepts: "...", extensions: "..." }));
   }
 
