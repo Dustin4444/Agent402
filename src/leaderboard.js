@@ -736,6 +736,21 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
       return (a.name || "").localeCompare(b.name || "");
     })
     .map((r, i) => ({ rank: i + 1, ...r }));
+  // PER-WALLET EVIDENCE for the router (2026-09-28). A row above is an
+  // OPERATOR group, so its totals add up every wallet in it. The router's gate
+  // asks whether the ONE wallet a seller's live 402 names clears the floor on
+  // that wallet's own history (src/evidence-binding.js), which the group totals
+  // cannot answer. Kept beside the ranked rows, never on them: it is router
+  // input, not a public column, and getLeaderboardSnapshot() strips it from
+  // every served snapshot. Non-enumerable, so a caller that serializes the
+  // ranked array directly cannot leak it either.
+  const walletEvidence = {};
+  for (const w of byWallet.values()) {
+    const k = typeof w.wallet === "string" ? w.wallet.toLowerCase() : null;
+    if (!k) continue;
+    walletEvidence[k] = { callsSettled: w.callsSettled || 0, uniqueBuyers: w.perPayer ? w.perPayer.size : 0, origins: [...(w.origins || [])] };
+  }
+  Object.defineProperty(ranked, "walletEvidence", { value: walletEvidence, enumerable: false, configurable: true });
   return ranked;
 }
 
@@ -985,6 +1000,9 @@ export async function runLeaderboard(overrides = {}) {
     walletsQueried: wallets.length,
     bazaarTotal: total,
     leaderboard: ranked,
+    // Router input, persisted with the snapshot so a warm start carries it;
+    // removed from every served copy by getLeaderboardSnapshot().
+    walletEvidence: ranked.walletEvidence || {},
     // Honesty flags: a partial scan under-covers the window (missed ranges
     // mean some settlements aren't counted) — never render it as if it were
     // a complete scan. See ledger-leaderboard.js / x402-index.js for where
@@ -1185,8 +1203,12 @@ export function stopLeaderboardRefresh() {
  */
 export function getLeaderboardSnapshot() {
   if (cached.snapshot) {
+    // walletEvidence is router input (getLeaderboardWalletEvidence below).
+    // Every public path spreads this return value, so this is the one place it
+    // has to be dropped.
+    const { walletEvidence: _routerOnly, ...served } = cached.snapshot;
     return {
-      ...cached.snapshot,
+      ...served,
       cache: {
         cachedAt: cached.snapshot.asOf,
         lastTriedAt: cached.lastTriedAt,
@@ -1213,6 +1235,19 @@ export function getLeaderboardSnapshot() {
       refreshIntervalMs: cached.refreshIntervalMs,
     },
   };
+}
+
+/**
+ * The last scan's per-wallet evidence: wallet -> { callsSettled, uniqueBuyers,
+ * origins }. Read by the router's evidence binding (src/evidence-binding.js) to
+ * keep every figure against the wallet it was measured at, rather than an
+ * operator row's totals. `{}` before the first scan and for a snapshot
+ * persisted before this field existed, which credits a multi-wallet row
+ * nothing (its totals cannot be split), never its totals.
+ */
+export function getLeaderboardWalletEvidence() {
+  const ev = cached.snapshot?.walletEvidence;
+  return ev && typeof ev === "object" && !Array.isArray(ev) ? ev : {};
 }
 
 /** Test hook: clear the cache. Not exported on the production path. */

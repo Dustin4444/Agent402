@@ -20,7 +20,7 @@ const decl = fn.indexOf("let provenPayToByOrigin = new Map()");
 const branch = fn.indexOf('if (chain === "tempo")');
 ok(decl > 0 && branch > 0 && decl < branch, "provenPayToByOrigin is declared at function scope BEFORE the chain branches");
 ok(!/var provenPayToByOrigin/.test(fn), "no `var provenPayToByOrigin` inside a branch (the hoisted-undefined shape)");
-ok(/provenPayToByOrigin = buildProvenPayToByOrigin\(\)/.test(fn), "the Base branch still assigns the proven-payTo evidence");
+ok(/provenPayToByOrigin = ev\.provenPayTo;/.test(fn), "the Base branch still assigns the proven-payTo evidence (from dispatchEvidence)");
 ok((fn.match(/provenPayToByOrigin[?.]+get\(/g) || []).length >= 1, "the post-probe check still reads the map (so an undefined map would have been fatal on the non-Base legs)");
 ok(/r\.unproven = true/.test(fn) && /Number\.isFinite\(gate\.inbound\)/.test(fn),
   "the Solana gate admits an UNPROVEN candidate only when the chain was readable (a count came back) and the quote is within the allowance");

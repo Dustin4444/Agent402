@@ -234,20 +234,30 @@ export function composeSellerDossier(a) {
   const ownSettled = Number(evidenceBinding?.ownSettled) || 0;
   const ownPayers = evidenceBinding?.ownPayers;
   const claimsFor = basePayTo && sharedClaims ? sharedClaims[String(basePayTo).toLowerCase()] : null;
+  // Every figure the router credits this origin with, kept against the wallet
+  // it was measured at: the gate asks whether the wallet the live 402 names
+  // clears the floor on that wallet's own figures.
+  const byWallet = evidenceBinding?.byWallet instanceof Map
+    ? [...evidenceBinding.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers), clearsFloor: evidenceBinding.clearing instanceof Set ? evidenceBinding.clearing.has(wallet) : null }))
+    : [];
+  // The router's Base detail, wherever the dispatch row carries it.
+  const baseDetail = dispatch?.routerDispatchDetail || dispatch?.routerDispatchByChain?.base?.detail || null;
   const wallets = {
     advertisedByNetwork: payTosByNetwork,
     base: {
       advertised: basePayTo,
-      ownEvidence: { settled: ownSettled, payers: ownPayers === undefined ? null : ownPayers, note: "chain join on this origin's OWN advertised address, plus any committed seed" },
+      ownEvidence: { settled: ownSettled, payers: ownPayers === undefined ? null : ownPayers, note: "chain join on this origin's OWN advertised address" },
+      evidenceByWallet: byWallet,
+      evidenceByWalletNote: byWallet.length ? "settlement evidence credited to this origin, per wallet it was measured at; the router pays only a wallet whose own figures clear the floor, and only when the live 402 names it" : null,
       inheritedFrom: inherited.length ? inherited : [],
       inheritedNote: inherited.length ? "evidence counted for this origin came partly from wallets other listings also name; the router requires the live 402 to pay one of them" : null,
       sharedWithOrigins: Array.isArray(claimsFor) ? claimsFor.filter((o) => String(o).toLowerCase() !== String(origin).toLowerCase()) : [],
     },
-    routerDispatchDetail: dispatch?.routerDispatchDetail || null,
+    routerDispatchDetail: baseDetail,
   };
   if (wallets.base.sharedWithOrigins.length) flags.push(`the advertised Base wallet is also advertised by ${wallets.base.sharedWithOrigins.length} other origin(s); chain evidence for it is withheld from all of them`);
-  if (dispatch?.routerDispatchDetail === "evidence_payto_mismatch") flags.push("the settlement evidence behind this origin belongs to a wallet its live 402 does not pay; the router will not spend on it");
-  if (dispatch?.routerDispatchDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the inherited evidence to");
+  if (baseDetail === "evidence_payto_mismatch") flags.push("the settlement evidence that clears the floor for this origin was measured at a wallet its live 402 does not pay; the router will not spend on it");
+  if (baseDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the settlement evidence to");
 
   // Concentration reads as a sentence here, like every other dossier flag: a
   // buyer deciding whether to route to this seller wants "most of their volume

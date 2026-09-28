@@ -144,7 +144,16 @@ check("inherited-wallet evidence is named as inherited, never folded into own", 
   assert.equal(r.wallets.base.ownEvidence.settled, 0);
   assert.equal(r.wallets.base.ownEvidence.payers, null, "undefined breadth is null (unknown), never 0");
   assert.match(r.wallets.base.inheritedNote, /inherited|other listings/);
-  assert.ok(r.flags.some((f) => /belongs to a wallet its live 402 does not pay/.test(f)));
+  assert.ok(r.flags.some((f) => /measured at a wallet its live 402 does not pay/.test(f)));
+});
+check("the per-wallet evidence is listed wallet by wallet, and the Base detail is read from the dispatch row itself", () => {
+  const r = base({
+    evidenceBinding: { payTos: new Set([OTHER, WALLET]), byWallet: new Map([[OTHER, { settled: 5000, payers: 40 }], [WALLET, { settled: 1, payers: 1 }]]), clearing: new Set([OTHER]), ownSettled: 0, ownPayers: undefined },
+    dispatch: { routerDispatchEligible: false, routerDispatchReason: "settlement_required", routerDispatchByChain: { base: { eligible: false, reason: "settlement_required", detail: "evidence_payto_mismatch" } } },
+  });
+  assert.deepEqual(r.wallets.base.evidenceByWallet, [{ wallet: OTHER, settled: 5000, payers: 40, clearsFloor: true }, { wallet: WALLET, settled: 1, payers: 1, clearsFloor: false }]);
+  assert.equal(r.wallets.routerDispatchDetail, "evidence_payto_mismatch");
+  assert.ok(r.flags.some((f) => /measured at a wallet its live 402 does not pay/.test(f)), "the flag fires from routerDispatchByChain.base.detail too");
 });
 check("a shared advertised wallet names the other claimants and flags the withheld evidence", () => {
   const r = base({ sharedClaims: { [WALLET]: ["https://seller.example", "https://other.example", "https://third.example"] } });

@@ -66,11 +66,11 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
 // lives in test-sor-payto-binding.js). Here: the label surface only.
 {
   const W = "0x" + "aa".repeat(20), X = "0x" + "bb".repeat(20);
-  const evidence = { payTos: new Set([W]), ownSettled: 0, ownPayers: undefined };
+  const evidence = { byWallet: new Map([[W, { settled: 5000, payers: 40 }]]), ownSettled: 0, ownPayers: undefined };
   const at = (livePayTo) => dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence, livePayTo });
   ok(at(W).eligible === true && at(X).eligible === false && at(X).reason === "settlement_required" && at(X).chains.base.detail === "evidence_payto_mismatch", "history inherited from wallet W counts only for an origin paid at W; paid at X reads settlement_required (evidence_payto_mismatch)");
   ok(at(null).eligible === false && at(null).chains.base.detail === "evidence_payto_unverified", "and an unreadable own address reads settlement_required (evidence_payto_unverified), never eligible");
-  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence: { payTos: new Set([W]), ownSettled: 600, ownPayers: 9 }, livePayTo: X }).eligible === true, "an origin whose OWN evidence clears the floor is not bound");
+  ok(dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: all, evidence: { byWallet: new Map([[W, { settled: 5000, payers: 40 }], [X, { settled: 1, payers: 1 }]]) }, livePayTo: X }).eligible === false, "a wallet credited beside a clearing one is judged on its OWN evidence (per wallet, never the union)");
 }
 // A Base accept under the wrong EIP-712 domain name (a seller, 2026-09-10):
 // unpayable by every stock buyer, whatever its settlement history says.
@@ -169,9 +169,10 @@ ok(dispatchEligibility({ local: true }).reason === "local_catalog" && dispatchEl
   // ownership check), and provenPayToMatches can only bind a BASE address - so
   // Solana evidence must never reach the maps the Base gate reads, or a fresh
   // origin clears the Base floor by naming someone else's Solana payTo.
-  const settledFn = server.slice(server.indexOf("function buildSettledByOrigin()"), server.indexOf("function buildSettledByOrigin()") + 2500).split("\nfunction ")[0];
-  const payersFn = server.slice(server.indexOf("function buildPayersByOrigin()"), server.indexOf("function buildPayersByOrigin()") + 2500).split("\nfunction ")[0];
-  ok(!/solanaEvidenceByOrigin\(\)/.test(settledFn) && !/solanaEvidenceByOrigin\(\)/.test(payersFn), "Solana leaderboard evidence is NOT folded into the settled/payers maps the Base gate reads (self-declared payTo attribution cannot clear the Base floor)");
+  const at = server.indexOf("function buildEvidenceBindingByOrigin(");
+  const builderFn = server.slice(at, server.indexOf("\n}\n", at));
+  const evidenceFn = server.slice(server.indexOf("function dispatchEvidence()"), server.indexOf("function spendChainsConfigured()"));
+  ok(at > -1 && !/solanaEvidenceByOrigin\(\)/.test(builderFn) && !/solanaEvidenceByOrigin\(\)/.test(evidenceFn), "Solana leaderboard evidence is NOT folded into the binding (or its settled/payers projections) the Base gate reads (self-declared payTo attribution cannot clear the Base floor)");
   const crossChain = dispatchEligibility({ routable: true, networks: ["eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"], settled: 0, payers: undefined, spendChains: ["base", "solana"], minSettled: 50, minPayers: 3 });
   ok(crossChain.chains.base.reason === "settlement_required" && crossChain.chains.solana.reason === "settlement_checked_at_pay_time", "an origin with only Solana evidence stays settlement_required on Base while Solana is read at pay time");
   ok(/executeViaWhenEligible: executeVia, executeViaCallableNow: false/.test(server) && /\{ executeVia, executeViaCallableNow: true \}/.test(server), "withDispatchFields moves executeVia to executeViaWhenEligible on a non-eligible row and stamps executeViaCallableNow either way");

@@ -58,48 +58,52 @@ const REASON_PRECEDENCE = ["crawl_failed", "network_unknown", "no_supported_rout
 // `detail` values a settlement_required verdict can carry beyond the gate's
 // own sentence. Documented in the legend under routerDispatchDetail.
 export const DISPATCH_DETAILS = Object.freeze({
-  evidence_payto_mismatch: "the settlement history this origin inherits belongs to a wallet its own 402 does not ask to be paid at, so it does not count for this origin",
-  evidence_payto_unverified: "the settlement history this origin inherits belongs to a specific wallet and the origin's own Base payTo could not be read, so it does not count until the live 402 names that wallet",
+  evidence_payto_mismatch: "the settlement history that clears the floor for this origin was measured at a wallet its own 402 does not ask to be paid at; each wallet's history counts only where that wallet is paid, so it does not count for this origin",
+  evidence_payto_unverified: "the settlement history that clears the floor for this origin was measured at a specific wallet and the origin's own Base payTo could not be read, so it does not count until the live 402 names that wallet",
 });
 
 const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
 
 /**
- * SHARED-WALLET EVIDENCE COUNTS ONLY WHERE THE MONEY WOULD GO (2026-09-03).
+ * SETTLEMENT EVIDENCE COUNTS ONLY WHERE THE MONEY WOULD GO (2026-09-03), ONE
+ * WALLET AT A TIME (2026-09-28).
  *
  * The x402 leaderboard groups origins by payTo: every origin whose registry
- * listing names wallet W sits in W's row and, until now, inherited W's whole
- * settlement count. Naming a wallet is a claim anyone can write into a
+ * listing names wallet W sits in W's row and, until 2026-09-03, inherited W's
+ * whole settlement count. Naming a wallet is a claim anyone can write into a
  * listing, so a fresh origin could name a heavily-paid third-party wallet,
  * clear the Base floor on that wallet's history, and then serve a live 402
- * that asks to be paid somewhere else. The chain-join belt (provenPayToMatches)
- * could not see it: it only binds an origin whose OWN advertised address was
- * observed settling, and the attacker's own address had no history at all -
- * "unknown", and unknown does not refuse.
+ * that asks to be paid somewhere else.
  *
- * So: evidence that reached an origin through a shared-wallet row is BOUND
- * to that row's wallets, and counts for the origin only when the address the
- * origin's live 402 asks us to pay is one of them. An origin whose OWN
- * evidence (the committed seed, or the chain join on its own advertised
- * address) already clears the gate keeps today's behavior - nothing about it
- * was inherited. "Unreadable live payTo" is not a match either: the evidence
- * belongs to a specific wallet, and we cannot confirm this origin is paid at
- * it.
+ * So every figure an origin is credited with is kept against the wallet it
+ * was measured at (src/evidence-binding.js), and the gate asks one question of
+ * the address the origin's live 402 asks us to pay: does THAT wallet's own
+ * evidence clear the floor? The 2026-09-03 form checked the live address
+ * against the UNION of the credited wallets beside a MAX of their counts,
+ * which let an origin credited with a busy wallet clear the floor and then be
+ * paid at any other wallet it had been credited with, however thin that
+ * wallet's own history. "Unreadable live payTo" is not a match either.
  *
- * @param {object} o.evidence   { payTos: Set|Array of wallets the inherited
- *                              evidence belongs to, ownSettled, ownPayers }
- *                              (undefined/null = no binding information: the
- *                              gate result stands as before)
+ * @param {object} o.evidence   { byWallet: Map(wallet -> { settled, payers }),
+ *                              seedSettled } (undefined/null = no binding
+ *                              information: the gate result stands as before)
  * @param {string|null} o.livePayTo  the Base address the origin's own 402
  *                              asks to be paid at (live probe at resolve
  *                              time; the crawled advertised address at label
  *                              time); null = unreadable
+ * @returns {{ bound, ok, verdict, payTos }} payTos = the wallets whose own evidence clears
  */
 export function evidencePayToVerdict({ evidence, livePayTo, minSettled = 50, minPayers = 3 } = {}) {
   if (!evidence || typeof evidence !== "object") return { bound: false, ok: true, verdict: "no_binding_information" };
-  const own = meetsRouterGate({ settled: Number(evidence.ownSettled || 0), payers: evidence.ownPayers, minSettled, minPayers });
-  if (own.ok) return { bound: false, ok: true, verdict: "own_evidence_clears_the_gate" };
-  const payTos = [...(evidence.payTos instanceof Set ? evidence.payTos : Array.isArray(evidence.payTos) ? evidence.payTos : [])].map(evmKey).filter(Boolean);
+  // The committed seed is a count with no wallet; clearing the floor on it
+  // alone skips the binding.
+  if (meetsRouterGate({ settled: Number(evidence.seedSettled || 0), payers: undefined, minSettled, minPayers }).ok) return { bound: false, ok: true, verdict: "own_evidence_clears_the_gate" };
+  const byWallet = evidence.byWallet instanceof Map ? evidence.byWallet : new Map();
+  const payTos = [];
+  for (const [w0, v] of byWallet) {
+    const w = evmKey(w0);
+    if (w && meetsRouterGate({ settled: Number(v?.settled || 0), payers: v?.payers, minSettled, minPayers }).ok) payTos.push(w);
+  }
   const live = evmKey(livePayTo);
   if (!live) return { bound: true, ok: false, verdict: "evidence_payto_unverified", payTos };
   if (!payTos.includes(live)) return { bound: true, ok: false, verdict: "evidence_payto_mismatch", payTos, livePayTo: live };
@@ -191,9 +195,9 @@ export function dispatchEligibility({ routable, networks = [], settled = 0, paye
       if (domain.verdict === "wrong_domain") { byChain[c] = { eligible: false, reason: "usdc_domain_mismatch", detail: usdcDomainMismatchDetail(domain), advertisedName: domain.advertisedName, expectedName: domain.expectedName }; continue; }
       const gate = meetsRouterGate({ settled: basis.settled, payers, minSettled, minPayers });
       byChain[c] = gate.ok ? { eligible: true, reason: "eligible" } : { eligible: false, reason: "settlement_required", detail: gate.reason };
-      // Inherited (shared-wallet) evidence counts only where the money goes:
-      // a gate cleared on a wallet's history needs the origin's own 402 to
-      // pay THAT wallet. Own evidence clearing the gate skips this entirely.
+      // Evidence counts only where the money goes: a gate cleared on a
+      // wallet's history needs the origin's own 402 to pay THAT wallet, and
+      // that wallet's own evidence has to clear the floor.
       if (gate.ok && evidence !== undefined && evidence !== null) {
         const v = evidencePayToVerdict({ evidence, livePayTo, minSettled, minPayers });
         if (v.bound && !v.ok) byChain[c] = { eligible: false, reason: "settlement_required", detail: v.verdict };
@@ -234,7 +238,7 @@ export function dispatchLegend({ spendChains = ["base"] } = {}) {
     routerDispatchEligible: "true when this host's Smart Order Router will pay the seller on a buyer's behalf right now on at least one chain it holds a spending wallet for.",
     routerDispatchReason: DISPATCH_REASONS,
     evmDomainByNetwork: "the EIP-712 domain (asset + extra.name) each of the seller's EVM accepts advertised on its 402; the router label refuses a Base accept whose name is not the token's own (usdc_domain_mismatch) because no stock x402 signature under it can verify.",
-    routerDispatchDetail: { ...DISPATCH_DETAILS, _note: "settlement_required may carry one of these in routerDispatchByChain.base.detail beside the gate's own sentence; settlement history inherited through a shared payTo counts for an origin only when the origin's own 402 pays that wallet, which the router checks live before it signs" },
+    routerDispatchDetail: { ...DISPATCH_DETAILS, _note: "settlement_required may carry one of these in routerDispatchByChain.base.detail beside the gate's own sentence; settlement history is kept per wallet and counts for an origin only when the wallet its own 402 asks to be paid at clears the floor on that wallet's own history, which the router checks live before it signs and again on the payment it signs" },
     executeVia: "present only on a row the router will pay right now: the route-execute tier (and price) that runs it. Its absence on a priced row is deliberate.",
     executeViaWhenEligible: "the route-execute tier this row WOULD run under once its seller is dispatch-eligible; not callable through the router today.",
     executeViaCallableNow: "true on rows carrying executeVia, false on rows carrying executeViaWhenEligible. A buyer agent should key on this, never on the presence of a tier name.",

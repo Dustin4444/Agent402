@@ -1102,18 +1102,33 @@ export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrig
 // a quality count is Coinbase's measurement of settlements at that resource's
 // payTo, and it must not clear the Base floor for an origin whose live 402
 // asks to be paid somewhere else.
-const BAZAAR_QUALITY_MAX_PAYTOS = 8;
-function foldBazaarQuality(map, origin, q, basePayTo = null) {
+//
+// `byPayTo` (2026-09-28): the same counts split by the Base payTo each
+// counted resource declares, under the same cap: calls summed, payers the MAX
+// across that wallet's resources. The router keeps its evidence PER WALLET
+// (src/evidence-binding.js), so a count measured at one wallet can never clear
+// the floor for a payment to another. NON-ENUMERABLE on purpose: this object
+// is served as-is as `bazaar` on public index and route rows, and the split is
+// router input, not a column.
+export const BAZAAR_QUALITY_MAX_PAYTOS = 8;
+export function foldBazaarQuality(map, origin, q, basePayTo = null) {
   if (!q || typeof q !== "object") return;
   const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
   const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
+  if (!cur.byPayTo || typeof cur.byPayTo !== "object") Object.defineProperty(cur, "byPayTo", { value: {}, enumerable: false, writable: true, configurable: true });
   cur.calls30d += calls;
   cur.payers30d = Math.max(cur.payers30d, payers);
   if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
   const w = typeof basePayTo === "string" && /^0x[0-9a-f]{40}$/i.test(basePayTo) ? basePayTo.toLowerCase() : null;
   if (!Array.isArray(cur.payTos)) cur.payTos = [];
   if (w && !cur.payTos.includes(w) && cur.payTos.length < BAZAAR_QUALITY_MAX_PAYTOS) cur.payTos.push(w);
+  if (w && calls > 0 && (Object.hasOwn(cur.byPayTo, w) || Object.keys(cur.byPayTo).length < BAZAAR_QUALITY_MAX_PAYTOS)) {
+    const at = cur.byPayTo[w] || { calls: 0, payers: 0 };
+    at.calls += calls;
+    at.payers = Math.max(at.payers, payers);
+    cur.byPayTo[w] = at;
+  }
   map.set(origin, cur);
 }
 

@@ -285,7 +285,7 @@ import { tempoDataKey } from "./tempo-transfers.js";
 import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
-import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
+import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -472,7 +472,7 @@ import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDail
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
-import { dispatchEligibility, dispatchLegend, evidencePayToVerdict } from "./dispatch-eligibility.js";
+import { dispatchEligibility, dispatchLegend } from "./dispatch-eligibility.js";
 import { pageSizeOf, pagingEnvelope, pagingNote } from "./index-paging.js";
 import { usdcDomainVerdict, usdcDomainMismatchDetail, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { acceptsFromLive402 } from "./x402-live-quote.js";
@@ -1092,125 +1092,66 @@ const SOR_SEED_ORIGINS = (() => {
   catch { return {}; }
 })();
 const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
-// origin -> proven settled-tx count: committed seed as the floor, then the live
-// (or /data warm-started) leaderboard overlaid, max per origin (counts only
-// grow, so max is the best known and can't be regressed by a stale source).
+// ONE EVIDENCE MAP (2026-09-28). Everything the Base gate reads about an origin
+// - settled calls, distinct payers, the wallets that evidence was measured at
+// and the chain-join address - comes out of ONE buildEvidenceBinding call
+// (src/evidence-binding.js), rebuilt at most once a minute by dispatchEvidence()
+// below. The label on every public row and the resolver's decision read the
+// same object, so they cannot disagree about what counts.
+//
+// Every figure is kept against the WALLET it was measured at, and the gate asks
+// whether the wallet the origin's live 402 names clears the floor on its own:
+//   - the x402 leaderboard scan: per payTo wallet (getLeaderboardWalletEvidence),
+//     credited to every origin on the wallet's row, and counting only where
+//     that wallet is paid;
+//   - the Bazaar's per-origin quality: measured on the origin's own URLs, split
+//     by the payTo those resources declare;
+//   - the chain join (provenByChain, the busiest Base merchants we observed
+//     settling), kept against the origin's own advertised address;
+//   - the committed seed: a count with no wallet.
+// `settled` and `payers` are projections of the binding: the best single
+// wallet's figures, never a MAX of one wallet's calls beside another wallet's
+// payers.
+//
+// READ THE CHAIN-JOIN BOUND BEFORE RELYING ON IT (2026-09-19): topMerchants
+// comes from a query that ends `ORDER BY payments DESC LIMIT 12`
+// (x402-economy.js), so the join only ever sees the twelve busiest x402
+// merchants on Base. What covers the tail is the leaderboard fold, whose scan
+// seeds its wallet set from our own crawl's payTos (mergeCrawledWallets) and
+// keeps a row per wallet with no rank cap.
+//
+// NOT folded anywhere here: the Solana SPL leaderboard's evidence
+// (solanaEvidenceByOrigin). It attributes a payTo's on-chain credits to every
+// origin whose crawled tools ADVERTISE that payTo, and these maps feed the
+// BASE gate, whose binding can only be satisfied by a BASE address; Solana
+// counts folded here let a fresh origin clear the Base floor by naming someone
+// else's Solana payTo (security review 2026-09-02). Solana proven-ness is read
+// from the chain at pay time against the accept's own payTo.
+function buildChainProven() {
+  const econ = economySnapshotCached();
+  return econ?.topMerchants?.length ? provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants }) : new Map();
+}
 // origin -> the address whose observed settlements earned that origin its
-// chain-derived proven-ness. Used at probe time to check the seller then asks
-// for payment AT that address; without it, trust earned by one wallet could be
-// spent at another.
-// origin -> distinct payers observed. Two sources, max-merged: the leaderboard
-// exposes uniqueBuyers per operator, and the chain join carries payers per
-// merchant address. An origin absent from both has no payer evidence, which is
-// different from having zero payers.
-// NOT folded here: the Solana SPL leaderboard's evidence (solanaEvidenceByOrigin).
-// It attributes a payTo's on-chain credits to every origin whose crawled tools
-// ADVERTISE that payTo - a claim the seller writes into its own manifest, with
-// no ownership check - and these maps feed the BASE router gate, whose only
-// belt against "name a heavily-settled wallet, inherit its history, get paid
-// somewhere else" is provenPayToMatches on a BASE address. A cross-chain
-// address can never satisfy that binding, so Solana counts folded here let a
-// fresh origin clear the Base floor by naming someone else's Solana payTo
-// (security review 2026-09-02). Solana proven-ness is read from the chain at
-// pay time against the accept's own payTo; the board only primes that read.
-function buildPayersByOrigin() {
+// chain-derived proven-ness. Used at probe time and again at pay time to check
+// the seller asks for payment AT that address; without it, trust earned by one
+// wallet could be spent at another.
+function buildProvenPayToByOrigin(chainProven) {
   const m = new Map();
-  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
-    const n = Number(row.uniqueBuyers || 0);
-    if (!n) continue;
-    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n));
-    }
+  for (const [origin, ev] of (chainProven || new Map())) {
+    if (ev?.payTo) m.set(norm(origin), ev.payTo);
   }
-  // Coinbase-measured 30-day distinct payers from the Bazaar feed (x402-index
-  // bazaarQualityEntries): an independent observer of the same settlements,
-  // folded as a MAX - positive evidence only, never lowers ours.
-  for (const [o, q] of bazaarQualityEntries()) if (q?.payers30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.payers30d));
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        if (ev?.payers) m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.payers));
-      }
-    }
-  } catch { /* additive evidence; never break routing */ }
   return m;
 }
-
-function buildProvenPayToByOrigin() {
-  const m = new Map();
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        if (ev?.payTo) m.set(norm(origin), ev.payTo);
-      }
-    }
-  } catch { /* evidence is additive; never break routing */ }
-  return m;
-}
-
-function buildSettledByOrigin() {
-  const m = new Map();
-  // Solana credits are deliberately NOT folded here - see buildPayersByOrigin.
-  for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
-  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
-    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
-    }
-  }
-  // Bazaar 30-day settled calls (Coinbase-measured) - same MAX fold as payers.
-  for (const [o, q] of bazaarQualityEntries()) if (q?.calls30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.calls30d));
-  // Third source, and the only one that does not depend on a registry listing
-  // us a seller: join each CRAWLED origin's advertised Base payTo against the
-  // merchants we ourselves observed settling on-chain. The two sources above
-  // both derive from the Bazaar, so before this an unregistered seller scored
-  // 0 settled calls however much money it actually moved — "unproven" where the
-  // truth was "unlooked". Max-merged, so this can only ever widen the evidence.
-  //
-  // READ THE BOUND BEFORE RELYING ON IT (2026-09-19): topMerchants comes from a
-  // query that ends `ORDER BY payments DESC LIMIT 12` (x402-economy.js), so
-  // this source can only ever see the twelve busiest x402 merchants on all of
-  // Base. It does NOT do what the paragraph above implies for an ordinary
-  // seller - a seller with a handful of settlements is outside the twelve and
-  // scores 0 here, forever. What actually covers the tail is the leaderboard
-  // fold above, whose scan seeds its wallet set from our own crawl's payTos
-  // (mergeCrawledWallets) and keeps a row per wallet with no rank cap
-  // (measured: 1,624 rows over 1,778 wallets queried). Widen the LIMIT only
-  // with the CDP SQL cost in hand; until then this is a top-of-market belt.
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) {
-      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
-        m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.settled || 0));
-      }
-    }
-  } catch { /* evidence is additive; never break routing when a source is down */ }
-  return m;
-}
-// origin -> { payTos, ownSettled, ownPayers }: the SAME sources as the two maps
-// above, with the WALLETS kept beside the counts (src/evidence-binding.js).
-// The leaderboard and Bazaar folds above credit an origin with a wallet's
-// history because a registry listing NAMED that wallet, and a listing is
-// written by whoever lists - so a fresh origin naming a heavily paid
-// third-party wallet cleared the Base floor and, having no address of its own
-// for provenPayToMatches to bind, was paid wherever its live 402 pointed
-// (security review 2026-09-03). The resolver's post-probe gate (baseLiveGate)
-// and the public label (withDispatchFields) both read this map, so inherited
-// history counts for an origin only when the origin's own 402 pays one of the
-// wallets it was inherited from; the seed and the chain join are the origin's
-// OWN evidence and keep today's behavior.
-function buildEvidenceBindingByOrigin() {
-  let chainProven = null;
-  try {
-    const econ = economySnapshotCached();
-    if (econ?.topMerchants?.length) chainProven = provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants });
-  } catch { /* additive; an unreadable chain join leaves only shared evidence, which is then bound */ }
+// origin -> { byWallet, clearing, settled, payers, payTos, ownSettled, ownPayers, seedSettled }.
+function buildEvidenceBindingByOrigin({ chainProven }) {
   return buildEvidenceBinding({
     seedOrigins: SOR_SEED_ORIGINS,
     leaderboardRows: getLeaderboardSnapshot()?.leaderboard || [],
+    walletEvidence: getLeaderboardWalletEvidence(),
     bazaarQuality: bazaarQualityEntries(),
     chainProven,
+    minSettled: SOR_MIN_SETTLED_TX,
+    minPayers: SOR_MIN_DISTINCT_PAYERS,
   });
 }
 // origin -> the Base payTo the CRAWL saw the origin advertise (registry items
@@ -1229,18 +1170,25 @@ function buildAdvertisedBasePayToByOrigin() {
 // Dispatch labelling for the public surfaces (src/dispatch-eligibility.js):
 // the SAME function the resolver's Base gate runs, applied to /api/index
 // sellers, /api/route rows and the marketplace roster, so "routable" can no
-// longer be read as "the router will pay this seller". The settlement
-// evidence maps are the resolver's own builders, memoized for a minute: they
-// walk the leaderboard, the Bazaar feed and the economy snapshot, which is
-// fine once per resolve and not fine once per crawler-hit page render.
+// longer be read as "the router will pay this seller". The evidence is built
+// once a minute, never per row or per page render: the chain join once, the
+// binding once, and `settled` / `payers` are projections of that binding. The
+// resolver reads the same object.
 const DISPATCH_EVIDENCE_TTL_MS = 60_000;
 let dispatchEvidenceCache = null;
 function dispatchEvidence() {
   if (dispatchEvidenceCache && Date.now() - dispatchEvidenceCache.at < DISPATCH_EVIDENCE_TTL_MS) return dispatchEvidenceCache;
-  let settled = new Map(), payers = new Map(), binding = new Map(), advertised = new Map();
-  try { settled = buildSettledByOrigin(); payers = buildPayersByOrigin(); } catch { /* evidence is additive; an unreadable source labels nothing eligible on Base */ }
-  try { binding = buildEvidenceBindingByOrigin(); advertised = buildAdvertisedBasePayToByOrigin(); } catch { /* an unreadable binding leaves the label unbound, the resolver still binds live */ }
-  dispatchEvidenceCache = { at: Date.now(), settled, payers, binding, advertised };
+  let chainProven = new Map(), binding = new Map(), advertised = new Map();
+  try { chainProven = buildChainProven(); } catch { /* additive; an unreadable chain join credits nothing */ }
+  try { binding = buildEvidenceBindingByOrigin({ chainProven }); } catch { /* an unreadable binding labels nothing eligible on Base */ }
+  try { advertised = buildAdvertisedBasePayToByOrigin(); } catch { /* label-time only */ }
+  const settled = new Map(), payers = new Map();
+  for (const [origin, e] of binding) {
+    if (e.settled > 0) settled.set(origin, e.settled);
+    if (e.payers !== undefined) payers.set(origin, e.payers);
+  }
+  const provenPayTo = buildProvenPayToByOrigin(chainProven);
+  dispatchEvidenceCache = { at: Date.now(), settled, payers, binding, provenPayTo, advertised };
   return dispatchEvidenceCache;
 }
 function spendChainsConfigured() {
@@ -1410,13 +1358,12 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
     const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
-    const settledByOrigin = buildSettledByOrigin();
-    const payersByOrigin = buildPayersByOrigin();
-    provenPayToByOrigin = buildProvenPayToByOrigin();
-    // The wallets each origin's settled/payers evidence was INHERITED from
-    // (shared leaderboard rows, Bazaar-listed payTos), read once per resolve
-    // and re-checked against the live 402 below (baseLiveGate).
-    const bindingByOrigin = buildEvidenceBindingByOrigin();
+    // The SAME evidence object every public label reads (dispatchEvidence):
+    // settled and payers (the best single wallet's figures), the chain-join
+    // address and the binding (every figure kept against the wallet it was
+    // measured at, re-checked against the live 402 below by baseLiveGate).
+    const ev = dispatchEvidence();
+    provenPayToByOrigin = ev.provenPayTo;
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       // Never SPEND against an unsubstituted OpenAPI path template
@@ -1425,7 +1372,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // `urlTemplate`, because an agent that knows the parameter can use them.
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
-      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)), binding: bindingByOrigin.get(norm(r.seller)) || null }))
+      .map((r) => ({ ...r, settled: ev.settled.get(norm(r.seller)) || 0, payers: ev.payers.get(norm(r.seller)), binding: ev.binding.get(norm(r.seller)) || null }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
       // The SAME function that labels every public row (dispatch-eligibility.js),
@@ -1638,14 +1585,12 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
             live = false;
           }
         }
-        // SHARED-WALLET EVIDENCE COUNTS ONLY WHERE THE MONEY GOES (2026-09-03).
-        // The pre-probe filter cleared this candidate on settled/payers that may
-        // have been INHERITED from a leaderboard row keyed by someone else's
-        // wallet, or from a Bazaar listing naming one. Re-run the SAME labelled
+        // EVIDENCE COUNTS ONLY WHERE THE MONEY GOES (2026-09-03), ONE WALLET AT
+        // A TIME (2026-09-28). The pre-probe filter cleared this candidate on
+        // the best single wallet's settled/payers. Re-run the SAME labelled
         // gate with the origin's binding and the address its live 402 actually
-        // asks us to pay: inherited history counts only when that address is
-        // one of the wallets it came from; unreadable is not a match. An origin
-        // whose own evidence clears the floor is untouched by this.
+        // asks us to pay: it counts only when THAT wallet's own evidence clears
+        // the floor; unreadable is not a match.
         if (live && chain === "base" && r.binding) {
           const livePayTo = await readLivePayTo();
           const gate = baseLiveGate({ networks: r.networks, settled: r.settled, payers: r.payers, priceUsd: r.priceUsd, urlTemplate: !!r.urlTemplate, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS, binding: r.binding, livePayTo });
@@ -1656,12 +1601,13 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
             // THE PROBE IS NOT THE PAYMENT (2026-09-28). The gate above read the
             // PROBE's 402. payX402 makes its own unpaid request and signs whatever
             // THAT 402 names, and the seller answers both, so a seller could show
-            // the bound wallet to the probe and another address to the payment.
-            // When the binding is what made this candidate eligible, its wallets
-            // ride with the candidate and the payer refuses an accept naming any
-            // other address. Own evidence clearing the floor binds nothing (null).
-            const bound = evidencePayToVerdict({ evidence: r.binding, livePayTo, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).bound;
-            evidenceWallets = bound ? [...r.binding.payTos] : null;
+            // a clearing wallet to the probe and another address to the payment.
+            // The wallets whose OWN evidence clears the floor ride with the
+            // candidate, and the payer refuses an accept naming any other
+            // address - never the union of every wallet the origin was credited
+            // with, which would let a thin wallet ride on a busy one's history.
+            // Evidence that binds no wallet (the seed) hands over null.
+            evidenceWallets = gate.evidenceWallets;
           }
         }
       }
@@ -1715,10 +1661,9 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
 // moves here (probe only). Kept behind operatorAuthed.
 async function diagnoseExternalSeller(task, { cap }) {
   const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
-  const settledByOrigin = buildSettledByOrigin();
-  // Was read below but never declared here (a ReferenceError on every
-  // diagnostic call since the breadth gate landed); declared 2026-09-03.
-  const payersByOrigin = buildPayersByOrigin();
+  // The resolver's own evidence object, so the diagnosis cannot disagree with
+  // the decision it explains.
+  const { settled: settledByOrigin, payers: payersByOrigin } = dispatchEvidence();
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
@@ -1778,14 +1723,14 @@ for (const tier of EXEC_TIERS) {
 
 // Seller trust check — the same evidence the router above gates on, sold as a
 // read. Both accessors are injected so the tool stays pure and testable: the
-// crawler cache (sellerDetail) and the on-chain settlement counts
-// (buildSettledByOrigin, which already merges the committed seed floor with the
-// live leaderboard). Thresholds come from the router's own constants, so the
-// tool can never disagree with what the router actually does.
+// crawler cache (sellerDetail) and the settlement counts the router gates on
+// (dispatchEvidence().settled, the best single wallet's figures). Thresholds
+// come from the router's own constants, so the tool can never disagree with
+// what the router actually does.
 {
   const tool = buildSellerTrustTool({
     getSellerDetail: (host) => sellerDetail(host),
-    getSettledCalls: (origin) => buildSettledByOrigin().get(norm(origin)) || 0,
+    getSettledCalls: (origin) => dispatchEvidence().settled.get(norm(origin)) || 0,
     // Evidence for the address the seller ADVERTISES, from the cached on-chain
     // merchant scan. Never fetches — a cold cache reports "not checked", never
     // a clean bill.
