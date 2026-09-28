@@ -26,7 +26,7 @@ const {
   payX402, noteSellerDeliveryFailure, clearSellerDeliveryFailure,
   sellerDeliveryFailingRecently, __resetSellerDeliveryFailuresForTest,
   sellerRefusedRecently, __resetSellerRefusalsForTest, _spentThisWindow,
-  sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED,
+  sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, isCallerInputStatus,
 } = await import("../src/x402-buyer.js");
 const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("../src/dispatch-eligibility.js");
 
@@ -238,23 +238,35 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
   //     that took the payment and answered 400 wrote nothing. On Base the
   //     chain answers exactly (the nonce we signed was consumed).
   __resetSellerDeliveryFailuresForTest();
-  globalThis.fetch = sellerThat(() => ({ status: 400, headers: hdrs({ "content-type": "application/json" }), text: async () => JSON.stringify({ error: "bad input" }), json: async () => ({}) }));
+  globalThis.fetch = sellerThat(() => ({ status: 404, headers: hdrs({ "content-type": "application/json" }), text: async () => JSON.stringify({ error: "no route" }), json: async () => ({}) }));
   const f1 = await buy("https://took-it.example");
-  ok(f1 instanceof Error && f1.committed === true, "control: a 400 after a proven debit stays a committed 502 (the money left)");
+  ok(f1 instanceof Error && f1.committed === true, "control: a 404 after a proven debit stays a committed 502 (the money left)");
   await buy("https://took-it.example");
   const took = sellerDeliveryFailingRecently("https://took-it.example", "base");
-  ok(took && took.strikes === 2 && took.status === 400, "two 400s after a proven debit make the seller actionable - a stock seller never settles a >= 400");
+  ok(took && took.strikes === 2 && took.status === 404, "two 404s after a proven debit make the seller actionable - no buyer input selects the indexed route");
+  // (f2) THE ATTACK (2026-09-28 review): an upfront-settling seller answers a
+  //      malformed body 400/413/415/422 after the charge, and route-execute
+  //      forwards the caller's params as that body. Two bad bodies, proven
+  //      debit AND the seller's own receipt, must not bench it.
+  for (const st of [400, 413, 415, 422]) {
+    __resetSellerDeliveryFailuresForTest();
+    globalThis.fetch = sellerThat(() => ({ status: st, headers: hdrs({ "content-type": "application/json", "payment-response": receipt }), text: async () => JSON.stringify({ error: "bad input" }), json: async () => ({}) }));
+    const a = await buy("https://honest.example"); await buy("https://honest.example");
+    ok(a instanceof Error && a.committed === true, `control: a charged ${st} is still a committed 502`);
+    eq(sellerDeliveryMemoEntries().length, 0, `two charged ${st}s on a buyer-written body do NOT bench the seller`);
+  }
+  eq(isCallerInputStatus(404) || isCallerInputStatus(402) || isCallerInputStatus(500), false, "404, a charged 402 and every 5xx stay the seller's fault");
   // (g) the SAME 400 with no debit is the seller answering the request our
   //     caller wrote: nothing recorded.
   __resetSellerDeliveryFailuresForTest();
   const undebited = () => payX402("https://said-no.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => ({ debited: false, observed: 1, expired: true }) }).catch(() => {});
   await undebited(); await undebited();
   eq(sellerDeliveryMemoEntries().length, 0, "control: a 400 the chain proves was uncharged records nothing (an honest seller refusing a bad request is not failing)");
-  // (h) a 400 carrying the seller's own success receipt, chain unreadable:
+  // (h) a 403 carrying the seller's own success receipt, chain unreadable:
   //     the seller says it took the payment. One strike per call, whichever
   //     source said so first.
   __resetSellerDeliveryFailuresForTest();
-  globalThis.fetch = sellerThat(() => ({ status: 400, headers: hdrs({ "content-type": "application/json", "payment-response": receipt }), text: async () => "{}", json: async () => ({}) }));
+  globalThis.fetch = sellerThat(() => ({ status: 403, headers: hdrs({ "content-type": "application/json", "payment-response": receipt }), text: async () => "{}", json: async () => ({}) }));
   await payX402("https://self-declared.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => { throw new Error("rpc down"); } }).catch(() => {});
   eq(sellerDeliveryMemoEntries().find((e) => e.origin === "https://self-declared.example")?.strikes, 1, "a 4xx with a success receipt is a strike even when the chain cannot be read");
   await buy("https://both.example");

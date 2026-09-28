@@ -23,7 +23,7 @@
 //     window, never by ours.
 import { createHash } from "node:crypto";
 import { assertSigningAllowed } from "./signing-halt.js";
-import { ROUTER_UA, noteSellerDeliveryFailure, clearSellerDeliveryFailure } from "./x402-buyer.js";
+import { ROUTER_UA, noteSellerDeliveryFailure, clearSellerDeliveryFailure, isCallerInputStatus } from "./x402-buyer.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
 import { readBytesCapped, decodeUtf8 } from "./capped-body.js";
@@ -258,9 +258,12 @@ export async function payTempo(url, {
     // carries a Payment-Receipt (the seller says it took the payment and still
     // answered with an error). A 402/401/4xx with no receipt is the seller
     // answering the request, which proves nothing about a charge on this rail
-    // and is not recorded. Two strikes inside the TTL before it steers
-    // anything (x402-buyer.js).
-    if (memoizeDelivery && paid.status >= 400 && (paid.status >= 500 || receiptHdr)) {
+    // and is not recorded. A charged 400/413/415/422 is not recorded either:
+    // a stock mppx seller settles BEFORE its handler, route-execute forwards
+    // the caller's params as the body, and striking there would let anyone
+    // bench an honest seller with two malformed bodies (isCallerInputStatus).
+    // Two strikes inside the TTL before it steers anything (x402-buyer.js).
+    if (memoizeDelivery && paid.status >= 400 && (paid.status >= 500 || (receiptHdr && !isCallerInputStatus(paid.status)))) {
       const origin = (() => { try { return new URL(url).origin; } catch { return null; } })();
       if (origin) noteSellerDeliveryFailure(origin, "tempo", { status: paid.status, ms: Date.now() - sentAt });
     }

@@ -104,7 +104,9 @@ const seller = createServer((req, res) => {
       const rcpt = Buffer.from(JSON.stringify({ method: "tempo", status: "success", reference: "0xbeef", timestamp: new Date().toISOString() })).toString("base64url");
       if (sellerMode === "fail-500") { res.writeHead(500, { "content-type": "text/plain" }); return res.end("boom"); }
       if (sellerMode === "fail-400") { res.writeHead(400, { "content-type": "application/json" }); return res.end("{}"); }
-      if (sellerMode === "fail-400-receipt") { res.writeHead(400, { "content-type": "application/json", "payment-receipt": rcpt }); return res.end("{}"); }
+      // Charge-first, the stock mppx shape: the receipt rides on every status.
+      const charged = /^fail-(\d{3})-receipt$/.exec(sellerMode);
+      if (charged) { res.writeHead(Number(charged[1]), { "content-type": "application/json", "payment-receipt": rcpt }); return res.end("{}"); }
       res.writeHead(200, { "content-type": "application/json", "payment-receipt": Buffer.from(JSON.stringify({ method: "tempo", status: "success", reference: "0xfeed", timestamp: new Date().toISOString() })).toString("base64url") });
       return res.end(JSON.stringify({ scraped: true, echo: body ? JSON.parse(body) : null }));
     }
@@ -196,8 +198,23 @@ await refuse("ok", { proof: async () => ({ count: 4000, payers: 2 }) }, /distinc
   await buy("ok");
   ok(sellerDeliveryFailingRecently(ORIGIN, "tempo") === null, "a 200 carrying a Payment-Receipt reference clears it");
   __resetSellerDeliveryFailuresForTest();
-  await buy("fail-400-receipt"); await buy("fail-400-receipt");
-  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo")?.status === 400, "a 4xx that carries a Payment-Receipt (the seller says it took the payment) is a delivery failure");
+  await buy("fail-404-receipt"); await buy("fail-404-receipt");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo")?.status === 404, "a charged 4xx no buyer input selects (404 on the indexed route) is a delivery failure");
+  __resetSellerDeliveryFailuresForTest();
+  await buy("fail-500-receipt"); await buy("fail-500-receipt");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo")?.strikes === 2, "control: a charged 5xx still strikes");
+  await buy("ok");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo") === null, "control: a settled 200 clears it");
+  // THE ATTACK (2026-09-28 review): a charge-first seller answers a malformed
+  // body 400 with its receipt attached, and route-execute forwards the
+  // caller's params as that body. Two bad bodies must not bench it.
+  for (const st of [400, 413, 415, 422]) {
+    __resetSellerDeliveryFailuresForTest();
+    const e = await buy(`fail-${st}-receipt`); await buy(`fail-${st}-receipt`);
+    ok(e instanceof Error && e.committed === true, `control: a charged ${st} is still a committed 502 (the money left)`);
+    ok(sellerDeliveryMemoEntries().length === 0, `two malformed bodies answered ${st} with a receipt do NOT bench the seller (the buyer controls that input)`);
+  }
+  __resetSellerDeliveryFailuresForTest();
   __resetSellerDeliveryFailuresForTest();
   await buy("fail-400"); await buy("fail-400"); await buy("reject-paid"); await buy("reject-paid");
   ok(sellerDeliveryMemoEntries().length === 0, "control: a 4xx or 402 with no receipt is the seller answering the request, and records nothing");

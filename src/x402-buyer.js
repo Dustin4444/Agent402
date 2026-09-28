@@ -464,6 +464,24 @@ export function noteSellerDeliveryFailure(origin, chain, { status = null, ms = n
   });
 }
 
+/**
+ * A charged 4xx the BUYER's own input can produce (2026-09-28). route-execute
+ * forwards the caller's params as the seller's request body, and a seller that
+ * settles before its handler (stock mppx, an upfront x402 flow) takes the
+ * payment and then answers 400 for a malformed body. Striking on those would
+ * let anyone bench an honest seller with two bad bodies, at our expense: the
+ * attacker's own settlement is cancelled by our 502 and we pay the seller
+ * twice. So a charged 400/413/415/422 is the seller answering the request we
+ * forwarded, not a delivery failure. A 404, 403, 405 or a charged 402/401 is
+ * about the seller's route or payment layer, which no buyer input selects
+ * (the path and method come from the index), and still strikes; a 5xx always
+ * does.
+ */
+export const CALLER_INPUT_STATUSES = Object.freeze([400, 413, 415, 422]);
+export function isCallerInputStatus(status) {
+  return CALLER_INPUT_STATUSES.includes(Number(status));
+}
+
 /** A DELIVERED, SETTLED call is proof the seller works; forget the memo. */
 export function clearSellerDeliveryFailure(origin, chain) {
   if (!origin || !chain) return;
@@ -1145,10 +1163,12 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
       // below). Both are exact about THIS payment. A Solana debit is not: that
       // read is our wallet's movement in a window, which a concurrent buy can
       // produce, so it records nothing here. A 4xx with neither is the seller
-      // answering the request our caller wrote, and records nothing.
+      // answering the request our caller wrote, and records nothing. So is a
+      // CHARGED 400/413/415/422 (isCallerInputStatus): an upfront-settling
+      // seller takes the payment before reading the body the caller wrote.
       let deliveryStruck = false;
       const strikeChargedFailure = (how) => {
-        if (!memoizeDelivery || deliveryStruck || !(paid.status >= 400 && paid.status < 500)) return;
+        if (!memoizeDelivery || deliveryStruck || !(paid.status >= 400 && paid.status < 500) || isCallerInputStatus(paid.status)) return;
         deliveryStruck = true;
         noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status, ms: Date.now() - sentAtMs });
         recordOutbound({
