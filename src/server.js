@@ -273,7 +273,7 @@ import { learnPage, learnIndex } from "./learn.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
-import { runSelfCheck } from "./selfcheck.js";
+import { runSelfCheck, createSelfCheckRoute } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
@@ -5362,27 +5362,14 @@ app.get("/api/reliability", async (_req, res) =>
 );
 // Synthetic self-check — runs a curated set of high-value tools' own examples
 // live (see src/selfcheck.js) so a paid tool that breaks in prod is caught even
-// with zero organic traffic. Cached 5 min + single-flighted so repeated polls
-// (and any abuse) can't hammer the upstreams; the tool-alert.yml Action polls
-// this and opens an issue on failure, mirroring the heartbeat. Free/unpaywalled.
-const SELFCHECK_TTL_MS = 5 * 60 * 1000;
-let selfCheckCache = { at: 0, value: null };
-let selfCheckInFlight = null;
-app.get("/api/selfcheck", async (_req, res) => {
-  if (selfCheckCache.value && Date.now() - selfCheckCache.at < SELFCHECK_TTL_MS) {
-    return res.json({ ...selfCheckCache.value, cached: true });
-  }
-  if (!selfCheckInFlight) {
-    selfCheckInFlight = runSelfCheck(CATALOG)
-      .then((v) => { selfCheckCache = { at: Date.now(), value: v }; return v; })
-      .finally(() => { selfCheckInFlight = null; });
-  }
-  try {
-    res.json({ ...(await selfCheckInFlight), cached: false });
-  } catch {
-    res.status(500).json({ ok: false, error: "selfcheck failed to run" });
-  }
-});
+// with zero organic traffic. Free/unpaywalled, so a public caller is served a
+// cached answer and can never cause a run more often than once per 30 minutes
+// (the cadence tool-alert.yml polls at); the operator may force a fresher one
+// with ?fresh=1, still no more than once per 5 minutes (createSelfCheckRoute).
+app.get("/api/selfcheck", createSelfCheckRoute({
+  run: () => runSelfCheck(CATALOG),
+  isOperator: (req) => operatorAuthed(req),
+}));
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
 app.get("/acp/feed", (_req, res) =>
