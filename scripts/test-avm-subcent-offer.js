@@ -104,6 +104,15 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   ok(g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t1 + g.REFUSAL_HOLD_MS + 1000, readStartedAt: t1 + g.REFUSAL_HOLD_MS }) === "headroom" && !g.isSubcentPaused(PAYTO, t1 + g.REFUSAL_HOLD_MS + 1000), "once the hold has passed since the refusal, a headroom read clears it");
   ok(logs.filter((l) => /keeping sub-cent Algorand withdrawn/.test(l)).length === 1, "the hold is logged once, not per read");
   {
+    // A NEW refusal is a new hold, and says so once more.
+    const t3 = t1 + g.REFUSAL_HOLD_MS + 5 * 60_000;
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: PAYTO, reason: "subcent_quota_exceeded", now: t3 });
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + 90_000, readStartedAt: t3 + 89_000 });
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + 180_000, readStartedAt: t3 + 179_000 });
+    ok(logs.filter((l) => /keeping sub-cent Algorand withdrawn/.test(l)).length === 2, "a second refusal's hold is logged once more (and not per read)");
+    g.noteSponsorshipStatus(PAYTO, headroomRow, { now: t3 + g.REFUSAL_HOLD_MS + 1000, readStartedAt: t3 + g.REFUSAL_HOLD_MS });
+  }
+  {
     // A day of a facilitator whose status always reads headroom and whose
     // every sub-cent settle refuses: each moment the rail is open, the next
     // buyer is served and refused (and re-pauses it).
@@ -266,6 +275,10 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     // (b) the refused requirement itself: under one cent, paid to the paused payTo, one this request was offered.
     ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(cent, [base(10000), cent]) }), "a one-cent requirement is not (nothing withdraws it)");
     ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(otherSub, [base(1000), otherSub]) }), "a sub-cent requirement paid to a payTo that is NOT paused is not");
+    // ...even on a route where the gate DOES withdraw something else: what
+    // counts is the requirement this call paid, not the route's other accepts.
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(cent, [base(1000), sub, cent]) }), "a one-cent requirement on a route whose sub-cent accept IS withdrawn is not");
+    ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(otherSub, [base(1000), sub, otherSub]) }), "a sub-cent payment to an unpaused payTo, beside a withdrawn one, is not");
     ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(sub) }) && !g.isWithdrawnSubcentRefusal(rc()), "a request whose offer was never recorded (or no request) is not");
     ok(!g.isWithdrawnSubcentRefusal(rc(), { req: paidReq(req(2000), [base(1000), sub]) }), "a payment naming a requirement the route did not offer is not");
     ok(!g.isWithdrawnSubcentRefusal(rc({ network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe" }), { req: routeReq() }), "a receipt on a different Algorand network than the requirement paid is not");

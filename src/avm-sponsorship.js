@@ -123,8 +123,9 @@ export function sponsorshipRowUpdatedAt(row) {
   if (absentTs(v) || typeof v === "boolean") return null;
   const text = String(v).trim();
   if (typeof v === "number" || NUMERIC_TEXT.test(text)) {
+    // Under 1e12 it is seconds; 0, a negative or anything under 1e9 then
+    // lands before the window (and NaN/Infinity outside it): unreadable.
     const n = Number(text);
-    if (!Number.isFinite(n) || n < 1e9) return null;
     return plausibleTs(n < 1e12 ? n * 1000 : n);
   }
   return plausibleTs(Date.parse(text));
@@ -171,9 +172,11 @@ export function isSponsorshipRowEvidence(row, now = Date.now()) {
 const mask = (a) => { const s = String(a || ""); return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s; };
 
 // payTo -> { exhausted, evidenceAt, source, detail, effective, pausedSince, lastRead, heldAt, heldLogged }
-// heldAt: the last headroom read the refusal hold set aside (source
-// "settle-refusal" only) - proof the status is still being read, so the
-// refusal's pause does not go stale while its hold runs.
+// heldAt: the last headroom read the refusal hold set aside - proof the
+// status is still being read, so the refusal's pause does not go stale while
+// its hold runs. Only the hold writes it, always after the refusal it holds
+// for; any later evidence moves evidenceAt past it, so it never outlives the
+// episode that set it and needs no reset.
 const state = new Map();
 let log = (msg) => console.warn(msg);
 // Set once the filter is on the resource server's prototype: only then does a
@@ -195,7 +198,7 @@ export function isSubcentPaused(payTo, now = Date.now()) {
   if (!s || !s.exhausted) return false;
   // A refusal's pause stays fresh while held headroom reads keep arriving
   // (the status is readable, and the refusal outranks it for the hold).
-  const freshAt = s.source === "settle-refusal" && s.heldAt !== null ? Math.max(s.evidenceAt, s.heldAt) : s.evidenceAt;
+  const freshAt = Math.max(s.evidenceAt, s.heldAt || 0);
   if (now - freshAt > STALE_MS) return false;                     // stale evidence: fail open
   if (utcMonthOf(s.evidenceAt) !== utcMonthOf(now)) return false; // the allowance reset on the 1st
   return true;
@@ -267,8 +270,6 @@ export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStarte
   s.exhausted = exhausted;
   s.evidenceAt = now;
   s.source = "facilitator-status";
-  s.heldAt = null;
-  s.heldLogged = false;
   s.detail = `the facilitator's status reads ${Number(row.usedMonth)}/${Number(row.quota)} sponsored sub-cent settlements used this month and no purchased units`;
   reconcile(payTo, now);
   return exhausted ? "exhausted" : "headroom";
@@ -297,8 +298,7 @@ export function noteAvmSettleRefusal({ network, payTo, reason, errorReason, now 
   s.exhausted = true;
   s.evidenceAt = now;
   s.source = "settle-refusal";
-  s.heldAt = null;
-  s.heldLogged = false;
+  s.heldLogged = false; // a new refusal is a new hold, logged again once
   s.detail = "a settlement came back subcent_quota_exceeded";
   reconcile(payTo, now);
   return true;
@@ -348,8 +348,15 @@ export function isWithdrawnSubcentRefusal(receipt, { req = null, now = Date.now(
   const offered = req && typeof req === "object" ? offeredByRequest.get(req) : null;
   const paid = paidRequirementOf(req, offered);
   if (!paid || String(paid.network) !== String(receipt.network)) return false;
-  if (!isAvmSubcentRequirement(paid) || !isSubcentPaused(paid.payTo, now)) return false;
-  return !withoutPausedSubcentAvm(offered, (p) => isSubcentPaused(p, now)).includes(paid);
+  const paused = (p) => isSubcentPaused(p, now);
+  // The requirement paid is the kind the gate withdraws...
+  if (!isAvmSubcentRequirement(paid) || !paused(paid.payTo)) return false;
+  // ...and the route's next 402 really withdraws something: the filter hands
+  // back the SAME list when it drops nothing, which is also what the
+  // never-empty rule does for a route whose only accept is the paused one.
+  // (When it does drop, it drops every paused sub-cent Algorand accept, so
+  // the one paid is among them.)
+  return withoutPausedSubcentAvm(offered, paused) !== offered;
 }
 
 /** Pure: an Algorand USDC requirement priced under one cent. Anything unreadable is not. */
