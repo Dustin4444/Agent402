@@ -981,7 +981,7 @@ npx agent402-tollbooth
 
 The CDP key stays out of your shell history: its id and secret (exactly as
 Coinbase issued it) live in a \`.env\` file kept out of version control, or in
-your secret store, and the first line loads them.
+your secret store, and the \`set -a\` line loads them.
 
 That is a reverse proxy in front of your existing API on :8080. In the
 default mode known AI crawlers (matched by user agent) get a 402 quoting $0.005
@@ -1528,9 +1528,9 @@ body from $${TIERS["v1-chat-metered"].price}) is the one to point OpenClaw at:
     providers: {
       agent402: {
         baseUrl: "https://agent402.tools${TIERS["v1-chat-metered"].route.split(" ")[1].replace("/chat/completions", "")}",
-        // A SecretRef: OpenClaw reads the key from the environment at runtime,
-        // so it never sits in this file.
-        apiKey: { source: "env", provider: "default", id: "AGENT402_CREDITS_KEY" },
+        // OpenClaw resolves \${VAR} from the environment at runtime, so the key
+        // never sits in this file.
+        apiKey: "\${AGENT402_CREDITS_KEY}",
         api: "openai-completions",
         timeoutSeconds: 120,
         models: [
