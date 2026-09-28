@@ -35,6 +35,13 @@
 //    the volume, and the state file is re-read inside the lock every time.
 //  - A state file that exists but cannot be read HALTS posting: an empty
 //    reading would re-post everything inside the window.
+//  - Only the production server posts. A FREE_MODE boot, a process without
+//    NODE_ENV=production (TWEET_QUEUE_FORCE=true overrides that one check)
+//    and a process with no /data volume (and no TWEET_QUEUE_STATE_FILE) stay
+//    read-only and start no timer. A local boot that copies the production
+//    variables must never become a second poster: its record of what was
+//    posted would be empty, and X's duplicate refusal would be all that stood
+//    between it and a second copy of every post.
 //  - Logs and the operator read carry ids, hours, counts and status codes.
 //    Never tweet text, never a credential.
 import { randomBytes } from "node:crypto";
@@ -67,8 +74,13 @@ const CONNECT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ER
 /** The UTC hour bucket of an instant, e.g. "2026-09-28T13". */
 export const hourOf = (ms) => new Date(ms).toISOString().slice(0, 13);
 
-export function defaultStatePath() {
-  return join(existsSync("/data") ? "/data" : "/tmp", "tweet-queue-state.json");
+/**
+ * The state file on the production volume, or null when there is no /data.
+ * Deliberately no /tmp fallback: a process off the volume would start with an
+ * empty record of what production already posted.
+ */
+export function defaultStatePath(dataDirExists = () => existsSync("/data")) {
+  return dataDirExists() ? join("/data", "tweet-queue-state.json") : null;
 }
 
 /** Epoch ms of a `when` that names a whole UTC hour, else null. */
@@ -324,15 +336,24 @@ const numEnv = (v, dflt, lo, hi) => {
   return v != null && String(v).trim() !== "" && Number.isInteger(n) && n >= lo && n <= hi ? n : dflt;
 };
 
-/** Options read from the environment (Railway). */
-export function tweetQueueOptionsFromEnv(env = process.env) {
+/**
+ * Options read from the environment (Railway). `freeMode` and `notProduction`
+ * keep every process but the production server read-only: FREE_MODE is the
+ * mode the local audit and sample recipes boot in with the production
+ * variables copied, and NODE_ENV=production comes from the Dockerfile, not
+ * from those variables.
+ */
+export function tweetQueueOptionsFromEnv(env = process.env, { dataDirExists } = {}) {
   return {
     queueJson: env.TWEET_QUEUE || "",
     postingSwitch: env.TWEET_QUEUE_POSTING || "",
     creds: xCredentialsFromEnv(env),
-    storePath: env.TWEET_QUEUE_STATE_FILE || defaultStatePath(),
+    freeMode: env.FREE_MODE === "true",
+    notProduction: env.NODE_ENV !== "production" && env.TWEET_QUEUE_FORCE !== "true",
+    storePath: env.TWEET_QUEUE_STATE_FILE || defaultStatePath(dataDirExists),
     catchupHours: numEnv(env.TWEET_QUEUE_CATCHUP_HOURS, DEFAULT_CATCHUP_HOURS, 1, 48),
     maxWeighted: numEnv(env.TWEET_QUEUE_MAX_WEIGHTED, DEFAULT_MAX_WEIGHTED, 1, 25_000),
+    firstTickMs: numEnv(env.TWEET_QUEUE_FIRST_TICK_MS, DEFAULT_FIRST_TICK_MS, 50, 3_600_000),
   };
 }
 
@@ -341,7 +362,9 @@ export function tweetQueueOptionsFromEnv(env = process.env) {
  * @param {string} o.queueJson          the TWEET_QUEUE value
  * @param {string} [o.postingSwitch]    TWEET_QUEUE_POSTING ("off" stops posting)
  * @param {object} [o.creds]            X credentials (xCredentialsFromEnv shape)
- * @param {string} [o.storePath]        the state file (a lock file sits beside it)
+ * @param {boolean} [o.freeMode]        a FREE_MODE boot: read-only, no timer
+ * @param {boolean} [o.notProduction]   not the production server: read-only, no timer
+ * @param {string|null} [o.storePath]   the state file (a lock file sits beside it); null = no volume, read-only
  * @param {(text:string)=>Promise<object>} [o.post] replaces the real X poster (tests)
  * @param {Function} [o.fetchImpl]      the fetch the real poster uses (tests stub X here)
  * @param {()=>number} [o.now]          the scheduling clock (tests)
@@ -349,6 +372,7 @@ export function tweetQueueOptionsFromEnv(env = process.env) {
  */
 export function createTweetQueue({
   queueJson = "", postingSwitch = "", creds = {}, storePath = defaultStatePath(),
+  freeMode = false, notProduction = false, firstTickMs = DEFAULT_FIRST_TICK_MS,
   catchupHours = DEFAULT_CATCHUP_HOURS, maxWeighted = DEFAULT_MAX_WEIGHTED,
   post = null, fetchImpl, now = () => Date.now(), log = console.log, isDraining = () => false,
   leaseMs = LOCK_LEASE_MS,
@@ -374,6 +398,9 @@ export function createTweetQueue({
     if (!configured) return "off";
     if (parsed.error) return "queue_invalid";
     if (switchedOff) return "switched_off";
+    if (freeMode) return "free_mode";
+    if (notProduction) return "not_production";
+    if (!storePath) return "no_store";
     if (missing.length) return "no_credentials";
     if (storeError) return "store_unreadable";
     return "posting";
@@ -538,7 +565,9 @@ export function createTweetQueue({
     const t = now();
     let st = null;
     let readError = null;
-    try { st = readState(storePath); } catch (e) { readError = e instanceof StoreError ? e.cls : "unreadable"; }
+    if (storePath) {
+      try { st = readState(storePath); } catch (e) { readError = e instanceof StoreError ? e.cls : "unreadable"; }
+    }
     const records = st ? st.records : new Map();
     const counts = { posted: 0, duplicate: 0, rejected: 0, dropped: 0, inDoubt: 0, sending: 0, due: 0, upcoming: 0, pastWindow: 0 };
     let nextDue = null;
@@ -584,7 +613,7 @@ export function createTweetQueue({
     };
   }
 
-  function start({ intervalMs = DEFAULT_TICK_MS, firstMs = DEFAULT_FIRST_TICK_MS } = {}) {
+  function start({ intervalMs = DEFAULT_TICK_MS, firstMs = firstTickMs } = {}) {
     if (timer) return false;
     const m = mode();
     if (configured) {

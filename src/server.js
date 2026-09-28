@@ -2290,8 +2290,11 @@ app.get("/__operator/followups.json", (req, res) => {
 // The approved tweet queue, posted from here on the hour (src/tweet-queue.js).
 // Off unless the Railway variable TWEET_QUEUE is set; TWEET_QUEUE_POSTING=off
 // keeps it read-only (the operator read below still previews the next item).
-// It replaces .github/workflows/tweet-queue.yml, which is disabled at cutover
-// so exactly one poster runs. `draining` is read at tick time, long after boot.
+// Only the production server posts: a FREE_MODE boot, a process without
+// NODE_ENV=production and a process with no /data volume stay read-only, so a
+// local boot that copies the production variables never becomes a second
+// poster. It replaces .github/workflows/tweet-queue.yml, which is disabled at
+// cutover so exactly one poster runs. `draining` is read at tick time.
 const _tweetQueue = createTweetQueue({ ...tweetQueueOptionsFromEnv(process.env), isDraining: () => draining });
 _tweetQueue.start();
 app.get("/__operator/tweet-queue.json", (req, res) => {

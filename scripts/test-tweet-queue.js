@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // The server-side tweet queue (src/tweet-queue.js) and the X signer it shares
 // with scripts/tweet.js (src/x-oauth.js). Offline: X is a stub fetch, the clock
-// is a stub, every state file lives in a temp dir, and the booted leg runs the
-// real server with posting switched off, so nothing here can reach X.
+// is a stub, every state file lives in a temp dir, and the booted legs run the
+// real server with fetch to X replaced by a preload stub, so nothing here can
+// reach X.
 //
 // Pins: one post per clock hour, oldest first; a backlog after downtime drains
 // one item per hour instead of bunching; items past the catch-up window are
@@ -14,8 +15,11 @@
 // are refused; X's answers are classified (duplicate and 400 move on, 5xx and
 // timeouts are in doubt and never re-sent, 401/429 pause the queue, a refused
 // connection retries); an unreadable state file halts posting; a live lock
-// blocks and a stale one is taken over; and no tweet text or credential ever
-// reaches a log line or the operator read.
+// blocks and a stale one is taken over; only the production server posts (a
+// FREE_MODE boot, a process without NODE_ENV=production and a process with no
+// volume stay read-only - proven on booted servers against a control boot that
+// does post to the stub); and no tweet text or credential ever reaches a log
+// line or the operator read.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,7 +28,7 @@ import { pathToFileURL } from "node:url";
 import { createHmac } from "node:crypto";
 import { oauthHeader, xCredentialsFromEnv, missingXCredentials, pct } from "../src/x-oauth.js";
 import {
-  createTweetQueue, createXPoster, parseTweetQueue, weightedLength, wholeHourMs, hourOf, tweetQueueOptionsFromEnv,
+  createTweetQueue, createXPoster, parseTweetQueue, weightedLength, wholeHourMs, hourOf, tweetQueueOptionsFromEnv, defaultStatePath,
 } from "../src/tweet-queue.js";
 import { getFreePort } from "./lib/free-port.js";
 
@@ -302,6 +306,46 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   await wait(60);
   on.q.stopTimer();
   ok(on.x.calls.length === 1, "the first tick fires after the boot delay");
+
+  // Only the production server posts. The local audit and sample recipes copy
+  // every production variable (TWEET_QUEUE and the X keys included) into a
+  // FREE_MODE boot, and NODE_ENV=production comes from the Dockerfile, not
+  // from those variables.
+  const gateDir = mkdtempSync(join(tmpdir(), "tweetq-gate-"));
+  const prodEnv = {
+    TWEET_QUEUE: JSON.stringify(items), NODE_ENV: "production", TWEET_QUEUE_STATE_FILE: join(gateDir, "state.json"),
+    X_API_KEY: "a", X_API_SECRET: "b", X_ACCESS_TOKEN: "c", X_ACCESS_SECRET: "d",
+  };
+  const gated = (env, extra = {}) => {
+    const x = stubX();
+    const lines = [];
+    const q = createTweetQueue({ ...tweetQueueOptionsFromEnv(env, extra), fetchImpl: x.fetchImpl, now: () => T0 + MIN, log: (l) => { lines.push(l); ALL_LOGS.push(l); } });
+    return { q, x, lines };
+  };
+  const prod = gated(prodEnv);
+  ok(prod.q.mode() === "posting", "control: the production environment posts");
+  const free = gated({ ...prodEnv, FREE_MODE: "true" });
+  ok(free.q.mode() === "free_mode" && free.q.start({ firstMs: 1 }) === false, "FREE_MODE: read-only and no timer, even with NODE_ENV=production");
+  ok((await free.q.tick()).skipped === "free_mode" && free.x.calls.length === 0 && !existsSync(join(gateDir, "state.json")), "FREE_MODE: a tick posts nothing and writes nothing");
+  ok(free.lines.some((l) => /^\[tweet-queue\] free_mode: 1 postable item\(s\)/.test(l)), "FREE_MODE: the boot line names the mode");
+  const { NODE_ENV: _dropped, ...noNodeEnv } = prodEnv;
+  const dev = gated(noNodeEnv);
+  ok(dev.q.mode() === "not_production" && dev.q.start({ firstMs: 1 }) === false && (await dev.q.tick()).skipped === "not_production" && dev.x.calls.length === 0, "no NODE_ENV=production: read-only, no timer, nothing posted");
+  ok(gated({ ...prodEnv, NODE_ENV: "development" }).q.mode() === "not_production", "any other NODE_ENV is not production");
+  ok(gated({ ...noNodeEnv, TWEET_QUEUE_FORCE: "true" }).q.mode() === "posting", "TWEET_QUEUE_FORCE=true is the escape hatch for a bare-metal production run");
+  ok(gated({ ...noNodeEnv, TWEET_QUEUE_FORCE: "1" }).q.mode() === "not_production", "only the exact word true forces it");
+  ok(gated({ ...prodEnv, FREE_MODE: "true", TWEET_QUEUE_FORCE: "true" }).q.mode() === "free_mode", "the escape hatch never overrides FREE_MODE");
+  ok(defaultStatePath(() => false) === null && defaultStatePath(() => true) === "/data/tweet-queue-state.json", "the default state file is on /data, with no /tmp fallback");
+  const { TWEET_QUEUE_STATE_FILE: _f, ...noFile } = prodEnv;
+  const offVolume = gated(noFile, { dataDirExists: () => false });
+  ok(offVolume.q.mode() === "no_store" && offVolume.q.start({ firstMs: 1 }) === false && (await offVolume.q.tick()).skipped === "no_store" && offVolume.x.calls.length === 0, "no /data and no state file: read-only, no timer, nothing posted");
+  const offRead = offVolume.q.status();
+  ALL_STATUS.push(JSON.stringify(offRead));
+  ok(offRead.mode === "no_store" && offRead.nextDue?.id === "k1" && offRead.currentHour.used === null, "no /data: the operator read still previews the next item");
+  ok(tweetQueueOptionsFromEnv(noFile, { dataDirExists: () => true }).storePath === "/data/tweet-queue-state.json", "on the volume the state file is /data/tweet-queue-state.json");
+  ok(tweetQueueOptionsFromEnv({ TWEET_QUEUE_FIRST_TICK_MS: "300" }).firstTickMs === 300 && tweetQueueOptionsFromEnv({ TWEET_QUEUE_FIRST_TICK_MS: "5" }).firstTickMs === 90_000, "the first-tick delay is configurable within bounds");
+  const serverSrc = readFileSync("src/server.js", "utf8");
+  ok(/createTweetQueue\(\{ \.\.\.tweetQueueOptionsFromEnv\(process\.env\), isDraining: \(\) => draining \}\)/.test(serverSrc), "the server builds its queue from the environment gate and overrides none of it");
 }
 
 // ---- 9. what X answers ---------------------------------------------------------
@@ -411,45 +455,116 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   ok((await l.q.tick()).skipped === "locked", "an unreadable lock that is fresh on disk still blocks");
 }
 
-// ---- 11. the operator route on a booted server (posting off) ---------------
+// ---- 11. booted servers: only production posts --------------------------------
+// Three real servers, each with the X keys, a queue item due this hour, a short
+// first tick and fetch to X replaced by a preload stub that logs each request.
+// The CONTROL boot (paid mode, NODE_ENV=production) must post exactly once, so
+// the stub is proven to see a post; then a FREE_MODE boot and a boot without
+// NODE_ENV=production must post nothing for well past the time the control took.
 {
   const dir = mkdtempSync(join(tmpdir(), "tweetq-boot-"));
   const TOKEN = "operator-test-secret-tweetq";
-  const PORT = await getFreePort();
-  const base = `http://127.0.0.1:${PORT}`;
+  const preload = join(dir, "x-stub.mjs");
+  writeFileSync(preload, `
+    import { appendFileSync } from "node:fs";
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const u = String(url?.url || url);
+      if (u.startsWith("https://api.twitter.com/")) {
+        appendFileSync(process.env.TQ_STUB_LOG, (init?.method || "GET") + " " + u + "\\n");
+        return new Response(JSON.stringify({ data: { id: "1900000000000000001" } }), { status: 201, headers: { "content-type": "application/json" } });
+      }
+      return real(url, init);
+    };
+  `);
   const thisHour = Math.floor(Date.now() / H) * H;
   const items = [{ id: "boot-1", when: when(thisHour), text: text("boot-1") }, { id: "boot-2", when: when(thisHour + 5 * H), text: text("boot-2") }, { id: "boot-bad", when: "soon", text: text("boot-bad") }];
-  const child = spawn(process.execPath, ["src/server.js"], {
-    env: {
-      ...process.env, FREE_MODE: "true", PORT: String(PORT), AGENT402_OPERATOR_TOKEN: TOKEN, X402_INDEX_CRAWL: "off",
-      TWEET_QUEUE: JSON.stringify(items), TWEET_QUEUE_POSTING: "off", TWEET_QUEUE_STATE_FILE: join(dir, "state.json"),
+  const baseEnv = () => {
+    const env = { ...process.env };
+    for (const k of Object.keys(env)) if (/^(TWEET_QUEUE|X_|TWITTER_)/.test(k) || k === "NODE_ENV" || k === "FREE_MODE") delete env[k];
+    return {
+      ...env, AGENT402_OPERATOR_TOKEN: TOKEN, X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off",
+      FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off", X402_SYNC_ON_START: "false",
+      TWEET_QUEUE: JSON.stringify(items), TWEET_QUEUE_FIRST_TICK_MS: "300",
       X_API_KEY: CREDS.consumerKey, X_API_SECRET: CREDS.consumerSecret, X_ACCESS_TOKEN: CREDS.accessToken, X_ACCESS_SECRET: CREDS.accessSecret,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let serverLog = "";
-  child.stdout.on("data", (d) => { serverLog += d; });
-  child.stderr.on("data", (d) => { serverLog += d; });
-  try {
+    };
+  };
+  // Paid mode needs a payTo and no volume guards; nothing here pays anything.
+  const PAID = {
+    FREE_MODE: "", WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", PAYMENT_NETWORKS: "base",
+    FACILITATOR_URL: "http://127.0.0.1:9", CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: "",
+    POW_ALLOW_EPHEMERAL: "true", STATS_ALLOW_EPHEMERAL: "true", MEMORY_ALLOW_EPHEMERAL: "true",
+  };
+  async function boot(name, extraEnv) {
+    const stubLog = join(dir, `${name}-x.log`);
+    const statePath = join(dir, `${name}-state.json`);
+    writeFileSync(stubLog, "");
+    const PORT = await getFreePort();
+    const spawnedAt = Date.now();
+    const child = spawn(process.execPath, ["--import", pathToFileURL(preload).href, "src/server.js"], {
+      env: { ...baseEnv(), PORT: String(PORT), TQ_STUB_LOG: stubLog, TWEET_QUEUE_STATE_FILE: statePath, ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let log = "";
+    child.stdout.on("data", (d) => { log += d; });
+    child.stderr.on("data", (d) => { log += d; });
+    const base = `http://127.0.0.1:${PORT}`;
     let up = false;
     for (let i = 0; i < 120 && !up; i++) {
       try { up = (await fetch(`${base}/health`)).ok; } catch { /* booting */ }
       if (!up) await wait(500);
     }
-    ok(up, "server booted with a queue loaded and posting off");
-    ok((await fetch(`${base}/__operator/tweet-queue.json`)).status === 404, "the operator read is hidden without credentials");
-    const res = await fetch(`${base}/__operator/tweet-queue.json`, { headers: { authorization: `Bearer ${TOKEN}` } });
-    const bodyText = await res.text();
-    ALL_STATUS.push(bodyText);
-    const j = JSON.parse(bodyText);
-    ok(res.status === 200 && res.headers.get("cache-control") === "no-store", "the operator read answers with no-store");
-    ok(j.mode === "switched_off" && j.queue.items === 3 && j.queue.valid === 2 && j.queue.refusedByReason.when_not_whole_utc_hour === 1, "it reports the mode and the queue counts");
-    ok(j.nextDue?.id === "boot-1" && j.nextUpcoming?.id === "boot-2" && j.lastPosted === null, "it names the next item and hour and the last post");
-    ok(/\[tweet-queue\] switched_off: 2 postable item\(s\), 1 refused \(when_not_whole_utc_hour 1\), catch-up 12 h/.test(serverLog), "the boot log line carries counts only");
-    ALL_LOGS.push(serverLog);
-  } finally {
-    child.kill("SIGKILL");
+    const posts = () => readFileSync(stubLog, "utf8").split("\n").filter(Boolean);
+    const read = async () => {
+      const r = await fetch(`${base}/__operator/tweet-queue.json`, { headers: { authorization: `Bearer ${TOKEN}` } });
+      const bodyText = await r.text();
+      ALL_STATUS.push(bodyText);
+      return { res: r, j: JSON.parse(bodyText) };
+    };
+    return { up, base, posts, read, statePath, spawnedAt, log: () => log, stop: () => { ALL_LOGS.push(log); child.kill("SIGKILL"); } };
   }
+
+  // CONTROL: the production shape posts, once, to the stub.
+  const ctl = await boot("control", { ...PAID, NODE_ENV: "production" });
+  let controlMs = 0;
+  try {
+    ok(ctl.up, "control server booted (paid mode, NODE_ENV=production)");
+    while (ctl.posts().length === 0 && Date.now() - ctl.spawnedAt < 60_000) await wait(100);
+    controlMs = Date.now() - ctl.spawnedAt;
+    await wait(1_000); // a second post would be a defect of its own
+    ok(ctl.posts().length === 1 && ctl.posts()[0] === "POST https://api.twitter.com/2/tweets", `control: the production server posted the due item to the stub, once (${controlMs} ms after spawn)`);
+    const { j } = await ctl.read();
+    ok(j.mode === "posting" && j.counts.posted === 1 && j.lastPosted?.id === "boot-1", "control: the operator read shows it posted");
+    ok(/\[tweet-queue\] posting: 2 postable item\(s\), 1 refused/.test(ctl.log()), "control: the boot line says posting");
+  } finally { ctl.stop(); }
+  // Each negative boot is watched until well past the moment the control had
+  // posted, counted from its own spawn.
+  const quietUntil = (b) => b.spawnedAt + Math.max(2 * controlMs, controlMs + 3_000);
+
+  // FREE_MODE with every production variable: read-only.
+  const free = await boot("free", { FREE_MODE: "true", NODE_ENV: "production" });
+  try {
+    ok(free.up, "FREE_MODE server booted with the queue and the X keys");
+    ok((await fetch(`${free.base}/__operator/tweet-queue.json`)).status === 404, "the operator read is hidden without credentials");
+    await wait(Math.max(0, quietUntil(free) - Date.now()));
+    ok(free.posts().length === 0, `FREE_MODE: nothing reached X in ${Date.now() - free.spawnedAt} ms (the control posted ${controlMs} ms after spawn)`);
+    ok(!existsSync(free.statePath), "FREE_MODE: no state file was written");
+    const { res, j } = await free.read();
+    ok(res.status === 200 && res.headers.get("cache-control") === "no-store", "the operator read answers with no-store");
+    ok(j.mode === "free_mode" && j.queue.items === 3 && j.queue.valid === 2 && j.queue.refusedByReason.when_not_whole_utc_hour === 1, "FREE_MODE: it reports the mode and the queue counts");
+    ok(j.nextDue?.id === "boot-1" && j.nextUpcoming?.id === "boot-2" && j.lastPosted === null, "FREE_MODE: it still previews the next item and hour");
+    ok(/\[tweet-queue\] free_mode: 2 postable item\(s\), 1 refused \(when_not_whole_utc_hour 1\), catch-up 12 h/.test(free.log()), "FREE_MODE: the boot log line names the mode, counts only");
+  } finally { free.stop(); }
+
+  // Paid mode without NODE_ENV=production (a bare local boot): read-only.
+  const bare = await boot("bare", { ...PAID });
+  try {
+    ok(bare.up, "a paid-mode server without NODE_ENV=production booted");
+    await wait(Math.max(0, quietUntil(bare) - Date.now()));
+    ok(bare.posts().length === 0 && !existsSync(bare.statePath), `no NODE_ENV=production: nothing reached X in ${Date.now() - bare.spawnedAt} ms and nothing was written`);
+    const { j } = await bare.read();
+    ok(j.mode === "not_production", "no NODE_ENV=production: the operator read says not_production");
+  } finally { bare.stop(); }
 }
 
 // ---- 12. nothing that was approved as copy, and no credential, ever leaks ---
