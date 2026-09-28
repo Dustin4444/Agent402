@@ -410,7 +410,14 @@ facilitator = createServer((req, res) => {
   req.on("end", async () => {
     const reply = (obj) => { if (res.destroyed) return; res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     if (req.url === "/supported") return reply({ kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }], extensions: [], signers: {} });
-    if (req.url === "/rpc") return reply({ jsonrpc: "2.0", id: 1, result: "0x0" });
+    // The stub facilitator verifies every payment as funded, so a balanceOf
+    // read (src/inflight-cover.js, for concurrent runs from one wallet)
+    // answers a funded wallet too: 1,000 USDC. Every other call keeps "0x0".
+    if (req.url === "/rpc") {
+      let rpc = {}; try { rpc = b ? JSON.parse(b) : {}; } catch { /* ignore */ }
+      const balanceOf = rpc.method === "eth_call" && String(rpc.params?.[0]?.data || "").startsWith("0x70a08231");
+      return reply({ jsonrpc: "2.0", id: 1, result: balanceOf ? "0x" + (1_000_000_000).toString(16).padStart(64, "0") : "0x0" });
+    }
     let parsed = {}; try { parsed = b ? JSON.parse(b) : {}; } catch { /* ignore */ }
     const payer = parsed.paymentPayload?.payload?.authorization?.from;
     if (req.url === "/verify") { fac.verify++; if (fac.verifyDelayMs) await sleep(fac.verifyDelayMs); return reply({ isValid: true, payer }); }

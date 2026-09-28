@@ -23,6 +23,7 @@ import { findTools } from "../find.js";
 import { judgeTool, decide } from "../tool-judge.js";
 import { observeDelivery } from "../response-observation.js";
 import { isIdentityBoundRoute } from "../payments.js";
+import { evmCredentialBudgetMs } from "../evm-validity.js";
 
 // Two execution tiers, both from buildRouteExecuteTool. The tier a buyer needs
 // is quoted by /api/route (routeExecuteHint below), so there's no guessing:
@@ -287,8 +288,17 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // inside the window. A 504 cancels settlement; the only loss is the
           // bounded seller price on a seller that answered too slowly.
           const tempoBudgetMs = req?.mppTempoCredential ? (Number(process.env.SOR_TEMPO_BUDGET_MS) || 16000) : null;
+          // The same budget for an EVM buyer whose own authorization is the
+          // tighter bound. Its validBefore, less the facilitator's settle-time
+          // rule and a margin (src/evm-validity.js), is when this payment can
+          // last settle; when that comes before the default external deadline,
+          // the external leg runs under it exactly as a Tempo buyer's does. A
+          // stock client (300 s) never binds here.
+          const defaultDeadlineMs = Math.max(30_000, Number(process.env.SOR_EXTERNAL_DEADLINE_MS) || 240_000);
+          const credentialMs = tempoBudgetMs == null ? evmCredentialBudgetMs(req) : null;
+          const budgetMs = tempoBudgetMs ?? (credentialMs != null && credentialMs < defaultDeadlineMs ? Math.max(0, credentialMs) : null);
           const startedAt = Date.now();
-          const remainingMs = () => (tempoBudgetMs == null ? null : tempoBudgetMs - (Date.now() - startedAt));
+          const remainingMs = () => (budgetMs == null ? null : budgetMs - (Date.now() - startedAt));
           // REQUEST-SCOPED BOUND for the buyer's refusal wait. After a refused
           // paid retry payX402 waits for the credential it sent to EXPIRE before
           // it will treat "no debit" as proof and fall through to the next
@@ -298,7 +308,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // under the 300 s our own 402 advertises), and the remaining budget
           // rides into payExternal as refusalMaxWaitMs. A wait cut short keeps
           // the hold (nothing falls through), so the bound is money-safe.
-          const externalDeadlineMs = tempoBudgetMs ?? Math.max(30_000, Number(process.env.SOR_EXTERNAL_DEADLINE_MS) || 240_000);
+          const externalDeadlineMs = budgetMs ?? defaultDeadlineMs;
           const refusalBudgetMs = () => Math.max(0, externalDeadlineMs - (Date.now() - startedAt));
           // FALLTHROUGH ON A SELLER 5xx. Resolve up to SOR_MAX_CANDIDATES live
           // sellers (ranked, settled-desc) for the first chain that has any, so
@@ -335,8 +345,9 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             if (found && found.__gateDrops) lastDrops = found.__gateDrops;
             if (list.length) { candidateList = list; chain = c; break; }
           }
-          if (tempoBudgetMs != null && remainingMs() < 4000) {
-            throw bad(`Resolving an external seller used the Tempo time budget (${tempoBudgetMs}ms); nothing was spent and nothing is charged. Tempo credentials expire about 25s after signing, so retry with a fresh credential or pay this route over an EVM rail.`, 504);
+          if (budgetMs != null && remainingMs() < 4000) {
+            if (tempoBudgetMs != null) throw bad(`Resolving an external seller used the Tempo time budget (${tempoBudgetMs}ms); nothing was spent and nothing is charged. Tempo credentials expire about 25s after signing, so retry with a fresh credential or pay this route over an EVM rail.`, 504);
+            throw bad(`Resolving an external seller left too little of your payment authorization's life for the seller to answer and this payment to settle (EVM credentials expire at their validBefore); nothing was spent and nothing is charged. Retry with a fresh authorization: a stock client signs 300 s ahead.`, 504);
           }
           const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
           // Name WHICH world this is. The resolver tallies candidates it dropped at
@@ -450,7 +461,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               // which is the thing being bounded.
               throw lastErr || bad(`Tried ${__paidAttempts} paid seller(s) for this task without a delivered answer. Refusing to sign another payment for one request.`, 502);
             }
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(budgetMs != null ? { timeoutMs: Math.max(3000, Math.min(20_000, remainingMs())) } : {}) });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
             // ("the buy failed, so we never spent"), but payExternal can throw

@@ -214,6 +214,8 @@ import { createSearchData } from "./search-data.js";
 import { operatorSearchPage } from "./operator-search.js";
 import { datasetStatus, datasetRecorded, runDatasetSnapshot, startDatasetScheduler } from "./dataset-snapshot.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
+import { assertEvmValidityCovers } from "./evm-validity.js";
+import { admitCoveredRun } from "./inflight-cover.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { statusPage, statusSnapshot } from "./status.js";
 import { recordProbes } from "./status-store.js";
@@ -606,7 +608,7 @@ function trialClientKey(ip) {
 }
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
-import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort } from "./hangup-settlement.js";
+import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
@@ -9020,7 +9022,10 @@ for (const tool of ALL_KIT) {
           e.statusCode = 429;
           throw e;
         }
-        res.on("finish", () => {
+        // onSettleOutcome reports the final outcome whether or not the buyer
+        // stayed connected (src/hangup-settlement.js), so a settlement that
+        // fails after the buyer left counts here too.
+        onSettleOutcome(req, res, () => {
           try {
             // A settled 200 clears the key. A spend-then-fail is a 402 (the
             // settlement-failure rewrite) or a 5xx AFTER the run (empty
@@ -9058,6 +9063,13 @@ for (const tool of ALL_KIT) {
       // spend burned. The thrown 422 cancels settlement (never charged) and
       // explains the fix. Fail-open: non-AVM and unreadable payments pass.
       await assertAvmValidityCovers(req, tool.slug);
+      // The same rule for EVM authorizations on routes whose measured run is
+      // long (reports, video, the premium image tier, seller-payability): a
+      // credential that expires before the work ends can never settle, so it
+      // is refused here, 422 and uncharged, rather than run for nothing. The
+      // floor never exceeds what a stock client or a prompt MPP client
+      // carries (src/evm-validity.js).
+      assertEvmValidityCovers(req, tool.slug);
 
       // Settle-failure breaker for EVERY wallet-only tool (2026-09-06; the /v1
       // tiers consult it inside their handlers already and the call is
@@ -9074,6 +9086,16 @@ for (const tool of ALL_KIT) {
       // cent; pausing every paid tool over twelve of them would be a lever, not
       // a guard. The /v1 tiers keep their own global pause inside their handlers.
       if (!FREE_MODE && WALLET_ONLY_SLUGS.has(tool.slug)) gatewaySettleBreakerCheck(req, { global: false });
+
+      // A wallet's concurrent runs on the expensive routes must be covered by
+      // its balance together (verify checks each authorization alone). A run
+      // the balance cannot also cover is refused 429 before it starts
+      // (src/inflight-cover.js); it leaves the ledger when its response ends.
+      // Before the client-gone belt, because the balance read can wait.
+      if (!FREE_MODE && EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        const release = await admitCoveredRun(req);
+        if (release && !onResponseEnd(req, res, release)) release();
+      }
 
       // The buyer's connection is already gone (it closed while the payment
       // was being verified): nothing could be delivered, so nothing runs and

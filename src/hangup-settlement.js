@@ -116,8 +116,73 @@ export function createHangupSettlementHook({ onUndelivered }) {
     const realEnd = res.end;
     res.end = function hangupAwareEnd(...args) {
       if (closedEarly) fire("end");
-      return realEnd.apply(this, args);
+      const out = realEnd.apply(this, args);
+      // Node emits no "finish" for a response ended on a socket that is
+      // already gone, so the outcome listeners below hear it from here.
+      if (closedEarly) runOutcome(res, "undelivered");
+      return out;
     };
     next();
   };
+}
+
+// ---- The final outcome of a paid response, whether or not the buyer stayed.
+//
+// A settle-failure bound (the composite guard, the gateway and catalog
+// breakers) judges a paid run by the FINAL response: a 200 is settled, a 402
+// after the handler ran is a settlement that failed. Node emits no "finish"
+// for a response whose client is already gone, though the gate still settles
+// (or fails to) and ends it, so these registrations report every outcome
+// whether or not the buyer stayed. They run once per response at the first of:
+//   - "finish": the ordinary end;
+//   - the gate ending the response after the buyer left before the first byte
+//     (the hook above, which is mounted before every gate);
+//   - "close" after headers went out: a stream or body cut part way, which was
+//     settled before its first byte.
+// A charge cancelled because the buyer left (a granted forgiveness ticket,
+// src/hangup-forgiveness.js) is not a settlement outcome: onSettleOutcome
+// skips it, so the forgiveness rule and its own budget stay the only bound on
+// it. onResponseEnd runs for it too, for bookkeeping that must always close.
+const OUTCOME = Symbol("a402.responseOutcome");
+
+function outcomeState(req, res) {
+  if (!res || typeof res.once !== "function") return null;
+  if (Object.hasOwn(res, OUTCOME)) return res[OUTCOME];
+  const state = { done: false, req, settle: [], always: [] };
+  Object.defineProperty(res, OUTCOME, { value: state, enumerable: false });
+  res.once("finish", () => runOutcome(res, "finish"));
+  res.once("close", () => { if (res.headersSent) runOutcome(res, "close"); });
+  return state;
+}
+
+function runOutcome(res, via) {
+  if (!res || !Object.hasOwn(res, OUTCOME)) return;
+  const state = res[OUTCOME];
+  if (state.done) return;
+  state.done = true;
+  const forgiven = via === "undelivered" && chargeCancelledForClientGone(state.req);
+  const info = { via, forgiven };
+  for (const fn of state.always) { try { fn(info); } catch { /* an outcome listener never breaks serving */ } }
+  if (forgiven) return;
+  for (const fn of state.settle) { try { fn(info); } catch { /* an outcome listener never breaks serving */ } }
+}
+
+/** Run `fn(info)` once when this paid response's settlement is decided, on
+ *  "finish" or after the buyer left (see above). Skips a charge cancelled for
+ *  a buyer who left inside the forgiveness budget. Returns false when the
+ *  response is already decided or there is none to watch. */
+export function onSettleOutcome(req, res, fn) {
+  const state = outcomeState(req, res);
+  if (!state || state.done || typeof fn !== "function") return false;
+  state.settle.push(fn);
+  return true;
+}
+
+/** Run `fn(info)` once when this paid response ends, however it ends,
+ *  including a forgiven hang-up (`info.forgiven`). */
+export function onResponseEnd(req, res, fn) {
+  const state = outcomeState(req, res);
+  if (!state || state.done || typeof fn !== "function") return false;
+  state.always.push(fn);
+  return true;
 }

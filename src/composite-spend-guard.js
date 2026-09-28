@@ -23,10 +23,29 @@ const blockedUntil = new Map(); // payer -> timestamp the block lifts
 // The per-key guard is evadable by rotating wallets/IPs; this bounds the total
 // unsettled upstream burn regardless of who causes it. Trips to a short pause
 // on every composite (503, nobody charged) rather than blocking any one buyer.
+//
+// Each buyer adds at most MAX_FAILS of its own failures to that count, so the
+// pause answers several buyers failing together and never one buyer alone
+// (one buyer is the per-key bound's job). A failure that is everyone's (a
+// facilitator refusing every settlement) still reaches the threshold at the
+// same number of failures, spread over a few buyers. A wallet's concurrent
+// runs are also held to what its balance covers before they start
+// (src/inflight-cover.js). A failure with no key counts as its own buyer.
 const GLOBAL_MAX_FAILS = Number(process.env.COMPOSITE_GUARD_GLOBAL_MAX_FAILS) || 12;
 const GLOBAL_PAUSE_MS = Number(process.env.COMPOSITE_GUARD_GLOBAL_PAUSE_MS) || 15 * 60_000;
-let globalFails = [];
+let globalFailKeys = new Map(); // key -> failure times inside the window
+let anonSeq = 0;
 let globalPausedUntil = 0;
+function globalFailCount(t) {
+  let n = 0;
+  for (const [k, times] of globalFailKeys) {
+    const kept = times.filter((x) => t - x < WINDOW_MS);
+    if (!kept.length) { globalFailKeys.delete(k); continue; }
+    globalFailKeys.set(k, kept);
+    n += Math.min(kept.length, MAX_FAILS);
+  }
+  return n;
+}
 // Upstream usage telemetry for composites (the most expensive calls we make,
 // invisible to the gateway's per-call margin event): running totals here, and
 // a PostHog event per run when PostHog is configured.
@@ -115,9 +134,9 @@ export function compositeGuardGlobalPaused() {
 /** Record that we SPENT upstream for this payer and then did NOT settle (non-200). */
 export function recordCompositeSpendFailure(payer) {
   const t = Date.now();
-  globalFails = globalFails.filter((x) => t - x < WINDOW_MS);
-  globalFails.push(t);
-  if (globalFails.length >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFails = []; }
+  const gk = payer || `anon:${++anonSeq}`;
+  globalFailKeys.set(gk, [...(globalFailKeys.get(gk) || []), t]);
+  if (globalFailCount(t) >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFailKeys = new Map(); }
   if (!payer) return;
   const arr = (fails.get(payer) || []).filter((x) => t - x < WINDOW_MS);
   arr.push(t);
@@ -212,10 +231,10 @@ export function compositeUsageSnapshot() {
 
 /** Test/ops introspection. */
 export function _compositeGuardState() {
-  return { fails: fails.size, blocked: blockedUntil.size, WINDOW_MS, MAX_FAILS, BLOCK_MS, globalFails: globalFails.length, globalPausedUntil, GLOBAL_MAX_FAILS, GLOBAL_PAUSE_MS, usage: { ...usage, upstreamUsd: Math.round(usage.upstreamUsd * 1e4) / 1e4 } };
+  return { fails: fails.size, blocked: blockedUntil.size, WINDOW_MS, MAX_FAILS, BLOCK_MS, globalFails: globalFailCount(Date.now()), globalPausedUntil, GLOBAL_MAX_FAILS, GLOBAL_PAUSE_MS, usage: { ...usage, upstreamUsd: Math.round(usage.upstreamUsd * 1e4) / 1e4 } };
 }
 export function _compositeGuardReset() {
-  fails.clear(); blockedUntil.clear(); globalFails = []; globalPausedUntil = 0;
+  fails.clear(); blockedUntil.clear(); globalFailKeys = new Map(); globalPausedUntil = 0;
   usage.runs = 0; usage.ok = 0; usage.failed = 0; usage.upstreamUsd = 0;
   usage.overCap = 0; usage.lastOverCap = null; usage.bySlug = {};
 }

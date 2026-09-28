@@ -20,9 +20,15 @@
 // gatewaySettleBreakerCheck(req) as its FIRST statement: it refuses (429 for a
 // wallet, 503 for the global pause) before any upstream call - a >= 400
 // cancels settlement, so nobody is charged for the refusal - and arms one
-// finish listener on req.res that records the outcome under the same key the
+// outcome listener on req.res that records the outcome under the same key the
 // consult used. Keying is the composite guard's: the signed EIP-3009 payer,
 // else the Tempo payer the gate verified, else the client IP.
+//
+// The listener rides onSettleOutcome (src/hangup-settlement.js), which reports
+// the final outcome whether or not the buyer stayed connected: a settlement
+// that fails after the buyer left counts like one whose buyer stayed. A charge
+// cancelled for a buyer who left inside the forgiveness budget is not counted
+// here; that budget is its bound.
 //
 // The finish listener reads the status AND the settle receipt (PAYMENT-RESPONSE
 // with success:false), so a graceful facilitator rejection is caught whatever
@@ -41,6 +47,7 @@
 import { payerFromRequest } from "./payer.js";
 import { isBillingRefusalReceipt } from "./payment-reject.js";
 import { isWithdrawnSubcentRefusal } from "./avm-sponsorship.js";
+import { onSettleOutcome } from "./hangup-settlement.js";
 
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
 /** Settle failures a wallet may accumulate inside the window before it is refused. */
@@ -153,7 +160,7 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
   const res = req.res;
   if (!res || typeof res.once !== "function") return false;
   req.__gatewaySettleBreakerArmed = true;
-  res.once("finish", () => {
+  onSettleOutcome(req, res, () => {
     try {
       const st = res.statusCode;
       const receipt = decodeReceipt(res);
