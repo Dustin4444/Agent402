@@ -128,6 +128,13 @@ function cardPriceUsd(def, req) {
 // settlement; credits set creditsChargedOnClose only when the abandoned hold
 // was actually debited. Returns the row it wrote (or null) so the test can see
 // exactly what was booked.
+// The payer a Tempo sale or debt is booked under: the sender the gate proved
+// (src/mpp-tempo.js sets req.mppTempoLedgerPayer), never the credential's
+// client-written `source` hint (req.mppTempoPayer). Own property only.
+function tempoLedgerPayer(req) {
+  const p = Object.hasOwn(req, "mppTempoLedgerPayer") ? req.mppTempoLedgerPayer : null;
+  return typeof p === "string" && p ? p : null;
+}
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
@@ -137,7 +144,7 @@ function recordHangupDebt(req, res) {
   if (req.tempoSettled || req.stripeSettled) {
     row = {
       network: req.tempoSettled ? "tempo" : "stripe",
-      payer: req.mppTempoPayer || null,
+      payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
       tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
       wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
       priceUsd: settledPriceUsd(def, req, res),
@@ -615,7 +622,8 @@ const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
-import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
+import { createTempoPushDebts } from "./tempo-push-debts.js";
+import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -7777,6 +7785,9 @@ app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 // @x402/express) reads the same header it always has — settlement authority
 // stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
 // → not mounted, server stays pure-x402.
+// Tempo push-transfer debts (src/tempo-push-debts.js), built with the Tempo
+// gate below; read again at finish to void a debt whose transfer was served.
+let tempoPushDebts = null;
 if (!FREE_MODE) {
   // A buyer who hangs up before the first byte is not charged, within the
   // hang-up forgiveness budget (src/hangup-settlement.js,
@@ -7876,6 +7887,11 @@ if (!FREE_MODE) {
   // appender mints with, so the gate can prove "we minted this challenge for
   // at least this route's price" before a single relay call. Without them
   // createTempoGate refuses to mount (fail closed).
+  tempoPushDebts = createTempoPushDebts({
+    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, refundByEvidence,
+    recordChargedFailure, isSynthetic: isSyntheticRequest,
+    slugOf: (req) => CATALOG[`${req.method} ${req.path}`]?.slug,
+  });
   const tempoGate = createTempoGate({
     replayGuard: tempoReplayGuard,
     // Chain-truth fallback on relay broadcast failure (2026-08-20): a relay
@@ -7898,6 +7914,14 @@ if (!FREE_MODE) {
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
     preValidate: (req) => preValidateInput(CATALOG[`${req.method} ${req.path}`], req),
+    // A push transfer the relay confirmed pays this challenge but that could
+    // not be claimed for the request (and was not already claimed for an
+    // earlier one): nothing was delivered, the money is ours, book it owed.
+    // Push transfers that reach us unclaimed are booked as owed (see
+    // src/tempo-push-debts.js); a served claim voids the debt.
+    onPushNotClaimed: (req, info) => tempoPushDebts.notClaimed(req, info),
+    onPushInputRefused: (req, info) => tempoPushDebts.inputRefused(req, info),
+    pushClaimAllowed: (hash) => !["sending", "paid"].includes(refundByEvidence(hash)?.status),
   });
   if (tempoGate) {
     app.use(tempoGate);
@@ -8672,16 +8696,15 @@ app.use((req, res, next) => {
           // SVM/Stellar payloads carry no such field, so fall back to the
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
-          // Tempo settles carry the credential's did:pkh `source`, extracted
-          // by the gate as req.mppTempoPayer — CLASSIFICATION-GRADE only
-          // (client-supplied, unrecovered), same trust tier as the
-          // facilitator-receipt fallback: sales ledger + telemetry, never
-          // identity. Before 2026-08-20 tempo payers recorded null and a
-          // self-funded test wallet's buy classified as external revenue.
+          // Tempo settles record the sender the gate PROVED (the signature,
+          // the keychain read, or for a push credential the chain) - never
+          // the credential's client-written did:pkh `source`, which let any
+          // caller name a fresh "outside buyer" per purchase or file its own
+          // purchases under one of our wallets. Null when nothing proved one.
           // Stripe settles carry no wallet payer (the payer is a Stripe
           // customer behind the SPT, not an on-chain address) — record null,
           // like a Solana buyer with no server-visible payer.
-          const payer = req.creditsSettled ? (req.creditsKeyId || null) : (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          const payer = req.creditsSettled ? (req.creditsKeyId || null) : req.tempoSettled ? tempoLedgerPayer(req) : req.stripeSettled ? null : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -8710,6 +8733,9 @@ app.use((req, res, next) => {
             // can bind a settlement to the bytes the buyer received.
             responseSha256: req.__responseSha256 || null,
           });
+          // A Tempo push transfer booked as owed when its first request was
+          // refused on input is now claimed and served: void that debt.
+          if (req.tempoSettled) tempoPushDebts?.served(req, res);
           // Stripe SHADOW ledger - a read-only mirror of this on-chain settlement
           // into Stripe, so card and crypto revenue can eventually be read from
           // one set of books. LAST on purpose: it runs after the response is
@@ -8804,7 +8830,7 @@ app.use((req, res, next) => {
         recordRefundOwed({
           slug: def.slug,
           network: req.tempoSettled ? "tempo" : "stripe",
-          payer: req.mppTempoPayer || null,
+          payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
           priceUsd: settledPriceUsd(def, req, res),
           tx,
           httpStatus: res.statusCode,

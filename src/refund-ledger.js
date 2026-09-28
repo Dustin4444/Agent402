@@ -67,9 +67,16 @@ try { db.exec("ALTER TABLE refunds ADD COLUMN wire TEXT"); } catch { /* exists *
 try { db.exec("ALTER TABLE refunds ADD COLUMN hangupReason TEXT"); } catch { /* exists */ }
 
 const insertOwed = db.prepare(`
-  INSERT OR IGNORE INTO refunds (evidence, slug, network, payer, priceUsd, httpStatus, synthetic, createdAt, wire, hangupReason)
-  VALUES (@evidence, @slug, @network, @payer, @priceUsd, @httpStatus, @synthetic, @createdAt, @wire, @hangupReason)
+  INSERT OR IGNORE INTO refunds (evidence, slug, network, payer, priceUsd, httpStatus, synthetic, createdAt, wire, hangupReason, note)
+  VALUES (@evidence, @slug, @network, @payer, @priceUsd, @httpStatus, @synthetic, @createdAt, @wire, @hangupReason, @note)
 `);
+const selectByEvidence = db.prepare("SELECT * FROM refunds WHERE evidence = ?");
+// Only an OWED row: a row already being sent or paid is never quietly voided.
+const voidOwedByEvidence = db.prepare(`
+  UPDATE refunds SET status = 'void', note = CASE WHEN note IS NULL OR note = '' THEN @note ELSE note || '; ' || @note END, resolvedAt = @resolvedAt
+  WHERE evidence = @evidence AND status = 'owed'
+`);
+const renoteOwed = db.prepare("UPDATE refunds SET note = @to WHERE evidence = @evidence AND status = 'owed' AND note = @from");
 const selectByStatus = db.prepare("SELECT * FROM refunds WHERE status = ? ORDER BY id DESC LIMIT ?");
 const selectAll = db.prepare("SELECT * FROM refunds ORDER BY id DESC LIMIT ?");
 const resolveRow = db.prepare(`
@@ -107,7 +114,7 @@ export function receiptProvesCharge(receipt) {
 /** Record a debt. Returns true when a NEW row was created (false = duplicate
  *  evidence, already on the books). Addresses are stored exactly as given -
  *  base58/base32 rails are case-sensitive and must never be folded. */
-export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatus, synthetic, wire, hangupReason } = {}) {
+export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatus, synthetic, wire, hangupReason, note = null } = {}) {
   try {
     const evidence = (typeof tx === "string" && tx.trim())
       ? tx.trim()
@@ -123,6 +130,7 @@ export function recordRefundOwed({ slug, network, payer, priceUsd, tx, httpStatu
       createdAt: Date.now(),
       wire: wire ? String(wire).slice(0, 40) : null,
       hangupReason: hangupReason ? String(hangupReason).slice(0, 40) : null,
+      note: typeof note === "string" && note.trim() ? note.trim().slice(0, 200) : null,
     });
     return info.changes > 0;
   } catch {
@@ -179,6 +187,27 @@ export function markRefundVoid(id, note) {
   try {
     return resolveRow.run({ id, status: "void", paidTx: null, note: note.trim(), resolvedAt: Date.now() }).changes > 0;
   } catch { return false; }
+}
+
+/** The row recorded under this evidence (a settle tx or push hash), or null. */
+export function refundByEvidence(evidence) {
+  try { return (typeof evidence === "string" && evidence.trim() && selectByEvidence.get(evidence.trim())) || null; } catch { return null; }
+}
+
+/** A debt booked for a payment that has since been claimed for the request it
+ *  paid (a Tempo push transfer refused on input, then presented again and
+ *  served): void it, so the buyer is never both served and refunded. Requires
+ *  a note like every void; touches an OWED row only. Returns true when a row
+ *  was voided. */
+export function voidOwedOnClaim(evidence, note) {
+  if (typeof evidence !== "string" || !evidence.trim() || !note || typeof note !== "string" || !note.trim()) return false;
+  try { return voidOwedByEvidence.run({ evidence: evidence.trim(), note: note.trim(), resolvedAt: Date.now() }).changes > 0; } catch { return false; }
+}
+
+/** Replace an owed row's note when it currently reads `from`. Returns true
+ *  when it did (so a caller can act once per transition). */
+export function renoteOwedRefund(evidence, from, to) {
+  try { return renoteOwed.run({ evidence: String(evidence || "").trim(), from, to }).changes > 0; } catch { return false; }
 }
 
 export function refundTotals() {
