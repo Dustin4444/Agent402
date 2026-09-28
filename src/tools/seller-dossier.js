@@ -242,6 +242,19 @@ export function composeSellerDossier(a) {
     : [];
   // The router's Base detail, wherever the dispatch row carries it.
   const baseDetail = dispatch?.routerDispatchDetail || dispatch?.routerDispatchByChain?.base?.detail || null;
+  // What the router did NOT count because it was paid with USDC the seller's
+  // own wallet had sent the payer earlier: what the scan ACTUALLY netted,
+  // summed over this origin's wallets, counts only. Never the figures that
+  // would have counted had those payments been genuine (most of those are the
+  // payers' own money, and publishing them under this heading would present a
+  // seller's whole history as self-funded), and never per wallet or per payer:
+  // that detail stays on the operator surface, as delivery failures do.
+  const netted = evidenceBinding?.selfFunded?.netted instanceof Map ? [...evidenceBinding.selfFunded.netted.values()] : [];
+  const nettedCalls = netted.reduce((a, n) => a + (Number(n?.calls) || 0), 0);
+  const nettedUsd = Number(netted.reduce((a, n) => a + (Number(n?.usd) || 0), 0).toFixed(6));
+  const mostlySelfFunded = netted.some((n) => n?.circular === true);
+  const baseReason = dispatch?.routerDispatchByChain?.base?.reason || dispatch?.routerDispatchReason || null;
+  const changesRouterVerdict = baseReason === "settlement_self_funded";
   const wallets = {
     advertisedByNetwork: payTosByNetwork,
     base: {
@@ -254,12 +267,9 @@ export function composeSellerDossier(a) {
       withheldAtSharedWallets: evidenceBinding?.withheld?.byWallet instanceof Map
         ? [...evidenceBinding.withheld.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
         : [],
-      // Settlement NOT counted because it was paid with USDC the wallet had
-      // sent its payer: the seller's own money coming home. Gross figures, per
-      // wallet; counts only, no payers.
-      selfFundedAtWallets: evidenceBinding?.selfFunded?.byWallet instanceof Map
-        ? [...evidenceBinding.selfFunded.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
-        : [],
+      selfFunded: nettedCalls > 0 || mostlySelfFunded
+        ? { nettedCalls, nettedUsd, mostlySelfFunded, changesRouterVerdict, note: "payments the router's scan found paid with USDC this seller's own wallet had sent the payer earlier (a refund that pays for a later call counts here, up to its own amount); they are not counted as settlement. Summed over the scan window and this origin's wallets" }
+        : null,
       inheritedFrom: inherited.length ? inherited : [],
       inheritedNote: inherited.length ? "evidence counted for this origin came partly from wallets other listings also name; the router requires the live 402 to pay one of them" : null,
       sharedWithOrigins: Array.isArray(claimsFor) ? claimsFor.filter((o) => String(o).toLowerCase() !== String(origin).toLowerCase()) : [],
@@ -269,7 +279,11 @@ export function composeSellerDossier(a) {
   if (wallets.base.sharedWithOrigins.length) flags.push(`the advertised Base wallet is also advertised by ${wallets.base.sharedWithOrigins.length} other origin(s); chain evidence for it is withheld from all of them`);
   if (baseDetail === "evidence_payto_mismatch") flags.push("the settlement evidence that clears the floor for this origin was measured at a wallet its live 402 does not pay; the router will not spend on it");
   if (baseDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the settlement evidence to");
-  if (wallets.base.selfFundedAtWallets.length) flags.push("some settlement at this seller's wallet was paid with USDC that wallet had sent its payers earlier; those payments are not counted as evidence, and where they are most of the dollars it received, third-party counts of the same wallet are not counted either");
+  // Only when it matters: most of the wallet's dollars were its own, or the
+  // payments it paid for itself are what keep it below the floor. A refund
+  // netted from an otherwise ordinary history is in the counts above, not a flag.
+  if (mostlySelfFunded) flags.push("in a router scan within the last 30 days, most of the dollars this seller's wallet received were paid with USDC that wallet had sent its payers earlier; the router counts only the rest, and not third-party tallies of that wallet (the detail is not published here; ask us)");
+  else if (changesRouterVerdict) flags.push("payments made with USDC this seller's wallet had sent its payers earlier are not counted, and without them its settlement history is below the router's floor (the detail is not published here; ask us)");
   if (baseDetail === "evidence_payto_shared" || wallets.base.withheldAtSharedWallets.length) flags.push("settlement history at a wallet this host lists as a settlement contract shared by many sellers is credited to none of them; only settlement measured on this origin's own URLs counts for it");
 
   // Concentration reads as a sentence here, like every other dossier flag: a

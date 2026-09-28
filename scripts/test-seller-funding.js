@@ -456,16 +456,43 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   ok(!/same seller|same host|sibling/i.test(words) && /first in first out/i.test(legend) && /its own amount/i.test(legend) && /dollars/i.test(legend), "...and says what is measured: the wallet's own outbound, first in first out, a refund only up to its own amount, judged by dollars");
 }
 
-// --- 6b. The seller dossier says so, counts only --------------------------------------
-{
-  const { composeSellerDossier } = await import("../src/tools/seller-dossier.js");
-  const DETAIL = { origin: "https://seller-a.example", host: "seller-a.example", routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": LOOP }, payTosByNetwork: { "eip155:8453": [LOOP] }, tools: [] };
+// --- 6b. The seller dossier says what was netted, and flags only what matters ----------
+// The dossier is a paid read about a named seller: it publishes what the scan
+// ACTUALLY netted (never the gross figures that would have counted, most of
+// them the payers' own money), and flags only a mostly self-funded wallet or a
+// verdict the netting changed. Per-wallet detail stays on the operator surface.
+const { composeSellerDossier } = await import("../src/tools/seller-dossier.js");
+const dossierOf = (origin, wallet, binding) => {
+  const DETAIL = { origin, host: new URL(origin).host, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": wallet }, payTosByNetwork: { "eip155:8453": [wallet] }, tools: [] };
   const helpers = { quoteIsStale: () => false, priceDisagreesWithOrigin: () => false, networksNeedLiveVerify: () => false, looksLikeListingInjection: () => false };
-  const d = composeSellerDossier({ host: "seller-a.example", detail: DETAIL, entry: { origin: DETAIL.origin, tools: [] }, dispatch: { routerDispatchEligible: false, routerDispatchReason: "settlement_self_funded", routerDispatchByChain: { base: la.chains.base } }, evidenceBinding: b.get("https://seller-a.example"), leaderboardRow: null, bazaar: null, solana: null, mpp: null, refusals: [], registration: null, deliveries: new Map(), sharedClaims: {}, helpers, thresholds: { sorThreshold: 50, sorPayers: 3, sorCap: 0.005 }, self: false, now: NOW });
-  const self = d.wallets?.base?.selfFundedAtWallets || [];
-  const flag = (d.flags || []).find((f) => /paid with USDC that wallet had sent its payers/.test(f));
-  ok(self.some((x) => x.wallet === LOOP && x.settled === 800) && flag && /most of the dollars/.test(flag), "the dossier lists the self-funded figures per wallet and flags them");
-  ok(!JSON.stringify(self).includes(P(1)) && !/0x[0-9a-f]{6}|\.example/.test(flag), "...counts only (no payer), and the flag names no one");
+  const v = dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: binding?.settled || 0, payers: binding?.payers, priceUsd: 0.001, spendChains: ["base"], ...FLOORS, evidence: binding, livePayTo: wallet });
+  return composeSellerDossier({ host: DETAIL.host, detail: DETAIL, entry: { origin, tools: [] }, dispatch: { routerDispatchEligible: v.eligible, routerDispatchReason: v.reason, routerDispatchByChain: { base: v.chains.base } }, evidenceBinding: binding, leaderboardRow: null, bazaar: null, solana: null, mpp: null, refusals: [], registration: null, deliveries: new Map(), sharedClaims: {}, helpers, thresholds: { sorThreshold: 50, sorPayers: 3, sorCap: 0.005 }, self: false, now: NOW });
+};
+const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that wallet had sent its payers/;
+{
+  const d = dossierOf("https://seller-a.example", LOOP, b.get("https://seller-a.example"));
+  const sf = d.wallets?.base?.selfFunded;
+  const flag = (d.flags || []).find((f) => SELF_FLAG.test(f));
+  ok(sf && sf.nettedCalls === 60 && sf.nettedUsd === 0.6 && sf.mostlySelfFunded === true && sf.changesRouterVerdict === true, "FUNDED FLEET: the dossier publishes what was netted (60 calls, $0.60), mostly self-funded, the verdict changed");
+  ok(flag && /most of the dollars/.test(flag) && /ask us/.test(flag), "...and flags it, pointing to us for the detail");
+  const text = JSON.stringify(d);
+  ok(!text.includes("selfFundedAtWallets") && !/"settled":800\b/.test(JSON.stringify(d.wallets)) && !text.includes(P(1)) && !/0x[0-9a-f]{6}|\.example/.test(flag), "...never the gross figures under that heading (the 800 the chain join counted), no payer, and the flag names no one");
+}
+
+{
+  // THE REVIEW'S HONEST SELLER: 100 calls from 10 payers, one $0.01 refund to
+  // a repeat buyer who then buys again. One payment is netted; the seller stays
+  // eligible, and the dossier must not present its history as self-funded.
+  const W = addr("f3");
+  const sp = [], so = [log(W, P(701), usd(0.01), 205, 50)];
+  for (let i = 1; i <= 10; i++) for (let k = 0; k < 10; k++) sp.push({ wallet: W, payer: P(700 + i), usd: 0.01, pos: posOf(200 + k * 10, i) });
+  const r = await scanOnce({ sellers: [seller(W, "seller-h.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 1000, span: 1000 });
+  const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, circularWallets: circularWalletsFrom(r.ev, { now: NOW }), ...FLOORS }).get("https://seller-h.example");
+  const d = dossierOf("https://seller-h.example", W, bind);
+  const sf = d.wallets.base.selfFunded;
+  ok(r.ev[W].callsSettled === 99 && r.ev[W].uniqueBuyers === 10 && label(new Map([["https://seller-h.example", bind]]), "https://seller-h.example", W).eligible === true, "(one payment netted: 99 / 10, eligible)");
+  ok(sf && sf.nettedCalls === 1 && sf.nettedUsd === 0.01 && sf.mostlySelfFunded === false && sf.changesRouterVerdict === false, "HONEST SELLER DOSSIER: publishes the one netted payment ($0.01), not mostly self-funded, verdict unchanged");
+  ok(!(d.flags || []).some((f) => SELF_FLAG.test(f)) && !/"settled":100\b/.test(JSON.stringify(d.wallets)), "...raises no flag, and nowhere presents its 100 calls as self-funded");
 }
 
 // --- 6c. Third-party counts of a wallet are netted by what its own scan found ----
@@ -494,6 +521,10 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   const stripped = Object.fromEntries(Object.entries(r.ev).map(([k, v]) => [k, { callsSettled: v.callsSettled, uniqueBuyers: v.uniqueBuyers, origins: v.origins }]));
   const ctl = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: stripped, bazaarQuality: [["https://seller-f.example", q]], circularWallets: circ, ...FLOORS }).get("https://seller-f.example");
   ok(baseLiveGate({ networks: ["eip155:8453"], settled: ctl.settled, payers: ctl.payers, priceUsd: 0.001, ...FLOORS, binding: ctl, livePayTo: W }).ok === true, "control: without the scan's netted counts the same Bazaar figures clear the floor (the bypass the review measured)");
+  const d = dossierOf("https://seller-f.example", W, be);
+  const flag = (d.flags || []).find((f) => SELF_FLAG.test(f));
+  ok(d.wallets.base.selfFunded?.nettedCalls === 50 && d.wallets.base.selfFunded.mostlySelfFunded === false && d.wallets.base.selfFunded.changesRouterVerdict === true && flag && /below the router's floor/.test(flag),
+    "the dossier: 50 netted, not mostly self-funded, but they are what keeps it below the floor, and the flag says exactly that");
   // The chain join counts the same payments over the scan window.
   const cj = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, chainProven: new Map([["https://seller-f.example", { settled: 60, payers: 4, payTo: W }]]), circularWallets: circ, ...FLOORS }).get("https://seller-f.example");
   ok(cj.byWallet.get(W).settled === 10 && cj.byWallet.get(W).payers === 2 && cj.ownSettled === 10 && baseLiveGate({ networks: ["eip155:8453"], settled: cj.settled, payers: cj.payers, priceUsd: 0.001, ...FLOORS, binding: cj, livePayTo: W }).ok === false,
@@ -764,14 +795,15 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   try {
     ok(await boot(), "server booted (free mode, leaderboard warm-started from a fixture with one circular wallet)");
     const before = await get(`/__operator/seller-funding.json?wallet=${W}`);
-    ok(before.status === 200 && before.body.circular === true && before.body.cleared === false && before.body.selfFundedAt.some((x) => x.origin === A && x.settled === 500) && before.body.creditedTo.some((x) => x.origin === A && x.settled === 4), "before: circular, credited its net 4 with the gross 500 held as self-funded");
+    ok(before.status === 200 && before.body.circular === true && before.body.cleared === false && before.body.creditedTo.some((x) => x.origin === A && x.settled === 4) && before.body.notCounted.some((x) => x.origin === A && x.grossSettled === 500) && before.body.evidence?.selfFundedCalls === 496,
+      "before: circular, credited its net 4; the gross 500 is labelled as what would have counted, and the 496 actually netted is reported as such");
     ok((await get("/__operator/seller-funding.json", { accept: "application/json" })).status === 404 && (await post({ action: "clear", wallet: W }, { "content-type": "application/json" })).status === 404, "without the operator token both routes answer 404");
     const listing = await get("/__operator/seller-funding");
     ok(listing.status === 200 && listing.body.circular.some((x) => x.wallet === W) && !JSON.stringify(listing.body).match(/0xa0a0/), "the listing names the circular wallet and no payer");
     const clear = await post({ action: "clear", wallet: W, note: "rewards program" });
     ok(clear.status === 200 && clear.body.changed === true && clear.body.cleared === true, "POST clear lists the wallet");
     const after = await get(`/__operator/seller-funding.json?wallet=${W}`);
-    ok(after.body.cleared === true && after.body.creditedTo.some((x) => x.origin === A && x.settled === 500) && after.body.selfFundedAt.length === 0, "applied from the next read, no redeploy: the gross 500 is credited and nothing is held as self-funded");
+    ok(after.body.cleared === true && after.body.creditedTo.some((x) => x.origin === A && x.settled === 500) && after.body.notCounted.length === 0, "applied from the next read, no redeploy: the gross 500 is credited and nothing is left uncounted");
     ok((await post({ action: "clear", wallet: "0x12" })).status === 400 && (await post({ action: "nope", wallet: W })).status === 400, "a malformed wallet or action is refused 400");
     await stop();
     ok(await boot(), "RESTART: the server boots again over the same /data files");

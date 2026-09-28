@@ -4954,12 +4954,17 @@ app.get(["/__operator/seller-funding", "/__operator/seller-funding.json"], (req,
   const wallet = String(req.query?.wallet || "").trim().toLowerCase();
   if (wallet) {
     if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.status(400).json({ error: "wallet must be a 0x address" });
-    const creditedTo = [], selfFundedAt = [];
+    // creditedTo: what each origin IS credited with at this wallet (netted).
+    // notCounted: what each origin WOULD have been credited with had the
+    // self-funded payments counted - gross figures, most of them the payers'
+    // own money, never "the self-funded part". What was actually netted is
+    // under evidence (selfFunded*).
+    const creditedTo = [], notCounted = [];
     for (const [origin, e] of dispatchEvidence().binding) {
       if (e.byWallet?.has(wallet)) creditedTo.push({ origin, settled: e.byWallet.get(wallet).settled, payers: e.byWallet.get(wallet).payers ?? null });
-      if (e.selfFunded?.byWallet?.has(wallet)) selfFundedAt.push({ origin, settled: e.selfFunded.byWallet.get(wallet).settled, payers: e.selfFunded.byWallet.get(wallet).payers ?? null });
+      if (e.selfFunded?.byWallet?.has(wallet)) notCounted.push({ origin, grossSettled: e.selfFunded.byWallet.get(wallet).settled, grossPayers: e.selfFunded.byWallet.get(wallet).payers ?? null });
     }
-    return res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus({ wallet }), entry: store.list().find((x) => x.wallet === wallet) || null, creditedTo, selfFundedAt });
+    return res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus({ wallet }), entry: store.list().find((x) => x.wallet === wallet) || null, creditedTo, notCounted, notCountedNote: "per origin, the figures at this wallet that would have been credited had the self-funded payments counted (gross: they include the payers' own money); what was netted is evidence.selfFunded*" });
   }
   res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus(), cleared: store.list(), note: 'GET ?wallet=0x... for one wallet; POST {"action":"clear"|"restore","wallet":"0x...","note":"..."} to change it' });
 });
