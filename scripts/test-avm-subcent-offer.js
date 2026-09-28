@@ -351,9 +351,9 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     // withdraws is kept off the buyer's count: one buyer (an Algorand payer is
     // keyed by client IP), MAX + 1 such refusals, every one still served -
     // re-opened between them, since each one withdraws the offer.
-    settleMode = "quota";
     let allServed = true;
     for (let i = 1; i <= 4; i++) {
+      settleMode = i % 2 ? "quota" : "quota-thrown"; // both wire shapes of the refusal
       const accepted = (await offer402(RADAR)).avm;
       const s = settles;
       const r = await payAvm(RADAR, accepted);
