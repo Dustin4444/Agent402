@@ -406,25 +406,58 @@ function leadingZeroBits(buf) {
   return bits;
 }
 
+// --- Status-probe challenge ---------------------------------------------------
+// The Cloudflare status Worker (workers/status-probe) observes the paid-call
+// path by walking it the way a wallet-less buyer does. It is sized to the
+// tightest Workers CPU limit (10 ms per invocation), which a normal 16-bit solve
+// would blow many times over, and it deliberately does not hold POW_SECRET, so
+// it cannot mark its call as ours with a heartbeat token.
+//
+// So a caller presenting STATUS_PROBE_TOKEN (checked in server.js, the only
+// reader of that variable) is issued, for PROBE_POW_SLUG ONLY, a challenge at
+// PROBE_POW_DIFFICULTY whose signed payload carries PROBE_MARK. The mark is
+// inside the HMAC, so it cannot be added to a normal token or stripped from a
+// probe token, and the difficulty cannot be lowered on either. A marked token
+// redeems on PROBE_POW_SLUG and nowhere else, once, within PROBE_TTL_SECONDS,
+// and verifySolution reports it as the probe's so the dispatcher books the
+// call as internal exactly like the heartbeat's. Nothing about it reaches a
+// paid route or an operator surface.
+//
+// 4 bits = 16 hashes expected. Sized against the Worker's measured SHA-256
+// cost (see the budget note in workers/status-probe/src/index.js), not for
+// abuse resistance: the token is what stands between a stranger and this
+// challenge, and the Worker refuses to solve anything harder than it can.
+export const PROBE_POW_SLUG = "hash";
+export const PROBE_POW_DIFFICULTY = 4;
+const PROBE_TTL_SECONDS = 120;
+const PROBE_MARK = "probe";
+
 /**
  * Issue a signed, single-use challenge. `slug` strictly scopes the token to
  * one tool so a challenge can't be retargeted at a different route.
+ * `{ probe: true }` issues the status probe's challenge (see above); it is
+ * refused for any slug but PROBE_POW_SLUG.
  */
-export function issueChallenge(slug) {
+export function issueChallenge(slug, { probe = false } = {}) {
+  if (probe && slug !== PROBE_POW_SLUG) throw new Error(`the status-probe challenge is issued for "${PROBE_POW_SLUG}" only`);
+  const difficulty = probe ? PROBE_POW_DIFFICULTY : POW_DIFFICULTY;
+  const ttl = probe ? Math.min(PROBE_TTL_SECONDS, TTL_SECONDS) : TTL_SECONDS;
   const challenge = randomBytes(16).toString("hex");
-  const exp = Math.floor(Date.now() / 1000) + TTL_SECONDS;
-  const payload = `${challenge}.${exp}.${POW_DIFFICULTY}.${slug}`;
+  const exp = Math.floor(Date.now() / 1000) + ttl;
+  const payload = probe
+    ? `${challenge}.${exp}.${difficulty}.${slug}.${PROBE_MARK}`
+    : `${challenge}.${exp}.${difficulty}.${slug}`;
   const token = `${payload}.${sign(payload)}`;
   // Opportunistically prune expired replay rows (cheap, indexed by exp).
   pruneStmt.run(Math.floor(Date.now() / 1000));
   return {
     algorithm: "sha256",
     challenge,
-    difficulty: POW_DIFFICULTY,
+    difficulty,
     slug,
-    rule: `Find an integer nonce such that sha256("${challenge}:" + nonce) has at least ${POW_DIFFICULTY} leading zero bits.`,
+    rule: `Find an integer nonce such that sha256("${challenge}:" + nonce) has at least ${difficulty} leading zero bits.`,
     expiresAt: exp,
-    ttlSeconds: TTL_SECONDS,
+    ttlSeconds: ttl,
     submitHeader: "X-Pow-Solution",
     submitFormat: "<token>:<nonce>",
     // You HASH one field and SEND a different one. Everything above describes
@@ -442,7 +475,9 @@ export function issueChallenge(slug) {
 
 /**
  * Verify a submitted "<token>:<nonce>" against the route's slug. Returns
- * { ok: true } on success (and consumes the challenge), or { ok:false, reason }.
+ * { ok: true, probe } on success (and consumes the challenge), or
+ * { ok:false, reason }. `probe` is true only for a status-probe token, which the
+ * caller books as internal traffic.
  */
 export function verifySolution(headerValue, slug) {
   if (typeof headerValue !== "string" || !headerValue) return { ok: false, reason: "missing solution" };
@@ -453,7 +488,11 @@ export function verifySolution(headerValue, slug) {
   if (!nonce) return { ok: false, reason: "missing nonce" };
 
   const parts = token.split(".");
-  if (parts.length !== 5) {
+  // Five parts is a normal token; six is a status-probe token, whose fifth part
+  // must be the probe mark (it sits inside the signed payload, so it is checked
+  // by the signature below as well).
+  const isProbe = parts.length === 6 && parts[4] === PROBE_MARK;
+  if (parts.length !== 5 && !isProbe) {
     // THE FREE TIER'S ONE SHARP EDGE, named instead of shrugged at.
     //
     // The challenge response carries two different strings: `challenge` (the
@@ -471,8 +510,11 @@ export function verifySolution(headerValue, slug) {
         : "malformed token - submit the `token` field from the challenge response verbatim, as `<token>:<nonce>`",
     };
   }
-  const [challenge, expStr, diffStr, tokSlug, sig] = parts;
-  const payload = `${challenge}.${expStr}.${diffStr}.${tokSlug}`;
+  const [challenge, expStr, diffStr, tokSlug] = parts;
+  const sig = parts[parts.length - 1];
+  const payload = isProbe
+    ? `${challenge}.${expStr}.${diffStr}.${tokSlug}.${PROBE_MARK}`
+    : `${challenge}.${expStr}.${diffStr}.${tokSlug}`;
 
   // 1. Signature (constant-time).
   const expected = sign(payload);
@@ -487,6 +529,9 @@ export function verifySolution(headerValue, slug) {
   // 3. Scope: token must be for exactly this tool (wildcards are not issued
   //    and not accepted — legacy "*" tokens fail here by design).
   if (tokSlug !== slug) return { ok: false, reason: `challenge scoped to "${tokSlug}", not "${slug}"` };
+  // A probe token is only ever issued for PROBE_POW_SLUG; refuse one naming any
+  // other slug even if it carried a valid signature (belt to the issuer's check).
+  if (isProbe && tokSlug !== PROBE_POW_SLUG) return { ok: false, reason: "a status-probe challenge redeems on its own slug only" };
 
   // 4. Proof of work (difficulty is fixed in the signed token — cannot be downgraded).
   const difficulty = parseInt(diffStr, 10);
@@ -501,7 +546,7 @@ export function verifySolution(headerValue, slug) {
   }
   // Prune here too, so a solve-heavy/issue-light workload can't grow the table.
   pruneStmt.run(Math.floor(Date.now() / 1000));
-  return { ok: true };
+  return { ok: true, probe: isProbe };
 }
 
 // --- Heartbeat token --------------------------------------------------------

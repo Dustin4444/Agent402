@@ -548,7 +548,7 @@ import { deliveryObservation } from "./response-observation.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus, sellerRefusedRecently, sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, DELIVERY_FAIL_STRIKES_REQUIRED, deliveryFailTtlMsNow } from "./x402-buyer.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
-import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
+import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken, PROBE_POW_SLUG } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
 import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
@@ -4277,6 +4277,29 @@ function statusProbeAuthed(req) {
   // rate-limited and counted exactly as it was before.
   return operatorAuthed(req);
 }
+// The one other thing STATUS_PROBE_TOKEN does: on GET /api/pow/challenge for
+// PROBE_POW_SLUG it gets the status Worker a low-difficulty challenge it can
+// solve inside the tightest Workers CPU limit, and the call that challenge
+// unlocks is booked as internal (see the status-probe note in src/pow.js). It
+// opens no other slug, no paid route and no operator surface, and the operator
+// token does NOT work here - the root credential has no business on a public
+// route. Timing-safe compare, unset = off, as on the probe route. Read from
+// X-Operator-Token ONLY, never Authorization: on this API a Bearer is a
+// payment or credits credential, and a client that attaches one to every
+// request must not read as somebody guessing a token. A WRONG X-Operator-Token
+// is charged to the operator attempt limiter and counted by the guessing pager,
+// so this public route is no better a place to guess the token from than the
+// probe route is.
+function statusProbeChallengeAuthed(req) {
+  const presented = req.headers["x-operator-token"];
+  if (typeof presented !== "string" || !presented) return false;
+  if (statusProbeTokenOk(presented)) return true;
+  if (STATUS_PROBE_TOKEN) {
+    operatorAttemptLimiter.check(operatorAttemptIp(req));
+    noteOperatorAuthFailure();
+  }
+  return false;
+}
 const getOperatorToken = (req) => {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);
@@ -5421,8 +5444,11 @@ function isOwnWallet(payer) {
   const p = String(payer);
   return OUR_EVM_WALLETS.has(p.toLowerCase()) || OUR_SOLANA_WALLETS.has(p) || OUR_STELLAR_WALLETS.has(p) || OUR_ALGORAND_WALLETS.has(p);
 }
+// Also true for the status Worker's paid-call, which carries no heartbeat token
+// (it does not hold POW_SECRET): the PoW gate sets statusProbePow only after
+// verifying a status-probe challenge, whose mark is inside the signature.
 function isSyntheticRequest(req) {
-  try { return !!(req && verifyHeartbeatToken(req.header("x-heartbeat-token"))); }
+  try { return !!(req && (ownTrue(req, "statusProbePow") || verifyHeartbeatToken(req.header("x-heartbeat-token")))); }
   catch { return false; }
 }
 function requestShape(req) {
@@ -7293,12 +7319,22 @@ app.get("/api/pow/challenge", (req, res) => {
   if (!POW_SLUGS.has(requested)) {
     return res.status(404).json({ error: `Unknown or wallet-only tool "${requested}". Compute-payable slugs: GET /api/pow` });
   }
+  // The status Worker's challenge: low difficulty, marked as the probe's inside
+  // the signature, for PROBE_POW_SLUG only. Any other slug, a missing or wrong
+  // token, or no STATUS_PROBE_TOKEN on this server gets the normal challenge.
+  const probe = requested === PROBE_POW_SLUG && statusProbeChallengeAuthed(req);
   // Funnel stage 2b — a free-tier challenge was issued (agent asked how to pay
   // for free). Paired with payment_settled{rail=pow} this is the free-tier
   // take rate. Only genuine issuances count (past the 429/404 guards above).
-  capturePostHogPowChallenge({ slug: requested, synthetic: isSyntheticRequest(req) });
-  res.json(issueChallenge(requested));
+  capturePostHogPowChallenge({ slug: requested, synthetic: probe || isSyntheticRequest(req) });
+  res.json(issueChallenge(requested, { probe }));
 });
+// The status Worker's check depends on this slug staying proof-of-work
+// eligible; if it ever moves to WALLET_ONLY_SLUGS the probe challenge 404s and
+// /status records the paid-call path as down. Say so at boot, not there.
+if (!POW_SLUGS.has(PROBE_POW_SLUG)) {
+  console.warn(`[status-probe] "${PROBE_POW_SLUG}" is not proof-of-work eligible: the status Worker's paid-call check will fail until PROBE_POW_SLUG in src/pow.js names an eligible slug`);
+}
 
 // Live machine-to-machine economy stats (free). Money is provable on-chain at
 // the wallet; this also tallies calls served and how they were paid for.
@@ -8230,6 +8266,10 @@ if (FREE_MODE) {
             });
           }
           res.setHeader("X-Pow-Accepted", "true");
+          // The status Worker's call: booked as internal, like the heartbeat's.
+          // Set here and only here, from a solution whose probe mark was
+          // verified inside the signature (src/pow.js).
+          if (result.probe === true) req.statusProbePow = true;
           return next(); // work accepted — skip the USDC paywall
         }
         res.setHeader("X-Pow-Error", result.reason);
@@ -8460,7 +8500,9 @@ app.use((req, res, next) => {
       if (res.statusCode === 200) {
         const powAccepted = res.getHeader("X-Pow-Accepted") === "true";
         const trialAccepted = res.getHeader("X-Trial-Accepted") === "true";
-        const isHeartbeat = powAccepted && verifyHeartbeatToken(req.header("x-heartbeat-token"));
+        // The status Worker's paid-call (statusProbePow, set by the PoW gate
+        // from a verified status-probe challenge) is booked the same way.
+        const isHeartbeat = powAccepted && (verifyHeartbeatToken(req.header("x-heartbeat-token")) || ownTrue(req, "statusProbePow"));
         // "usdc" is the ELSE branch, so any free path that forgets to name
         // itself here is booked as a sale. A trial moves no money.
         const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : req.creditsSettled ? "credits" : "usdc";

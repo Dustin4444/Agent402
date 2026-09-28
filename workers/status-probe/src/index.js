@@ -11,16 +11,20 @@
 // triggers are a completely independent scheduler on independent infra, so a
 // GitHub outage and a Cloudflare outage are not the same event.
 //
-// WHAT IT DELIBERATELY DOES NOT DO: the paid-call probe. That requires solving
-// a 16-bit proof-of-work AND minting an X-Heartbeat-Token from POW_SECRET.
-// Copying POW_SECRET onto a second platform widens the blast radius of that
-// secret, and WITHOUT it every probe would be counted as genuine external
-// free-tier demand — 288 synthetic calls a day against ~130 real ones, which
-// would corrupt the free-tier series on /revenue outright. So paid-call stays
-// the GitHub heartbeat's job, and src/status.js sizes that component's
-// staleness against ITS observer, not this one.
+// PAID-CALL, AND WHAT IT STILL DOES NOT HOLD: this Worker also walks the
+// proof-of-work path a wallet-less buyer takes (challenge, solve, call, check
+// the payload), and it does so WITHOUT POW_SECRET. The heartbeat marks its own
+// call as internal by minting an X-Heartbeat-Token from that secret; copying it
+// onto a second platform would widen what a leak of this Worker can forge, so
+// it stays on GitHub. Instead the Worker presents STATUS_PROBE_TOKEN - the
+// credential it already holds for /api/status/probe - when it ASKS for the
+// challenge. For that one pure-CPU slug the server answers with a low-difficulty
+// challenge whose signed token is marked as the probe's, and the call it unlocks
+// is booked as internal exactly like the heartbeat's. The token opens nothing
+// else: no other slug, no paid route, no operator surface. Without that, 288
+// synthetic calls a day would read as outside free-tier demand on /revenue.
 //
-// Deploy: see README.md. Requires the OPERATOR_TOKEN secret.
+// Deploy: see README.md. Requires the STATUS_PROBE_TOKEN secret.
 
 const REQUIRED_NETWORK = "eip155:8453"; // Base is always expected in the offer
 const CATALOG_FLOOR = 400; // matches the heartbeat + sync-count floor
@@ -36,13 +40,128 @@ async function grab(url, init = {}, ms = 15000) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// paid-call: the proof-of-work path, end to end.
+//
+// CPU AND SUBREQUEST BUDGET. This Worker is sized to the tightest Workers
+// limits: 10 ms of CPU and 50 subrequests per invocation. Exceeding the CPU
+// limit kills the whole run - every other observation and every alarm with
+// it. So the work this check may do is bounded before it starts, not
+// discovered afterwards:
+//
+//  - The server hands a STATUS_PROBE_TOKEN holder a 4-bit challenge (16 hashes
+//    expected; PROBE_POW_DIFFICULTY in src/pow.js). A normal free-tier
+//    challenge is 16 bits (65,536 expected, hundreds of milliseconds of CPU).
+//    Anything above PAID_CALL_MAX_DIFFICULTY is REFUSED, never solved: it is
+//    what an older server, or one without the token set, hands back, and
+//    solving it would blow the limit. A refused challenge is reported as NOT
+//    OBSERVED, never as an outage - the paid path may be perfectly healthy.
+//  - One solve stops after SOLVE_CAP_FACTOR x the expected hashes (256 at 4
+//    bits). An honest solve needs more about once in nine million attempts
+//    (e^-16), and that case is also "not observed".
+//  Measured 2026-09-28 with crypto.subtle.digest, the call this Worker makes:
+//  inside workerd (the Workers runtime) about 2.5-4.5 us of CPU per hash, and
+//  about 10 us in Node 22. So the expected solve is 16 hashes, about 0.05 ms
+//  (0.16 ms at Node's cost), and the hard cap of 256 hashes is about 1.1 ms
+//  (2.6 ms at Node's cost) - at least 3.8x under the 10 ms limit even at the
+//  slower figure. The rest of a run is mostly parsing /api/pricing (about
+//  1.5 ms) and /api/status (about 0.3 ms). scripts/test-status-probe-worker.js
+//  pins the arithmetic so raising either knob fails a test with the reason.
+//  - Two subrequests per attempt (challenge + call); the worst case for a whole
+//    run is counted in that test and stays at least ten under the limit of 50.
+const PAID_CALL_SLUG = "hash";
+const PAID_CALL_UA = "agent402-status-probe/1.0";
+export const PAID_CALL_MAX_DIFFICULTY = 4;
+export const SOLVE_CAP_FACTOR = 16;
+const enc = new TextEncoder();
+
+function leadingZeroBits(buf) {
+  let bits = 0;
+  for (const byte of buf) {
+    if (byte === 0) { bits += 8; continue; }
+    bits += Math.clz32(byte) - 24;
+    break;
+  }
+  return bits;
+}
+
+const hexOf = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const errText = (e) => String(e?.message || e).slice(0, 60);
+
 /**
- * Observe production. Returns { components, fails } where components maps the
- * /status component keys to {ok, detail}. Any thrown error is a failed check,
- * never a failed run: an observation we could not make must be recorded as a
- * failure or not at all, never silently as success.
+ * Find a nonce so sha256("<challenge>:<nonce>") has `difficulty` leading zero
+ * bits - the same rule src/pow.js verifies. Returns null past `maxHashes`.
  */
-export async function probe(prod) {
+export async function solvePow(challenge, difficulty, maxHashes) {
+  for (let n = 0; n < maxHashes; n++) {
+    const d = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(`${challenge}:${n}`)));
+    if (leadingZeroBits(d) >= difficulty) return { nonce: n, hashes: n + 1 };
+  }
+  return null;
+}
+
+/**
+ * One paid-call observation. Returns {ok, detail} when it observed the path,
+ * or {skip} when it could not observe it honestly (no token, a challenge too
+ * hard to solve inside the CPU limit, an unlucky solve) - a skip records nothing.
+ */
+export async function checkPaidCall(prod, token) {
+  if (!token) return { skip: "no STATUS_PROBE_TOKEN" };
+  let c;
+  try {
+    const r = await grab(`${prod}/api/pow/challenge?slug=${PAID_CALL_SLUG}`, {
+      headers: { "X-Operator-Token": token, "User-Agent": PAID_CALL_UA },
+    });
+    if (!r.ok) return { ok: false, detail: `challenge ${r.status}` };
+    c = await r.json();
+  } catch (e) {
+    return { ok: false, detail: `challenge ${errText(e)}` };
+  }
+  const difficulty = Number(c?.difficulty);
+  if (typeof c?.challenge !== "string" || typeof c?.token !== "string" || c?.slug !== PAID_CALL_SLUG || !Number.isInteger(difficulty) || difficulty < 0) {
+    return { ok: false, detail: "challenge unreadable" };
+  }
+  if (difficulty > PAID_CALL_MAX_DIFFICULTY) {
+    return { skip: `challenge is ${difficulty} bits and this Worker solves at most ${PAID_CALL_MAX_DIFFICULTY}: the server did not honour the probe token (STATUS_PROBE_TOKEN unset or different on the server, or a server that predates the probe challenge)` };
+  }
+  const cap = SOLVE_CAP_FACTOR * 2 ** difficulty;
+  const solved = await solvePow(c.challenge, difficulty, cap);
+  if (!solved) return { skip: `no nonce within ${cap} hashes` };
+  // Unique per call, so the answer cannot come from any cache, and the Worker
+  // can check it against its own digest of the same bytes.
+  const text = `status-probe ${c.challenge}`;
+  const want = hexOf(await crypto.subtle.digest("SHA-256", enc.encode(text)));
+  try {
+    const r = await grab(`${prod}/api/${PAID_CALL_SLUG}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": PAID_CALL_UA, "X-Pow-Solution": `${c.token}:${solved.nonce}` },
+      body: JSON.stringify({ text }),
+    });
+    if (r.status !== 200) {
+      const why = r.headers.get("x-pow-error");
+      return { ok: false, detail: `call ${r.status}${why ? ` (${why.slice(0, 60)})` : ""}` };
+    }
+    // The unlock is the thing under test: a 200 that did not come through the
+    // proof-of-work gate is not an observation of that gate.
+    if (r.headers.get("x-pow-accepted") !== "true") return { ok: false, detail: "call 200 without X-Pow-Accepted" };
+    const j = await r.json();
+    if (j?.hex !== want) return { ok: false, detail: "payload is not the hash of what was sent" };
+    return { ok: true, detail: null };
+  } catch (e) {
+    return { ok: false, detail: `call ${errText(e)}` };
+  }
+}
+
+/**
+ * Observe production. Returns { components, fails, paidCall } where components
+ * maps the /status component keys to {ok, detail}. Any thrown error is a failed
+ * check, never a failed run: an observation we could not make must be recorded
+ * as a failure or not at all, never silently as success.
+ *
+ * `paidCallToken` switches the paid-call check on. Absent, the check does not
+ * run and paid-call is never claimed; present but empty, it is skipped.
+ */
+export async function probe(prod, opts = {}) {
   const components = {};
   const fails = [];
   const mark = (key, ok, detail) => {
@@ -115,7 +234,17 @@ export async function probe(prod) {
     mark("rails", false, "paywall probe threw");
   }
 
-  return { components, fails };
+  let paidCall = null;
+  if (Object.hasOwn(opts, "paidCallToken")) {
+    const r = await checkPaidCall(prod, opts.paidCallToken);
+    if (r.skip) paidCall = { observed: false, reason: r.skip };
+    else {
+      mark("paid-call", r.ok, r.detail);
+      paidCall = { observed: true };
+    }
+  }
+
+  return { components, fails, paidCall };
 }
 
 /**
@@ -127,11 +256,11 @@ export async function probe(prod) {
  * recorded exactly as before. The first attempt's failure still goes to the
  * worker log, so the blip itself is never invisible.
  */
-export async function observe(prod, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), retryDelayMs = 20000 } = {}) {
-  const first = await probe(prod);
+export async function observe(prod, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), retryDelayMs = 20000, ...probeOpts } = {}) {
+  const first = await probe(prod, probeOpts);
   if (!first.fails.length) return { ...first, retried: false };
   await sleep(retryDelayMs);
-  const second = await probe(prod);
+  const second = await probe(prod, probeOpts);
   console.log(`status-probe: first attempt FAILS ${first.fails.join(" ")} - after ${retryDelayMs}ms retry: ${second.fails.length ? `FAILS ${second.fails.join(" ")}` : "clean (transient blip, not recorded as down)"}`);
   return { ...second, retried: true };
 }
@@ -441,7 +570,9 @@ export async function syncAlarms(env, { fetchStatus, sleep = (ms) => new Promise
 //   wrangler secret delete OPERATOR_TOKEN
 export const probeToken = (env) => env.STATUS_PROBE_TOKEN || env.OPERATOR_TOKEN || "";
 
-async function run(env) {
+// `timing` exists for the tests (no real 20 s / 30 s pauses); the scheduler and
+// /run pass nothing.
+export async function run(env, timing = {}) {
   const prod = env.PROD || "https://agent402.tools";
   const token = probeToken(env);
   if (!token) {
@@ -450,7 +581,13 @@ async function run(env) {
     console.error("status-probe: neither STATUS_PROBE_TOKEN nor OPERATOR_TOKEN is set — refusing to probe");
     return { ok: false, error: "no probe token" };
   }
-  const { components, fails } = await observe(prod);
+  // The paid-call challenge takes the NARROW token only, never OPERATOR_TOKEN:
+  // the root credential has no business on a public route, and the server
+  // honours only STATUS_PROBE_TOKEN there anyway.
+  const { components, fails, paidCall } = await observe(prod, {
+    paidCallToken: env.STATUS_PROBE_TOKEN || "",
+    ...(timing.sleep ? { sleep: timing.sleep, retryDelayMs: 0 } : {}),
+  });
   // When production is unreachable this POST cannot land either. That absence
   // is the evidence: /status renders a missing observation as a gap, never as
   // uptime, so there is nothing to fake here.
@@ -458,12 +595,16 @@ async function run(env) {
     .catch(() => false);
   // Independent of the probe result: the balance and reachability alarms are
   // healthy-path work too, and their only other observer runs every few hours.
-  const alarms = await syncAlarms(env).catch((e) => ({ opened: [], closed: [], bad: [], error: String(e?.message || e).slice(0, 100) }));
+  const alarms = await syncAlarms(env, timing.sleep ? { sleep: timing.sleep, confirmDelayMs: 0 } : {})
+    .catch((e) => ({ opened: [], closed: [], bad: [], error: String(e?.message || e).slice(0, 100) }));
   const alarmLine = alarms.error
     ? `alarms skipped (${alarms.error})`
     : `alarms bad=[${alarms.bad.join(" ")}] opened=[${alarms.opened.join(" ")}] closed=[${alarms.closed.join(" ")}]`;
-  console.log(`status-probe: ${fails.length ? `FAILS ${fails.join(" ")}` : "all healthy"} | recorded=${recorded} | ${alarmLine}`);
-  return { ok: true, recorded, fails, components, alarms };
+  // A skipped paid-call is logged every time: the component simply ages on
+  // /status, so this line is where the reason is readable.
+  const paidLine = paidCall?.observed ? "paid-call observed" : `paid-call NOT observed (${paidCall?.reason || "check off"})`;
+  console.log(`status-probe: ${fails.length ? `FAILS ${fails.join(" ")}` : "all healthy"} | ${paidLine} | recorded=${recorded} | ${alarmLine}`);
+  return { ok: true, recorded, fails, components, paidCall, alarms };
 }
 
 export default {

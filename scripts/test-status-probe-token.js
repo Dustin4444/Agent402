@@ -8,7 +8,11 @@
 // domain), /leads, /backup/run, /monitors/run, /alerts/run, /stats and
 // /wishes. Two off-platform observers were holding a master key to use one door.
 //
-// STATUS_PROBE_TOKEN opens that one door. What this test has to prove is not
+// STATUS_PROBE_TOKEN opens that one door. (Since 2026-09-28 it also gets the
+// status Worker a low-difficulty challenge for one pure-CPU slug on the public
+// PoW challenge route - an unlock of nothing but one internally-booked call,
+// pinned separately in scripts/test-status-probe-pow.js; none of the operator
+// surface below.) What this test has to prove is not
 // that it works - that is the easy half - but that it does NOT work anywhere
 // else, and that adding it broke nothing that used the operator token before.
 // Boots the real server, because the value of the check is in the route wiring.

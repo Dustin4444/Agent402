@@ -46,15 +46,16 @@ const DAY = 86400000;
 // every 24 and drag the whole page to "degraded" — a threshold mismatch
 // masquerading as an incident.
 const QUARTER_HOURLY = 45 * 60_000; // ~3 missed observations at the 5-15 min cadence
-// paid-call is the one component NO independent observer covers. The Cloudflare
-// cron probe (workers/status-probe) deliberately skips it: solving the 16-bit
-// PoW needs POW_SECRET on a second platform, and without that token every probe
-// would be counted as genuine external free-tier demand and corrupt the
-// free-tier series on /revenue. So its only observer is the GitHub heartbeat,
-// whose real delivery cadence is ~hourly (measured 2026-07-27: 60-72 min).
-// Sizing it at 45 min would report "unknown" on a healthy paid path every time
-// GitHub is merely late, and drag the whole page to "degraded" with it.
-const HOURLY_OBSERVER = 3 * 3600_000; // ~3 missed hourly heartbeat runs
+// paid-call has two observers: the Cloudflare cron probe (workers/status-probe)
+// every 5 minutes, which walks the proof-of-work path with a probe-only
+// challenge (src/pow.js), and the GitHub heartbeat, whose real delivery cadence
+// is far sparser than its schedule. The threshold stays sized to the SLOWER
+// one on purpose: the Cloudflare leg reports "not observed" rather than a
+// failure whenever it cannot observe honestly (no STATUS_PROBE_TOKEN on the
+// server, a server that predates the probe challenge), and in that window the
+// component must fall back to the heartbeat's cadence instead of going
+// "unknown" and dragging the whole page to "degraded" with it.
+const HOURLY_OBSERVER = 3 * 3600_000; // sized to the slower observer (see above)
 const DAILY = 26 * 3600_000; // a day plus slack for a late scheduled run
 
 // Per-rail components (rail_base, rail_stellar, ...), derived from RAILS
@@ -89,7 +90,7 @@ export const RAIL_COMPONENTS = [
 export const COMPONENTS = [
   { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
   { key: "catalog", label: "Catalog", blurb: "Every tool route mounted and advertised on /api/pricing.", staleAfterMs: QUARTER_HOURLY },
-  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase from our own wallet: challenge, payment, unlock, payload. A miss here means our canary could not buy, never that a customer was charged.", staleAfterMs: HOURLY_OBSERVER },
+  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end call through the proof-of-work path a buyer without a wallet takes: challenge, solve, unlock, payload. Checked every 5 minutes by the Cloudflare probe and again by the GitHub heartbeat. A miss here means our probe could not complete a call, never that a customer was charged.", staleAfterMs: HOURLY_OBSERVER },
   { key: "mcp", label: "MCP connector", blurb: "The hosted /mcp endpoint agents connect through.", staleAfterMs: QUARTER_HOURLY },
   { key: "paywall", label: "Paywall engaged", blurb: "Paid tools still answer 402 when unpaid, so nothing is given away by accident.", staleAfterMs: QUARTER_HOURLY },
   { key: "rails", label: "Payment rails", blurb: "The chains advertised in a live 402 challenge.", staleAfterMs: QUARTER_HOURLY },
@@ -192,7 +193,7 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
     overall: overallState(components, railComponents),
     measurement: {
       observer: "Two independent observers outside production: a Cloudflare cron probe and the GitHub Actions heartbeat",
-      cadence: "every 5 minutes (Cloudflare), plus the GitHub heartbeat for the paid-call path",
+      cadence: "every 5 minutes (Cloudflare), plus the GitHub heartbeat",
       verify: HEARTBEAT_RUNS,
       measuringSince: firstObs ? new Date(firstObs).toISOString() : null,
       totalObservations: totalObservations(),
@@ -465,7 +466,7 @@ export function statusPage(baseUrl, stats, snap) {
 
 <section>
 <h1 class="st-h1">Service status</h1>
-<p class="st-sub">Availability is measured from outside this server, so an outage is witnessed by something that stays up when we do not. <a href="${esc(HEARTBEAT_RUNS)}" rel="noopener">Every probe run is public</a>.</p>
+<p class="st-sub">Availability is measured from outside this server, so an outage is witnessed by something that stays up when we do not. <a href="${esc(HEARTBEAT_RUNS)}" rel="noopener">Every heartbeat run is public</a>.</p>
 
 <div class="hero">
   <span class="dot ${DOT[snap.overall]}"></span>
@@ -500,7 +501,7 @@ ${liveSection(snap.live, stats)}
 <h2 id="method">How this is measured</h2>
 <div class="method">
 <ul>
-<li><b>The observer sits outside the service.</b> A GitHub Actions workflow probes production every 15 minutes and records what it saw; this page only stores and renders those observations.</li>
+<li><b>The observers sit outside the service.</b> A Cloudflare cron probe checks production every 5 minutes and a GitHub Actions heartbeat checks it again; each records what it saw, and this page only stores and renders those observations.</li>
 <li><b>An outage appears as a gap.</b> When production is down the probe cannot report in either, so the record shows missing observations rather than a tidy row of failures. Gaps are never counted as uptime.</li>
 <li><b>Percentages carry their denominator.</b> 100% of three probes is a weaker claim than 100% of three thousand, and the page shows which one you are reading.</li>
 <li><b>Stale means unknown, not healthy.</b> A component whose most recent observation has aged out is reported as not measured.</li>

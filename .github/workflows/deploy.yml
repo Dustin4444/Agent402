@@ -1935,6 +1935,8 @@ jobs:
           t node scripts/test-operator-auth.js
           # Probe-only credential: STATUS_PROBE_TOKEN opens POST /api/status/probe and NOTHING else, the operator token still works there, and the narrow gate is wired to one route (boots a real server, offline)
           t node scripts/test-status-probe-token.js
+          # The status Worker's paid-call challenge: STATUS_PROBE_TOKEN gets a low-difficulty challenge on the probe slug only, its call is booked internal, the mark cannot be forged or reused, and the token buys nothing else (boots two real servers, offline)
+          t node scripts/test-status-probe-pow.js
           # /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
           t node scripts/test-openapi-header-params.js
           # Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
