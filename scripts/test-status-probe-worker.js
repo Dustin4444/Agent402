@@ -368,7 +368,7 @@ for (const [name, over, detail] of failCases) {
   // times), the record, a confirmed alarm reading, and every other alarm
   // closing an open issue (a comment and a PATCH each).
   let calls = 0;
-  const HEALTHY_GW = { status: "ok", upstreamBuyer: { status: "low", trend: "ok" }, upstreamBuyerAvm: { status: "ok" }, upstreamBuyerTempo: { status: "ok" }, subscriptionFeePayer: { status: "ok" }, databases: { leads: { status: "ok" }, analytics: { status: "ok" } }, operatorAuth: { status: "ok" } };
+  const HEALTHY_GW = { status: "ok", upstreamBuyer: { status: "low", trend: "ok" }, upstreamBuyerAvm: { status: "ok" }, upstreamBuyerTempo: { status: "ok" }, subscriptionFeePayer: { status: "ok" }, databases: { leads: { status: "ok" }, analytics: { status: "ok" } }, operatorAuth: { status: "ok" }, tweetQueue: { status: "ok" } };
   const { ALARMS } = await import("../workers/status-probe/src/index.js");
   stub({ health: () => new Response("down", { status: 503 }) });
   const prodStub = globalThis.fetch;
