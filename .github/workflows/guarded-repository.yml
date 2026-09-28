@@ -33,3 +33,34 @@ jobs:
       fail_on_severity: critical
       upload_sarif: false
       visibility: public
+
+  # The reusable workflow above cannot fail on registration: its register step
+  # catches every error, prints "portal registration unavailable" and writes
+  # verification_status=unavailable, so a run whose evidence never reached the
+  # verifier still concludes success. This job reads that output and says so.
+  # A warning rather than a failure: the scan and the signed provenance ran,
+  # and the registration endpoint is on the verifier's side. The composite
+  # action that workflow pins (4f2dbdfc45c2) writes the endpoint's own status
+  # field: "verified" on success (the value its registration test asserts at
+  # that commit), "unavailable" on any error or a response with no status, and
+  # "disabled" when registration is switched off. When the pin above moves,
+  # re-read that action for the values it writes.
+  verification:
+    name: Verification status
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Report verification status
+        env:
+          VERIFICATION_STATUS: ${{ needs.guard.outputs.verification_status }}
+        run: |
+          # The value comes from the verifier's response body: keep a bounded,
+          # plain-token copy before printing it into a workflow command.
+          status="$(printf '%s' "$VERIFICATION_STATUS" | tr -cd 'A-Za-z0-9_.-' | cut -c1-64)"
+          if [ "$status" = "verified" ]; then
+            echo "Guarded Repository verification: verified"
+          else
+            echo "::warning title=Guarded Repository not verified::Verifier registration status is '${status:-(empty)}', expected 'verified'. The scan and the signed provenance ran; this run's evidence was not registered, so the last registered verification, if any, stands until its seven-day expiry."
+          fi
