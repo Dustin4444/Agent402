@@ -268,8 +268,12 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     ok(globalFails() === 5, `...and every one still feeds the /v1 global pause (got ${globalFails()})`);
     await finishWith("subcent_quota_exceeded", {}, { global: false });
     ok(walletFails() === 0 && globalFails() === 5, "on the catalog consult (global:false) it records nothing at all");
-    await finishWith("subcent_quota_exceeded");
+    const warned = [], warn0 = console.warn;
+    console.warn = (...a) => { warned.push(a.join(" ")); };
+    try { await finishWith("subcent_quota_exceeded"); } finally { console.warn = warn0; }
     ok(b.gatewaySettleBreakerGlobalPaused().paused, "the sixth trips the global pause (GLOBAL_MAX 6): the backstop for requests already in flight");
+    const pauseLine = warned.find((l) => /pausing every \/v1 tier/.test(l)) || "";
+    ok(/from 0 buyer\(s\), 6 withdrawn sub-cent refusal\(s\) inside/.test(pauseLine) && !/different buyers/.test(pauseLine), `the pause line says what it counted - withdrawn refusals, not six buyers (${pauseLine.slice(0, 90)})`);
     // The global pause counts distinct buyers; a withdrawn refusal is recorded
     // with no key, so each one still counts on its own - also in the real
     // arming order (the catalog consult first, then the /v1 handler's own,

@@ -109,7 +109,7 @@ export function gatewaySettleBreakerBlocked(key, now = Date.now()) {
   return { blocked: true, fails: arr.length, billingFails: bill.length, until };
 }
 
-/** Global state: paused for WINDOW_MS once GLOBAL_MAX_FAILS different buyers fail to settle inside a window. */
+/** Global state: paused for WINDOW_MS once GLOBAL_MAX_FAILS buyers fail to settle inside a window (a failure recorded with no buyer counts on its own). */
 export function gatewaySettleBreakerGlobalPaused(now = Date.now()) {
   if (globalPausedUntil > now) return { paused: true, until: globalPausedUntil };
   globalPausedUntil = 0;
@@ -117,7 +117,7 @@ export function gatewaySettleBreakerGlobalPaused(now = Date.now()) {
 }
 
 /** A payment was presented, the handler served, and settlement FAILED. */
-export function recordGatewaySettleFailure(key, now = Date.now(), { global = true, billing = false } = {}) {
+export function recordGatewaySettleFailure(key, now = Date.now(), { global = true, billing = false, withdrawn = false } = {}) {
   // `global:false` (the wallet-only catalog consult): the failure counts
   // against the WALLET only. A catalog read costs a fraction of a cent, so
   // twelve of them must never pause the LLM tiers - that would hand anyone
@@ -125,12 +125,18 @@ export function recordGatewaySettleFailure(key, now = Date.now(), { global = tru
   // 2026-09-06).
   if (global) {
     pruneGlobal(now);
-    globalFailKeys.set(key || `anon:${++anonSeq}`, now);
+    globalFailKeys.set(key || `${withdrawn ? "withdrawn" : "anon"}:${++anonSeq}`, now);
     if (globalFailKeys.size >= GLOBAL_MAX_FAILS) {
+      // Say what was counted: buyers, and the failures recorded with no buyer
+      // (each counted on its own), so one buyer's withdrawn refusals never
+      // read as that many buyers.
+      const keys = [...globalFailKeys.keys()];
+      const nWithdrawn = keys.filter((k) => k.startsWith("withdrawn:")).length, nAnon = keys.filter((k) => k.startsWith("anon:")).length;
+      const parts = [`${keys.length - nWithdrawn - nAnon} buyer(s)`, ...(nWithdrawn ? [`${nWithdrawn} withdrawn sub-cent refusal(s)`] : []), ...(nAnon ? [`${nAnon} failure(s) with no buyer`] : [])];
       globalPausedUntil = now + WINDOW_MS;
       globalFailKeys = new Map();
       globalTrips++;
-      console.warn(`[gateway-breaker] unsettled gateway calls from ${GLOBAL_MAX_FAILS} different buyers inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
+      console.warn(`[gateway-breaker] unsettled gateway calls from ${parts.join(", ")} inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
     }
   }
   if (!key) return;
@@ -199,7 +205,7 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
       // gate checks the requirement THIS call paid against (sub-cent, to the
       // paused payTo) and that the route's next 402 really drops it.
       if (isWithdrawnSubcentRefusal(receipt, { req })) {
-        if (global) recordGatewaySettleFailure(null, Date.now(), { global: true });
+        if (global) recordGatewaySettleFailure(null, Date.now(), { global: true, withdrawn: true });
         return;
       }
       // Any OTHER facilitator billing refusal (free_tier_exhausted, a credits
@@ -263,8 +269,9 @@ export function gatewaySettleBreakerStatus(now = Date.now()) {
   const g = gatewaySettleBreakerGlobalPaused(now);
   return {
     trackedKeys, blockedKeys,
-    // Distinct buyers with a settle failure inside the window: the count the
-    // global pause trips on.
+    // Buyers with a settle failure inside the window, plus each failure
+    // recorded with no buyer (a withdrawn sub-cent refusal counts on its
+    // own): the count the global pause trips on.
     globalFailsInWindow: (pruneGlobal(now), globalFailKeys.size),
     globalPaused: g.paused, globalPausedUntil: g.paused ? new Date(g.until).toISOString() : null, globalTrips,
     maxFails: MAX_FAILS, windowMs: WINDOW_MS, globalMaxFails: GLOBAL_MAX_FAILS,
