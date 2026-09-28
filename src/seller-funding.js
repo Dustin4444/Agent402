@@ -522,11 +522,12 @@ function posOfLog(l) {
  *
  * Wallets are read 200 to a call, untargeted (every transfer they sent), and
  * only transfers to known payers are recorded. A wallet that sends so much to
- * others that such a read is refused even when it reads alone is read
- * TARGETED at its known payers instead (exactly what is recorded anyway), and
- * that is kept with its state (`oh`), so the next scans read it targeted
- * straight away - packed with other such wallets - instead of finding the same
- * split again every hour. It is re-learned after `outboundHeavyMs`.
+ * others that such a read is refused even when it reads alone is marked
+ * (`oh`, kept with its state and re-learned after `outboundHeavyMs`), so the
+ * next scans do not spend the calls that isolate it again every hour: one
+ * with few known payers is read TARGETED at them (exactly what is recorded
+ * anyway), packed with other such wallets; one with many is read alone, its
+ * range split as it needs.
  *
  * @returns counts only: { calls, refusals, wallets, caughtUp, behind, stuck,
  *   truncated, fresh, targeted, events, budgetExhausted, transportError }
@@ -553,13 +554,17 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
   // Jobs by start block, keeping the priority order (in steady state every
   // wallet starts at the same block: one job per 200 wallets). Wallets known
   // to need a targeted read are grouped apart.
-  const groups = new Map(), heavy = new Map();
+  // Targeted costs one call per `payerChunk` known payers: worth it for a
+  // wallet with few of them.
+  const fewKnown = (w) => state.wallets.get(w).known.size <= 2 * payerChunk;
+  const groups = new Map(), heavy = new Map(), alone = [];
   for (const w of order) {
     const ws = state.wallets.get(w);
     // Nothing is recorded for a wallet with no known payer: no read needed.
     if (!ws.known.size) { ws.cursor = Math.max(ws.cursor, latest); continue; }
     const start = ws.cursor + 1;
     if (start > latest) continue;
+    if (heavyNow(ws) && !fewKnown(w)) { alone.push(w); continue; }
     const g = heavyNow(ws) ? heavy : groups;
     if (!g.has(start)) g.set(start, []);
     g.get(start).push(w);
@@ -585,6 +590,7 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
   const queue = [];
   for (const [start, ws] of groups) for (let i = 0; i < ws.length; i += walletChunk) queue.push({ froms: ws.slice(i, i + walletChunk), lo: start, hi: latest, tos: null, lineage: { limit: Infinity } });
   for (const [start, ws] of heavy) { stats.targeted += ws.length; queue.push(...packTargeted(ws, start, latest)); }
+  for (const w of alone) queue.push({ froms: [w], lo: state.wallets.get(w).cursor + 1, hi: latest, tos: null, lineage: { limit: Infinity } });
 
   const record = (logs, froms) => {
     const fromSet = new Set(froms);
@@ -686,13 +692,11 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
       const splitRange = () => { job.lineage.limit = Math.min(job.lineage.limit, span - 1); const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, froms, hi: mid }, { ...job, froms, lo: mid + 1 }); };
       if (froms.length > 1 && (TOO_MANY.test(msg) || span <= minRangeBlocks)) { splitFroms(); continue; }
       // ONE wallet whose untargeted read is too large: it sends too much to
-      // others. Read it targeted at its known payers (exactly what is recorded
-      // anyway), and keep that for the next scans.
+      // others. That is kept for the next scans; with few known payers it is
+      // read targeted at them now (exactly what is recorded anyway).
       if (froms.length === 1 && TOO_MANY.test(msg)) {
         state.wallets.get(froms[0]).oh = now;
-        stats.targeted++;
-        queue.unshift(targeted(froms, job.lo, job.hi, { limit: Infinity }));
-        continue;
+        if (fewKnown(froms[0])) { stats.targeted++; queue.unshift(targeted(froms, job.lo, job.hi, { limit: Infinity })); continue; }
       }
       if (span > minRangeBlocks) { splitRange(); continue; }
       if (froms.length > 1) { splitFroms(); continue; }

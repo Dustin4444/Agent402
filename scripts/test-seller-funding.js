@@ -733,6 +733,22 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
       `the first scan isolates the five (${b1.calls} calls, ${b1.refusals} refused) and keeps that they are read targeted`);
     ok(b2.caughtUp === 25 && b2.refusals === 0 && b2.calls === 2 && b2.targeted === 5 && [...busy, ...quiet].every((w) => pendOf(w) === 2),
       `an hour later: one untargeted call for the twenty quiet wallets and one targeted call for the five, nothing refused (${b2.calls} calls), and every payer's funding recorded`);
+    // One with MANY known payers (targeted would cost a call per 200 of
+    // them) is read alone instead, its range split as it needs - never
+    // isolated from the others again.
+    const X = "0x" + "b7".repeat(20), xPayers = Array.from({ length: 500 }, (_, i) => "0x" + "f1".repeat(18) + i.toString(16).padStart(4, "0"));
+    const xChain = [...chain];
+    for (let b = 1001; b <= 3000; b++) xChain.push(log(X, "0x" + "e1".repeat(16) + b.toString(16).padStart(8, "0"), 5, b, 7), log(X, "0x" + "e2".repeat(16) + b.toString(16).padStart(8, "0"), 5, b, 8));
+    xChain.push(log(X, xPayers[7], usd(0.5), 2500, 3));
+    const xRpc = (calls) => fakeRpc(xChain, { calls, refuse: (p) => (filterLogs(xChain, p).length > 1000 ? "query returned more than 1000 results" : false) });
+    const xAll = [...all, { wallet: X, payers: new Set(xPayers) }];
+    const xst = knownState({ ...Object.fromEntries([...busy, ...quiet].map((w) => [w, [payerOf(w)]])), [X]: xPayers }, 1000);
+    const xc1 = [], xc2 = [];
+    await readSellerFunding({ rpc: xRpc(xc1), token: USDC, state: xst, wallets: xAll, latest: 2000, windowStartBlock: 500, minRangeBlocks: 100, now: NOW });
+    const x2 = await readSellerFunding({ rpc: xRpc(xc2), token: USDC, state: xst, wallets: xAll, latest: 3000, windowStartBlock: 500, minRangeBlocks: 100, now: NOW + 3_600_000 });
+    const withX = xc2.filter((c) => c.topics[1].includes(topic(X)));
+    ok(xst.wallets.get(X).oh >= NOW && x2.caughtUp === 26 && withX.length >= 1 && withX.every((c) => c.topics[1].length === 1 && c.topics[2] === null) && x2.calls - withX.length === 2 && xst.wallets.get(X).pairs.get(xPayers[7])?.pend.length === 1,
+      `...and one with 500 known payers is read alone, untargeted, the next hour - its own range splits only (${withX.length} call(s), never in a job with another wallet), the others in 2 - and its payer's funding recorded`);
     const bst3 = parseFundingState(serializeFundingState(bst), USDC);
     for (const w of busy) bst3.wallets.get(w).cursor = 2000;
     for (const w of quiet) bst3.wallets.get(w).cursor = 2000;
