@@ -128,6 +128,13 @@ function cardPriceUsd(def, req) {
 // settlement; credits set creditsChargedOnClose only when the abandoned hold
 // was actually debited. Returns the row it wrote (or null) so the test can see
 // exactly what was booked.
+// The payer a Tempo sale or debt is booked under: the sender the gate proved
+// (src/mpp-tempo.js sets req.mppTempoLedgerPayer), never the credential's
+// client-written `source` hint (req.mppTempoPayer). Own property only.
+function tempoLedgerPayer(req) {
+  const p = Object.hasOwn(req, "mppTempoLedgerPayer") ? req.mppTempoLedgerPayer : null;
+  return typeof p === "string" && p ? p : null;
+}
 function recordHangupDebt(req, res) {
   const def = CATALOG[`${req.method} ${req.path}`];
   if (!def) return null;
@@ -137,7 +144,7 @@ function recordHangupDebt(req, res) {
   if (req.tempoSettled || req.stripeSettled) {
     row = {
       network: req.tempoSettled ? "tempo" : "stripe",
-      payer: req.mppTempoPayer || null,
+      payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
       tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")),
       wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
       priceUsd: settledPriceUsd(def, req, res),
@@ -7893,6 +7900,13 @@ if (!FREE_MODE) {
     // Input check before the relay round trip (see createTempoGate). Same
     // envelope the dispatcher's 400 carries, so the caller corrects itself.
     preValidate: (req) => preValidateInput(CATALOG[`${req.method} ${req.path}`], req),
+    // A push transfer the relay confirmed pays this challenge but that could
+    // not be claimed for the request (and was not already claimed for an
+    // earlier one): nothing was delivered, the money is ours, book it owed.
+    onPushNotClaimed: (req, { hash, payer, amountUsd }) => {
+      const def = CATALOG[`${req.method} ${req.path}`];
+      return recordRefundOwed({ slug: def?.slug || "unknown", network: "tempo", payer, priceUsd: Number.isFinite(amountUsd) ? amountUsd : 0, tx: hash, httpStatus: 402, synthetic: isSyntheticRequest(req), wire: "mpp-tempo" });
+    },
   });
   if (tempoGate) {
     app.use(tempoGate);
@@ -8667,16 +8681,15 @@ app.use((req, res, next) => {
           // SVM/Stellar payloads carry no such field, so fall back to the
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
-          // Tempo settles carry the credential's did:pkh `source`, extracted
-          // by the gate as req.mppTempoPayer — CLASSIFICATION-GRADE only
-          // (client-supplied, unrecovered), same trust tier as the
-          // facilitator-receipt fallback: sales ledger + telemetry, never
-          // identity. Before 2026-08-20 tempo payers recorded null and a
-          // self-funded test wallet's buy classified as external revenue.
+          // Tempo settles record the sender the gate PROVED (the signature,
+          // the keychain read, or for a push credential the chain) - never
+          // the credential's client-written did:pkh `source`, which let any
+          // caller name a fresh "outside buyer" per purchase or file its own
+          // purchases under one of our wallets. Null when nothing proved one.
           // Stripe settles carry no wallet payer (the payer is a Stripe
           // customer behind the SPT, not an on-chain address) — record null,
           // like a Solana buyer with no server-visible payer.
-          const payer = req.creditsSettled ? (req.creditsKeyId || null) : (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          const payer = req.creditsSettled ? (req.creditsKeyId || null) : req.tempoSettled ? tempoLedgerPayer(req) : req.stripeSettled ? null : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -8799,7 +8812,7 @@ app.use((req, res, next) => {
         recordRefundOwed({
           slug: def.slug,
           network: req.tempoSettled ? "tempo" : "stripe",
-          payer: req.mppTempoPayer || null,
+          payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
           priceUsd: settledPriceUsd(def, req, res),
           tx,
           httpStatus: res.statusCode,

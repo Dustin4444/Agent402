@@ -19,7 +19,7 @@ import express from "express";
 import { readFileSync } from "node:fs";
 import { keccak256 } from "viem";
 import { Challenge, Credential } from "mppx";
-import { candidateTxIds, confirmTempoSettlement } from "../src/tempo-confirm.js";
+import { candidateTxIds, confirmTempoSettlement, tempoPushSender } from "../src/tempo-confirm.js";
 
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
@@ -244,6 +244,45 @@ async function listen(app) {
   const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   ok(/confirmSettlement:\s*confirmTempoSettlement/.test(src), "wiring: server.js passes confirmSettlement: confirmTempoSettlement to createTempoGate");
   ok(/from "\.\/tempo-confirm\.js"/.test(src), "wiring: server.js imports tempo-confirm.js");
+}
+
+// ---------------------------------------------------------------------------
+// tempoPushSender: the sender of a PUSH credential's transfer, read from the
+// chain. The credential's `source` is client-written; the ledger and refund
+// rows name this instead, or nobody.
+// ---------------------------------------------------------------------------
+{
+  const CUR = "0x20c000000000000000000000b9537d11c60e8b50";
+  const TO = "0x000000000000000000000000000000000000dead";
+  const FROM = "0x7777777777777777777777777777777777777777";
+  const ch = Challenge.from({ realm: "r.example", method: "tempo", intent: "charge", expires: new Date(Date.now() + 60_000), request: { amount: "1000", currency: CUR, decimals: 6, recipient: TO, methodDetails: { chainId: 4217 } }, secretKey: "k" });
+  const HASH = `0x${"cd".repeat(32)}`;
+  const cred = (o = {}) => Credential.serialize({ challenge: ch, payload: o.payload ?? { hash: HASH, type: "hash" }, source: "did:pkh:eip155:4217:0x1111111111111111111111111111111111111111" });
+  const tag = keccak256(new TextEncoder().encode("mpp")).slice(2, 10);
+  const memoFor = (id) => `0x${tag}01${"0".repeat(40)}${keccak256(new TextEncoder().encode(id)).slice(2, 16)}`;
+  const pad = (a) => `0x${"0".repeat(24)}${a.slice(2)}`;
+  const log = (o = {}) => ({ address: o.address ?? CUR, topics: [TRANSFER_WITH_MEMO_TOPIC, pad(o.from ?? FROM), pad(o.to ?? TO), o.memo ?? memoFor(ch.id)], data: `0x${(o.value ?? 1000n).toString(16).padStart(64, "0")}` });
+  let answer = null; const asked = [];
+  const fetchImpl = async (_url, init) => { const b = JSON.parse(init.body); asked.push(b.params[0]); if (answer instanceof Error) throw answer; return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: answer })); };
+  const run = (c = cred()) => tempoPushSender(c, { rpcUrl: "http://stub", fetchImpl });
+  answer = { status: "0x1", logs: [log()] };
+  ok(await run() === FROM && asked.at(-1) === HASH, "push sender: the TransferWithMemo sender of the named transaction, not the credential's source");
+  answer = { status: "0x1", logs: [log({ memo: memoFor("another-challenge") })] };
+  ok(await run() === null, "push sender: a transfer bound to another challenge names nobody");
+  answer = { status: "0x1", logs: [log({ to: "0x000000000000000000000000000000000000beef" })] };
+  ok(await run() === null, "push sender: a transfer to another recipient names nobody");
+  answer = { status: "0x1", logs: [log({ value: 999n })] };
+  ok(await run() === null, "push sender: an underpaying transfer names nobody");
+  answer = { status: "0x1", logs: [log({ address: "0x20c0000000000000000000000000000000000001" })] };
+  ok(await run() === null, "push sender: a transfer in another token names nobody");
+  answer = { status: "0x0", logs: [log()] };
+  ok(await run() === null, "push sender: a reverted transaction names nobody");
+  answer = null;
+  ok(await run() === null, "push sender: no receipt names nobody");
+  answer = new Error("down");
+  ok(await run() === null, "push sender: an RPC failure names nobody (never throws)");
+  const n = asked.length;
+  ok(await run(cred({ payload: { signature: "0x76ab", type: "transaction" } })) === null && await tempoPushSender("Payment junk", { fetchImpl }) === null && asked.length === n, "push sender: a pull credential or junk is not read at all");
 }
 
 console.log(`\n${pass} passed, 0 failed`);
