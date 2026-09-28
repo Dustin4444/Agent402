@@ -84,8 +84,13 @@ export function isFacilitatorBillingRefusal(text) {
 /** An errorReason that is already a specific verdict about the PAYMENT or the
  *  chain (insufficient_funds, invalid_*, transaction_failed, ..._expired).
  *  Words in its errorMessage - an RPC's "quota exceeded", say - cannot turn
- *  such a verdict into a refusal on our account. */
+ *  such a verdict into a refusal on our account. Exported so the Algorand
+ *  sub-cent gate (src/avm-sponsorship.js) applies the same rule before it
+ *  pauses the rail or exempts a refusal. */
 const PAYMENT_VERDICT_REASON = /^(insufficient_|invalid_|transaction_)|_expired$/i;
+export function isPaymentVerdictReason(reason) {
+  return PAYMENT_VERDICT_REASON.test(String(reason || ""));
+}
 
 /** A decoded settle receipt (PAYMENT-RESPONSE) that failed on billing grounds:
  *  the errorReason names it, or - only when the reason is generic, as a thrown
@@ -94,7 +99,7 @@ export function isBillingRefusalReceipt(receipt) {
   if (!receipt || typeof receipt !== "object" || receipt.success !== false) return false;
   const reason = String(receipt.errorReason || "");
   if (isFacilitatorBillingRefusal(reason)) return true;
-  if (PAYMENT_VERDICT_REASON.test(reason)) return false;
+  if (isPaymentVerdictReason(reason)) return false;
   return isFacilitatorBillingRefusal(String(receipt.errorMessage || ""));
 }
 

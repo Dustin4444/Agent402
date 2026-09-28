@@ -164,8 +164,10 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
       // buyer's to carry: kept off the WALLET's count, and not a clear either.
       // It still feeds the /v1 global pause when this consult takes part in
       // it - that pause names no wallet, and it is the backstop if requests
-      // already in flight keep arriving.
-      if (isWithdrawnSubcentRefusal(receipt)) {
+      // already in flight keep arriving. The request is handed over so the
+      // gate checks the requirement THIS call paid against (sub-cent, to the
+      // paused payTo) and that the route's next 402 really drops it.
+      if (isWithdrawnSubcentRefusal(receipt, { req })) {
         if (global) recordGatewaySettleFailure(null, Date.now(), { global: true });
         return;
       }

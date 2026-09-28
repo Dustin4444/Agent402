@@ -32,12 +32,24 @@
 //     lags or fails.
 // Cleared by a status read STARTED after that evidence that shows headroom
 // (used < quota, or purchased units), and by the UTC month turning (the
-// allowance resets on the 1st). A status row LAST UPDATED in an earlier UTC
+// allowance resets on the 1st). A pause a REFUSAL set is not cleared by
+// headroom until AVM_SPONSORSHIP_REFUSAL_HOLD_MS has passed since that
+// refusal: a status that reads headroom while its own settles still refuse
+// would otherwise reopen the rail on every read (~90 s) and serve-then-refuse
+// a buyer each time, and those refusals are kept off the buyer's breaker
+// count. Headroom reads inside the hold keep the pause fresh (the status is
+// readable; a refusal contradicts it), so such a facilitator costs one
+// refused settle per hold, not one per read.
+// A status row LAST UPDATED in an earlier UTC
 // month is not evidence about this one: the document carries no month field,
 // and its `usedMonth` is a stored counter that may only roll over on the
 // facilitator's next write - which a paused rail would never send. So after
 // the 1st only a fresh `subcent_quota_exceeded` refusal (or a row the
-// facilitator has rewritten this month) can pause again. FAILS OPEN: evidence older than
+// facilitator has rewritten this month) can pause again. A row whose
+// `updatedTs` is PRESENT but not a plausible time (0, a negative or small
+// number, text that is not a date) cannot name its month either and is not
+// evidence the same way; a row with NO `updatedTs` is taken at its word (see
+// sponsorshipRowMonth). FAILS OPEN: evidence older than
 // AVM_SPONSORSHIP_STALE_MS (the status unreadable since) offers the rail
 // again, so an unreachable status endpoint costs at most one refused settle
 // per window, never a silently withdrawn rail. Transitions are logged once.
@@ -47,6 +59,9 @@
 // per-request offer (it already differs by route and by body), and a pause is
 // published where configured-versus-offered already is, /api/rails.
 // AVM_SUBCENT_GATE=off disarms the filter, the refusal flip and the timer.
+
+import { isPaymentVerdictReason } from "./payment-reject.js";
+import { paymentHeaderOf } from "./payer.js";
 
 const PATCHED = Symbol.for("agent402.avmSubcentGate");
 export const ALGORAND_PREFIX = "algorand:";
@@ -59,6 +74,10 @@ const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 
 export const REFRESH_MS = num(process.env.AVM_SPONSORSHIP_REFRESH_MS, 90_000);
 /** Evidence older than this no longer pauses anything (fail open). */
 export const STALE_MS = num(process.env.AVM_SPONSORSHIP_STALE_MS, 10 * 60_000);
+/** A pause a settle REFUSAL set is not cleared by a headroom read until this
+ *  long after the last refusal: the facilitator's status and its settles can
+ *  disagree, and the refusal is the one that cost a served call. */
+export const REFUSAL_HOLD_MS = num(process.env.AVM_SPONSORSHIP_REFUSAL_HOLD_MS, 30 * 60_000);
 
 export function avmSubcentGateEnabled(env = process.env) {
   return String(env.AVM_SUBCENT_GATE || "").toLowerCase() !== "off";
@@ -81,37 +100,92 @@ export function isSponsorshipExhausted(row) {
 
 export const utcMonthOf = (ms) => new Date(ms).toISOString().slice(0, 7);
 
-/** Pure: when the row was last written, in epoch ms, or null. The live
- *  document sends `updatedTs` as epoch MILLISECONDS (a number; read
- *  2026-09-28); epoch seconds, a numeric string and an ISO string are read too,
- *  so a change of encoding degrades to "taken at its word", never to a wrong month. */
+// The window a row's updatedTs must fall in to be read as a time: epoch
+// seconds or milliseconds from 2001-09-09 (1e9 s, 1e12 ms) through the end of
+// year 9999. Below it a number is 0, negative or a small count, which no write
+// time is; past it a Date no longer prints a four-digit year, and month
+// strings stop comparing in order.
+const EARLIEST_TS_MS = 1e12;
+const LATEST_TS_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+const NUMERIC_TEXT = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+const absentTs = (v) => v === null || v === undefined || v === "";
+const plausibleTs = (ms) => (Number.isFinite(ms) && ms >= EARLIEST_TS_MS && ms <= LATEST_TS_MS ? ms : null);
+
+/** Pure: when the row was last written, in epoch ms, or null (absent, or not
+ *  a plausible time). The live document sends `updatedTs` as epoch
+ *  MILLISECONDS (a number; read 2026-09-28); epoch seconds, a numeric string
+ *  and an ISO string are read too. A NUMERIC value (a number or numeric text)
+ *  is read only as seconds (1e9 up to 1e12) or milliseconds and never handed
+ *  to Date.parse, which reads "0" or "-5" as a day in 2000 or 2001: 0, a
+ *  negative or a small number is unreadable, not a month. */
 export function sponsorshipRowUpdatedAt(row) {
   const v = row?.updatedTs;
-  if (v === null || v === undefined || v === "" || typeof v === "boolean") return null;
-  const n = Number(v);
-  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
-  const t = Date.parse(String(v));
-  return Number.isFinite(t) ? t : null;
+  if (absentTs(v) || typeof v === "boolean") return null;
+  const text = String(v).trim();
+  if (typeof v === "number" || NUMERIC_TEXT.test(text)) {
+    const n = Number(text);
+    if (!Number.isFinite(n) || n < 1e9) return null;
+    return plausibleTs(n < 1e12 ? n * 1000 : n);
+  }
+  return plausibleTs(Date.parse(text));
+}
+
+/**
+ * Pure: whether a /sponsorship/status row can speak for the UTC month of `now`.
+ *   "this-month"    updatedTs reads as a time in this month (or later);
+ *   "earlier-month" it reads as a time before this month began: last month's
+ *                   count, NOT evidence about this one;
+ *   "unreadable"    updatedTs is PRESENT but not a plausible time (0, a
+ *                   negative or small number, text that is not a date): it
+ *                   cannot name its month, so it is NOT evidence either, and
+ *                   the gate fails open on it (only a refusal pauses);
+ *   "undated"       the row carries NO updatedTs at all (absent, null or
+ *                   empty): taken at its word, the rule the canaries applied
+ *                   before the field was read, so a document that drops the
+ *                   field keeps pausing on its own counts. Its stale-month
+ *                   risk is bounded the same way as any pause: the refusal
+ *                   and staleness rules, the month turning, and the canaries
+ *                   warning when a pause outlives the 1st.
+ */
+export function sponsorshipRowMonth(row, now = Date.now()) {
+  if (absentTs(row?.updatedTs)) return "undated";
+  const ts = sponsorshipRowUpdatedAt(row);
+  if (ts === null) return "unreadable";
+  return utcMonthOf(ts) < utcMonthOf(now) ? "earlier-month" : "this-month";
 }
 
 /** Pure: the row was last written in an EARLIER UTC month than `now`, so its
- *  usedMonth describes that month, not this one. A row without a readable
- *  updatedTs is taken at its word (the rule the canaries already applied). */
+ *  usedMonth describes that month, not this one. Undated and unreadable rows
+ *  are not "earlier" (sponsorshipRowMonth says what each one is). */
 export function isSponsorshipRowFromEarlierMonth(row, now = Date.now()) {
-  const ts = sponsorshipRowUpdatedAt(row);
-  return ts !== null && utcMonthOf(ts) < utcMonthOf(now);
+  return sponsorshipRowMonth(row, now) === "earlier-month";
+}
+
+/** Pure: the row is evidence about THIS month's allowance - dated this month,
+ *  or undated and taken at its word. A row from an earlier month, or with an
+ *  unreadable updatedTs, is not. The one definition the canaries share. */
+export function isSponsorshipRowEvidence(row, now = Date.now()) {
+  const m = sponsorshipRowMonth(row, now);
+  return m === "this-month" || m === "undated";
 }
 const mask = (a) => { const s = String(a || ""); return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s; };
 
-// payTo -> { exhausted, evidenceAt, source, detail, effective, pausedSince, lastRead }
+// payTo -> { exhausted, evidenceAt, source, detail, effective, pausedSince, lastRead, heldAt, heldLogged }
+// heldAt: the last headroom read the refusal hold set aside (source
+// "settle-refusal" only) - proof the status is still being read, so the
+// refusal's pause does not go stale while its hold runs.
 const state = new Map();
 let log = (msg) => console.warn(msg);
 // Set once the filter is on the resource server's prototype: only then does a
 // refusal the gate answers for actually leave the next 402.
 let gateInstalled = false;
+// http request -> the requirements @x402/core built for it, BEFORE this gate
+// filtered them: what the route offers, so a refusal can be checked against
+// what the NEXT 402 for that route would still offer. Weak: dies with the request.
+const offeredByRequest = new WeakMap();
 const entry = (payTo) => {
   const k = String(payTo);
-  if (!state.has(k)) state.set(k, { exhausted: false, evidenceAt: 0, source: null, detail: null, effective: false, pausedSince: null, lastRead: null });
+  if (!state.has(k)) state.set(k, { exhausted: false, evidenceAt: 0, source: null, detail: null, effective: false, pausedSince: null, lastRead: null, heldAt: null, heldLogged: false });
   return state.get(k);
 };
 
@@ -119,7 +193,10 @@ const entry = (payTo) => {
 export function isSubcentPaused(payTo, now = Date.now()) {
   const s = state.get(String(payTo || ""));
   if (!s || !s.exhausted) return false;
-  if (now - s.evidenceAt > STALE_MS) return false;               // stale evidence: fail open
+  // A refusal's pause stays fresh while held headroom reads keep arriving
+  // (the status is readable, and the refusal outranks it for the hold).
+  const freshAt = s.source === "settle-refusal" && s.heldAt !== null ? Math.max(s.evidenceAt, s.heldAt) : s.evidenceAt;
+  if (now - freshAt > STALE_MS) return false;                     // stale evidence: fail open
   if (utcMonthOf(s.evidenceAt) !== utcMonthOf(now)) return false; // the allowance reset on the 1st
   return true;
 }
@@ -144,9 +221,11 @@ function reconcile(payTo, now) {
 /**
  * Record a /sponsorship/status read. `readStartedAt` guards the one race that
  * matters: a read that began before a settle refusal cannot clear the pause
- * that refusal set. A row last updated in an earlier UTC month is not
- * evidence either way (see the header). Returns "exhausted" | "headroom" |
- * "unreadable" | "predates-refusal" | "earlier-month".
+ * that refusal set. Nor can a later headroom read, until REFUSAL_HOLD_MS has
+ * passed since that refusal ("held"). A row last updated in an earlier UTC
+ * month, or whose updatedTs is not a readable time, is not evidence either
+ * way (see the header). Returns "exhausted" | "headroom" | "held" |
+ * "unreadable" | "predates-refusal" | "earlier-month" | "unreadable-timestamp".
  */
 export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStartedAt = now } = {}) {
   if (!payTo) return "unreadable";
@@ -157,58 +236,120 @@ export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStarte
     reconcile(payTo, now);
     return "unreadable";
   }
-  if (isSponsorshipRowFromEarlierMonth(row, now)) {
+  const month = sponsorshipRowMonth(row, now);
+  if (month === "earlier-month") {
     if (s.lastRead !== "earlier-month") log(`[avm-subcent] sponsorship status for payTo ${mask(payTo)} was last updated ${new Date(sponsorshipRowUpdatedAt(row)).toISOString()}, before this UTC month began - not evidence for this month; only a fresh subcent_quota_exceeded refusal can pause sub-cent Algorand until the facilitator rewrites it`);
     s.lastRead = "earlier-month";
     reconcile(payTo, now);
     return "earlier-month";
   }
+  if (month === "unreadable") {
+    if (s.lastRead !== "unreadable-timestamp") log(`[avm-subcent] sponsorship status for payTo ${mask(payTo)} carries an updatedTs that is not a readable time (${JSON.stringify(String(row.updatedTs)).slice(0, 40)}) - it cannot name its month, so it is not evidence; only a fresh subcent_quota_exceeded refusal can pause sub-cent Algorand, and that pause fails open once stale`);
+    s.lastRead = "unreadable-timestamp";
+    reconcile(payTo, now);
+    return "unreadable-timestamp";
+  }
   s.lastRead = "ok";
   const exhausted = isSponsorshipExhausted(row);
-  if (!exhausted && s.exhausted && s.source === "settle-refusal" && readStartedAt < s.evidenceAt) {
-    reconcile(payTo, now);
-    return "predates-refusal";
+  if (!exhausted && s.exhausted && s.source === "settle-refusal") {
+    if (readStartedAt < s.evidenceAt) {
+      reconcile(payTo, now);
+      return "predates-refusal";
+    }
+    if (now - s.evidenceAt < REFUSAL_HOLD_MS) {
+      s.heldAt = now;
+      if (!s.heldLogged) log(`[avm-subcent] the facilitator's status reads headroom for payTo ${mask(payTo)} but a sub-cent settle was refused ${Math.round((now - s.evidenceAt) / 1000)} s ago - keeping sub-cent Algorand withdrawn until ${Math.round(REFUSAL_HOLD_MS / 60_000)} min after that refusal, so a status that disagrees with its own settles cannot reopen the rail on every read`);
+      s.heldLogged = true;
+      reconcile(payTo, now);
+      return "held";
+    }
   }
   s.exhausted = exhausted;
   s.evidenceAt = now;
   s.source = "facilitator-status";
+  s.heldAt = null;
+  s.heldLogged = false;
   s.detail = `the facilitator's status reads ${Number(row.usedMonth)}/${Number(row.quota)} sponsored sub-cent settlements used this month and no purchased units`;
   reconcile(payTo, now);
   return exhausted ? "exhausted" : "headroom";
 }
 
-/** A settle refused for the sub-cent allowance pauses that payTo at once. Returns true when it did. */
-export function noteAvmSettleRefusal({ network, payTo, reason, now = Date.now() } = {}) {
+/** The settle's own words name the sub-cent allowance: its errorReason does,
+ *  or - only when that reason is generic, never a verdict about the payment
+ *  (insufficient_funds, transaction_failed, invalid_*, *_expired) - its
+ *  message does. The same rule src/payment-reject.js isBillingRefusalReceipt
+ *  applies: words in a verdict's message cannot relabel it. */
+function namesSubcentAllowance(errorReason, message) {
+  if (/subcent_quota_exceeded/i.test(String(errorReason || ""))) return true;
+  if (isPaymentVerdictReason(errorReason)) return false;
+  return /subcent_quota_exceeded/i.test(String(message || ""));
+}
+
+/** A settle refused for the sub-cent allowance pauses that payTo at once.
+ *  `errorReason` is the facilitator's own reason and `reason` any text around
+ *  it (the summarised error); a payment verdict pauses nothing, whatever the
+ *  text says. Returns true when it paused. */
+export function noteAvmSettleRefusal({ network, payTo, reason, errorReason, now = Date.now() } = {}) {
   if (!avmSubcentGateEnabled()) return false;
   if (!String(network || "").startsWith(ALGORAND_PREFIX) || !payTo) return false;
-  if (!/subcent_quota_exceeded/i.test(String(reason || ""))) return false;
+  if (!namesSubcentAllowance(errorReason, reason)) return false;
   const s = entry(payTo);
   s.exhausted = true;
   s.evidenceAt = now;
   s.source = "settle-refusal";
+  s.heldAt = null;
+  s.heldLogged = false;
   s.detail = "a settlement came back subcent_quota_exceeded";
   reconcile(payTo, now);
   return true;
 }
 
+/** Record what a route OFFERED this request, before the gate filtered it.
+ *  The patched build calls it with the http request @x402/express hands the
+ *  core; exported for the tests. */
+export function rememberOfferedRequirements(req, requirements) {
+  if (req && typeof req === "object" && Array.isArray(requirements)) offeredByRequest.set(req, requirements);
+}
+
+/** The requirement a request paid against: the offered one its payment
+ *  header's `accepted` names (network, scheme, payTo, asset, amount). Null
+ *  when the header is missing, undecodable, v1 or names nothing offered. */
+function paidRequirementOf(req, offered) {
+  const header = paymentHeaderOf(req);
+  if (!header || !Array.isArray(offered)) return null;
+  let accepted;
+  try { accepted = JSON.parse(Buffer.from(String(header), "base64").toString("utf8"))?.accepted; } catch { return null; }
+  if (!accepted || typeof accepted !== "object") return null;
+  const same = (a, b) => String(a ?? "") === String(b ?? "");
+  return offered.find((r) => r && same(r.network, accepted.network) && same(r.scheme, accepted.scheme) && same(r.payTo, accepted.payTo)
+    && same(r.asset, accepted.asset) && same(r.amount ?? r.maxAmountRequired, accepted.amount ?? accepted.maxAmountRequired)) || null;
+}
+
 /**
  * A settle receipt (decoded PAYMENT-RESPONSE) that THIS gate answers for: an
- * Algorand settle refused `subcent_quota_exceeded` while the gate is armed and
- * installed and a payTo is paused right now. The settle-failure hook has
- * already paused that payTo (it runs before the response is written), so the
- * next sub-cent 402 no longer offers Algorand and the loop is closed here.
+ * Algorand settle refused for the sub-cent allowance (never a payment verdict
+ * whose message merely mentions it) while the gate is armed and installed,
+ * on a requirement this request was offered that is under one cent, paid to a
+ * payTo paused right now, AND that the next 402 for the same route actually
+ * drops - a route whose only accept is that one keeps it (a 402 nobody can
+ * pay is worse), and then nothing closes the loop. The settle-failure hook
+ * has already paused the payTo (it runs before the response is written), so
+ * the next sub-cent 402 no longer offers Algorand and the loop is closed here.
  * The settle breaker uses this, and only this, to keep such a refusal off the
  * BUYER's count. Every other billing refusal - another network, another
- * facilitator, the gate switched off - has nothing withdrawing its offer, so
- * the breakers' bounds stay on it.
+ * facilitator, the gate switched off, nothing withdrawn - has nothing
+ * withdrawing its offer, so the breakers' bounds stay on it.
  */
-export function isWithdrawnSubcentRefusal(receipt, now = Date.now()) {
+export function isWithdrawnSubcentRefusal(receipt, { req = null, now = Date.now() } = {}) {
   if (!gateInstalled || !avmSubcentGateEnabled()) return false;
   if (!receipt || typeof receipt !== "object" || receipt.success !== false) return false;
   if (!String(receipt.network || "").startsWith(ALGORAND_PREFIX)) return false;
-  if (!/subcent_quota_exceeded/i.test(`${receipt.errorReason || ""} ${receipt.errorMessage || ""}`)) return false;
-  for (const payTo of state.keys()) if (isSubcentPaused(payTo, now)) return true;
-  return false;
+  if (!namesSubcentAllowance(receipt.errorReason, receipt.errorMessage)) return false;
+  const offered = req && typeof req === "object" ? offeredByRequest.get(req) : null;
+  const paid = paidRequirementOf(req, offered);
+  if (!paid || String(paid.network) !== String(receipt.network)) return false;
+  if (!isAvmSubcentRequirement(paid) || !isSubcentPaused(paid.payTo, now)) return false;
+  return !withoutPausedSubcentAvm(offered, (p) => isSubcentPaused(p, now)).includes(paid);
 }
 
 /** Pure: an Algorand USDC requirement priced under one cent. Anything unreadable is not. */
@@ -237,7 +378,11 @@ export function installAvmSubcentGate(ResourceServerClass) {
   const orig = proto.buildPaymentRequirementsFromOptions;
   const build = async function buildPaymentRequirementsFromOptions(paymentOptions, context) {
     const requirements = await orig.call(this, paymentOptions, context);
-    try { return withoutPausedSubcentAvm(requirements); } catch { return requirements; }
+    try {
+      // @x402/express hands the core { adapter } with the Express request on it.
+      rememberOfferedRequirements(context?.adapter?.req, requirements);
+      return withoutPausedSubcentAvm(requirements);
+    } catch { return requirements; }
   };
   // Carry the inner patch's own marker (accept-output-schema) so its
   // install-once check still sees itself through this wrapper.
@@ -295,8 +440,19 @@ export function avmSubcentOfferStatus(now = Date.now()) {
     since: new Date(since).toISOString(),
     source,
     reason: "the facilitator's sponsored allowance for sub-cent settlements is spent for this month; routes of one cent and more still take Algorand",
-    resumes: "when the facilitator reports headroom, and no later than the first day of the next UTC month",
+    resumes: source === "settle-refusal"
+      ? `when the facilitator reports headroom, no sooner than ${Math.round(REFUSAL_HOLD_MS / 60_000)} minutes after the last refused settlement, and no later than the first day of the next UTC month`
+      : "when the facilitator reports headroom, and no later than the first day of the next UTC month",
   }];
+}
+
+/** Pure: a GET /api/rails document reports the pause avmSubcentOfferStatus
+ *  publishes (a restriction {network:"algorand", status:"paused"}). The
+ *  canaries excuse a sub-cent route without an Algorand accept ONLY on this;
+ *  any other missing accept is the rail dropping out of the offer. An
+ *  unreadable document reports nothing, so it excuses nothing. */
+export function railsReportSubcentPause(rails) {
+  return Array.isArray(rails?.restrictions) && rails.restrictions.some((r) => r?.network === "algorand" && r?.status === "paused");
 }
 
 /** Test-only. `installed` overrides the install flag (the prototype patch

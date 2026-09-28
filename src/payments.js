@@ -5,7 +5,7 @@ import { createGuardedInit, withGuardedInit } from "./x402-boot-init.js";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { installAcceptOutputSchema, withOutputSchemaOnFirstAccept, outputSchemaFromExtensions, acceptOutputSchemaEnabled } from "./accept-output-schema.js";
 import { avmSubcentGateEnabled, installAvmSubcentGate, noteAvmSettleRefusal, startAvmSponsorshipRefresher, REFRESH_MS as AVM_SPONSORSHIP_REFRESH_MS } from "./avm-sponsorship.js";
-import { isFacilitatorBillingRefusal } from "./payment-reject.js";
+import { isBillingRefusalReceipt } from "./payment-reject.js";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { UptoEvmScheme } from "@x402/evm/upto/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
@@ -1821,8 +1821,11 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
     // PayAI answers 403 free_tier_exhausted once the free monthly settlements
     // are spent (1,000 per receiving wallet). Say so in the log so the alarm
     // and the operator reach for credits, not for a status page. The same
-    // predicate keeps it off the buyer's record (src/payment-reject.js).
-    if (isFacilitatorBillingRefusal(`${failure} ${ctx?.error?.errorReason || ""}`)) {
+    // receipt rule words the buyer's 402 and the breakers' 429
+    // (src/payment-reject.js): an errorReason that is a verdict about the
+    // payment (insufficient_funds, transaction_failed, ...) is never
+    // relabelled billing by words in its message.
+    if (isBillingRefusalReceipt({ success: false, errorReason: ctx?.error?.errorReason, errorMessage: failure })) {
       console.warn(
         `[payments] facilitator QUOTA exhausted on ${ctx?.requirements?.network} ` +
           `${ctx?.requirements?.scheme}: ${failure} - top up the facilitator account; this is billing, not an outage`
@@ -1830,8 +1833,9 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
       // The Algorand sub-cent allowance: withdraw the offer from the next
       // sub-cent 402 at once rather than serving the next buyer for free.
       // (@x402/core 2.26 routes a graceful `success:false` here too, as a
-      // SettleError carrying the facilitator's errorReason.)
-      noteAvmSettleRefusal({ network: ctx?.requirements?.network, payTo: ctx?.requirements?.payTo, reason: `${failure} ${ctx?.error?.errorReason || ""}` });
+      // SettleError carrying the facilitator's errorReason.) The reason rides
+      // separately so the gate applies the same verdict rule before pausing.
+      noteAvmSettleRefusal({ network: ctx?.requirements?.network, payTo: ctx?.requirements?.payTo, errorReason: ctx?.error?.errorReason, reason: failure });
     }
     console.warn(
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +
