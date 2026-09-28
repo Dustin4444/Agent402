@@ -88,6 +88,10 @@ let proc = spawn("node", ["src/server.js"], {
   env: { ...bootBaseEnv, TEMPO_API_KEY: "test-tempo-key", TEMPO_RECIPIENT_ADDRESS: TREASURY, TEMPO_CURRENCY, TEMPO_API_BASE_URL: RELAY_URL },
   stdio: "ignore",
 });
+// ok() exits the process on a failure, which skips every `finally` below: kill
+// whichever server is booted on exit, or it keeps holding the fixed port and
+// the next suite to use it talks to a stale server.
+process.on("exit", () => { try { proc?.kill("SIGKILL"); } catch { /* already gone */ } });
 try {
   await waitHealthy();
   const r402 = await fetch(`${B}/api/uuid`);
