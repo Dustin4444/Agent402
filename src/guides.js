@@ -1206,7 +1206,11 @@ print(r.choices[0].message.content)
 
 \`\`\`js
 import OpenAI from "openai";
-const client = new OpenAI({ baseURL: "https://agent402.tools/v1/metered", apiKey: process.env.AGENT402_CREDITS_KEY });
+const apiKey = process.env.AGENT402_CREDITS_KEY;
+// Stop here when it is unset: the SDK would otherwise fall back to OPENAI_API_KEY
+// and send that key to this base URL.
+if (!apiKey) throw new Error("export AGENT402_CREDITS_KEY first");
+const client = new OpenAI({ baseURL: "https://agent402.tools/v1/metered", apiKey });
 const r = await client.chat.completions.create({ model: "openai/gpt-4o-mini",
   messages: [{ role: "user", content: "One sentence on x402." }], max_tokens: 60 });
 console.log(r.choices[0].message.content);
@@ -1237,7 +1241,11 @@ print(m.content[0].text)
 
 \`\`\`js
 import Anthropic from "@anthropic-ai/sdk";
-const client = new Anthropic({ baseURL: "https://agent402.tools/v1/metered", authToken: process.env.AGENT402_CREDITS_KEY });
+const authToken = process.env.AGENT402_CREDITS_KEY;
+if (!authToken) throw new Error("export AGENT402_CREDITS_KEY first");
+// apiKey: null keeps the SDK from reading ANTHROPIC_API_KEY from the
+// environment and sending it here as x-api-key.
+const client = new Anthropic({ baseURL: "https://agent402.tools/v1/metered", apiKey: null, authToken });
 const m = await client.messages.create({ model: "anthropic/claude-haiku-4.5", max_tokens: 60,
   messages: [{ role: "user", content: "One sentence on x402." }] });
 console.log(m.content[0].text);
