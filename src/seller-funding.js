@@ -556,7 +556,7 @@ export function rangePieces(span, limit, cap = Infinity) {
   };
   return count(span);
 }
-async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks = Infinity, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, scanMaxCalls = budget.max, ctl = newFundingReadControl(), stopOnRangeLimit = false }) {
+function pairsReader({ rpc, token, requests, dir, budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks = Infinity, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, scanMaxCalls = budget.max, ctl = newFundingReadControl(), stopOnRangeLimit = false }) {
   const tok = lower(token);
   const out = new Map();
   const failed = new Set(), overShare = new Set(), gaveUp = new Set(), tooLarge = new Set();
@@ -595,27 +595,30 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
   if (!stoppedBefore) for (const [key, ws] of byRange) { const [lo, hi] = key.split(":").map(Number); queue.push(...pack(ws, lo, hi, { limit: maxSpanBlocks })); }
   const wanted = new Map([...requests].map(([w, r]) => [w, new Set(r.payers)]));
   const seen = new Map();
+  const keyOf = (job) => { let k = 0; for (const w of job.ws) { const o = overrunOf(w); if (o > k) k = o; } return k; };
   // The job whose wallets have overrun least; ties go to the front of the
   // queue (priority order, and a job's own pieces depth first).
-  const pick = () => {
-    let bi = 0, bk = Infinity;
-    for (let i = 0; i < queue.length && bk > 0; i++) {
-      let k = 0;
-      for (const w of queue[i].ws) { const o = overrunOf(w); if (o > k) k = o; }
-      if (k < bk) { bk = k; bi = i; }
-    }
-    return queue.splice(bi, 1)[0];
+  const pickIndex = () => {
+    let bi = -1, bk = Infinity;
+    for (let i = 0; i < queue.length && bk > 0; i++) { const k = keyOf(queue[i]); if (k < bk) { bk = k; bi = i; } }
+    return { index: bi, key: bk };
   };
-  while (queue.length) {
-    const job = pick();
+  let halted = false;
+  /** One step: read (or split, or drop) the job picked next. "halt" when
+   *  the budget is spent or the scan's read stopped. */
+  async function step() {
+    const { index } = pickIndex();
+    if (index < 0) return "empty";
+    const job = queue.splice(index, 1)[0];
     // A wallet past its share of the scan stops here, for this scan.
     for (const w of job.ws) if (!failed.has(w) && overrunOf(w) >= walletMaxCalls) { failed.add(w); overShare.add(w); }
     const live = job.ws.filter((w) => !failed.has(w));
-    if (!live.length) continue;
-    if (live.length < job.ws.length) { queue.unshift(...pack(live, job.lo, job.hi, job.lineage)); continue; }
+    if (!live.length) return "ok";
+    if (live.length < job.ws.length) { queue.unshift(...pack(live, job.lo, job.hi, job.lineage)); return "ok"; }
     const span = job.hi - job.lo + 1;
-    if (span > job.lineage.limit) { const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); continue; }
-    if (budget.calls >= budget.max) { stats.budgetExhausted = true; queue.unshift(job); break; }
+    if (span > job.lineage.limit) { const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); return "ok"; }
+    if (ctl.stop) { queue.unshift(job); halted = true; return "halt"; }
+    if (budget.calls >= budget.max) { stats.budgetExhausted = true; queue.unshift(job); halted = true; return "halt"; }
     budget.calls++; stats.calls++;
     for (const w of job.ws) ctl.spent.set(w, spentOf(w) + 1);
     let logs;
@@ -632,20 +635,20 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
         job.lineage.limit = Math.min(job.lineage.limit, span - 1, statedRangeLimit(msg) ?? Infinity);
         const mid = job.lo + Math.floor((job.hi - job.lo) / 2);
         queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 });
-        continue;
+        return "ok";
       }
       if (kind !== "split") {
-        if (kind === "unreachable" && !ctl.transportRetried) { ctl.transportRetried = true; queue.unshift(job); continue; }
+        if (kind === "unreachable" && !ctl.transportRetried) { ctl.transportRetried = true; queue.unshift(job); return "ok"; }
         ctl.stop = kind === "range" ? "range-limited" : kind === "rate" ? "rate-limited" : kind === "stop" ? "timeouts" : "unreachable";
-        stats.transportError = msg.slice(0, 160); queue.unshift(job); break;
+        stats.transportError = msg.slice(0, 160); queue.unshift(job); halted = true; return "halt";
       }
       stats.refusals++;
-      if (job.ws.length > 1) { const mid = Math.ceil(job.ws.length / 2); queue.unshift(...pack(job.ws.slice(0, mid), job.lo, job.hi, job.lineage), ...pack(job.ws.slice(mid), job.lo, job.hi, job.lineage)); continue; }
-      if (job.tos.length > 1 && (TOO_MANY.test(msg) || span <= minRangeBlocks)) { const mid = Math.ceil(job.tos.length / 2); queue.unshift({ ...job, tos: job.tos.slice(0, mid), lineage: { ...job.lineage } }, { ...job, tos: job.tos.slice(mid), lineage: { ...job.lineage } }); continue; }
-      if (span > minRangeBlocks) { job.lineage.limit = Math.min(job.lineage.limit, span - 1); const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); continue; }
+      if (job.ws.length > 1) { const mid = Math.ceil(job.ws.length / 2); queue.unshift(...pack(job.ws.slice(0, mid), job.lo, job.hi, job.lineage), ...pack(job.ws.slice(mid), job.lo, job.hi, job.lineage)); return "ok"; }
+      if (job.tos.length > 1 && (TOO_MANY.test(msg) || span <= minRangeBlocks)) { const mid = Math.ceil(job.tos.length / 2); queue.unshift({ ...job, tos: job.tos.slice(0, mid), lineage: { ...job.lineage } }, { ...job, tos: job.tos.slice(mid), lineage: { ...job.lineage } }); return "ok"; }
+      if (span > minRangeBlocks) { job.lineage.limit = Math.min(job.lineage.limit, span - 1); const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); return "ok"; }
       onProgress(`      payer history read gave up on one wallet at blocks ${job.lo}-${job.hi}: ${msg.slice(0, 120)}`);
       failed.add(job.ws[0]); gaveUp.add(job.ws[0]);
-      continue;
+      return "ok";
     }
     const inJob = new Set(job.ws);
     for (const l of Array.isArray(logs) ? logs : []) {
@@ -663,13 +666,38 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
       m.get(p).push([pos, value]);
       stats.events++;
     }
+    return "ok";
   }
-  if (overShare.size) onProgress(`      ${overShare.size} wallet(s) spent their share of this scan's reads; each is tried again in a day`);
-  const unfinished = new Set(queue.flatMap((j) => j.ws));
-  // Nothing is read once an earlier pass of the scan stopped it.
-  if (stoppedBefore) for (const ws of byRange.values()) for (const w of ws) unfinished.add(w);
-  for (const m of out.values()) for (const list of m.values()) list.sort((x, y) => x[0] - y[0]);
-  return { logs: out, incomplete: new Set([...failed, ...unfinished, ...tooLarge]), overShare, gaveUp, tooLarge };
+  const pendingWallets = () => new Set(queue.flatMap((j) => j.ws));
+  return {
+    step,
+    /** The overrun of the job this reader would read next (Infinity when it has none). */
+    nextKey: () => (halted || !queue.length ? Infinity : pickIndex().key),
+    /** Whether the logs read so far hold any for (wallet, payer). */
+    peekLogs: (w, p) => !!out.get(w)?.get(p)?.length,
+    /** The wallets whose requests here are all read so far. */
+    doneWallets() {
+      const pending = pendingWallets();
+      const done = new Set();
+      if (stoppedBefore) return done;
+      for (const ws of byRange.values()) for (const w of ws) if (!failed.has(w) && !pending.has(w)) done.add(w);
+      return done;
+    },
+    result() {
+      const unfinished = pendingWallets();
+      // Nothing is read once an earlier pass of the scan stopped it.
+      if (stoppedBefore) for (const ws of byRange.values()) for (const w of ws) unfinished.add(w);
+      if (overShare.size) onProgress(`      ${overShare.size} wallet(s) spent their share of this scan's reads; each is tried again in a day`);
+      for (const m of out.values()) for (const list of m.values()) list.sort((x, y) => x[0] - y[0]);
+      return { logs: out, incomplete: new Set([...failed, ...unfinished, ...tooLarge]), overShare, gaveUp, tooLarge };
+    },
+  };
+}
+/** Read every job of one reader (see pairsReader) as far as the budget goes. */
+async function readPairs(opts) {
+  const r = pairsReader(opts);
+  while ((await r.step()) === "ok");
+  return r.result();
 }
 
 /**
@@ -717,30 +745,63 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
   const reqA = new Map();
   for (const [w, ps] of fresh) reqA.set(w, { payers: ps, lo: from, hi: state.wallets.get(w).cursor });
   const share = { walletMaxCalls, scanMaxCalls, ctl, stopOnRangeLimit: true };
-  const a = await readPairs({ rpc, token: tok, requests: reqA, dir: "out", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks, ...share });
-  const overShare = new Set(a.overShare), gaveUp = new Set(a.gaveUp), tooLarge = new Set(a.tooLarge);
+  const common = { rpc, token: tok, budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks, ...share };
+  // ONE schedule for both reads (see ONE WALLET CANNOT SPEND THE SCAN): the
+  // step taken next is always the least-overrun job of any reader, so a
+  // wallet's read 2 (below), planned work, goes before another wallet's
+  // splits of read 1. Read 2 of a wallet is queued the moment its read 1 is
+  // complete; ties go to read 1, then to the readers in the order they began.
+  const a = pairsReader({ ...common, requests: reqA, dir: "out" });
   // 2 and 3: transfers TO the wallet, before the window (new funded payers),
   // or before the payer became known (credit). One request per wallet and
-  // range, so a wallet may carry two.
-  const reqB = new Map();
-  const add = (w, p, hi, tag) => { const key = `${w}|${hi}`; if (!reqB.has(key)) reqB.set(key, { w, payers: [], lo: from, hi, tag }); reqB.get(key).payers.push(p); };
-  for (const [w, ps] of fresh) {
-    if (a.incomplete.has(w)) continue;
-    for (const p of ps) if (a.logs.get(w)?.get(p)?.length) { stats.funded++; add(w, p, windowStartBlock - 1, "fresh"); }
+  // range, so a wallet may carry two; readers are keyed by wallet, so one
+  // reader per range.
+  const readersB = [];
+  const queueB = (reqB) => {
+    const byRange = new Map();
+    for (const r of reqB) {
+      const key = `${r.lo}:${r.hi}`;
+      if (!byRange.has(key)) byRange.set(key, new Map());
+      const m = byRange.get(key);
+      if (m.has(r.w)) m.get(r.w).payers.push(...r.payers);
+      else m.set(r.w, { payers: [...r.payers], lo: r.lo, hi: r.hi });
+    }
+    for (const reqs of byRange.values()) readersB.push(pairsReader({ ...common, requests: reqs, dir: "in" }));
+  };
+  const creditReqs = [];
+  for (const [w, list] of credit) {
+    const byHi = new Map();
+    for (const { payer, hi } of list) { stats.creditReads++; if (!byHi.has(hi)) byHi.set(hi, []); byHi.get(hi).push(payer); }
+    for (const [hi, payers] of byHi) creditReqs.push({ w, payers, lo: from, hi });
   }
-  for (const [w, list] of credit) for (const { payer, hi } of list) { stats.creditReads++; add(w, payer, hi, "credit"); }
-  // readPairs keys its requests by wallet: run one pass per (wallet, range)
-  // group so a wallet with both kinds is read over each range.
-  const reqByRange = new Map();
-  for (const r of reqB.values()) {
-    const key = `${r.lo}:${r.hi}`;
-    if (!reqByRange.has(key)) reqByRange.set(key, new Map());
-    reqByRange.get(key).set(r.w, { payers: r.payers, lo: r.lo, hi: r.hi });
+  if (creditReqs.length) queueB(creditReqs);
+  const builtB = new Set();
+  const queueFundedOf = () => {
+    const reqs = [];
+    for (const w of a.doneWallets()) {
+      if (builtB.has(w)) continue;
+      builtB.add(w);
+      const funded = (fresh.get(w) || []).filter((p) => a.peekLogs(w, p));
+      stats.funded += funded.length;
+      if (funded.length) reqs.push({ w, payers: funded, lo: from, hi: windowStartBlock - 1 });
+    }
+    if (reqs.length) queueB(reqs);
+  };
+  queueFundedOf();
+  for (;;) {
+    let best = a, bk = a.nextKey();
+    for (const r of readersB) { const k = r.nextKey(); if (k < bk) { bk = k; best = r; } }
+    if (bk === Infinity) break;
+    const res = await best.step();
+    if (res === "halt") break;
+    if (best === a) queueFundedOf();
   }
+  const resA = a.result();
+  const overShare = new Set(resA.overShare), gaveUp = new Set(resA.gaveUp), tooLarge = new Set(resA.tooLarge);
   const insByWallet = new Map(); // w -> Map(p -> [[pos, amt]])
   const incompleteB = new Set();
-  for (const reqs of reqByRange.values()) {
-    const b = await readPairs({ rpc, token: tok, requests: reqs, dir: "in", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks, ...share });
+  for (const r of readersB) {
+    const b = r.result();
     for (const w of b.incomplete) incompleteB.add(w);
     for (const w of b.overShare) overShare.add(w);
     for (const w of b.gaveUp) gaveUp.add(w);
@@ -750,22 +811,26 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
       for (const [p, list] of m) insByWallet.get(w).set(p, list);
     }
   }
+  // A wallet whose read 1 completed but whose read 2 was never queued (the
+  // scan stopped first) has not been read.
+  for (const w of fresh.keys()) if (!resA.incomplete.has(w) && !builtB.has(w)) incompleteB.add(w);
+  const a_ = { logs: resA.logs, incomplete: resA.incomplete };
   const histories = new Map();
   for (const w of new Set([...fresh.keys(), ...credit.keys()])) {
-    if (a.incomplete.has(w) || incompleteB.has(w)) { stats.failed++; continue; }
+    if (a_.incomplete.has(w) || incompleteB.has(w)) { stats.failed++; continue; }
     const ins = insByWallet.get(w) || new Map();
     const creditPayers = new Set((credit.get(w) || []).map((x) => x.payer));
     const freshIns = new Map(), credits = new Map();
     for (const [p, list] of ins) (creditPayers.has(p) && !(fresh.get(w) || []).includes(p) ? credits : freshIns).set(p, list);
     for (const p of creditPayers) if (!credits.has(p)) credits.set(p, []);
-    histories.set(w, { upTo: state.wallets.get(w).cursor, covered: new Set(fresh.get(w) || []), funds: a.logs.get(w) || new Map(), ins: freshIns, credits });
+    histories.set(w, { upTo: state.wallets.get(w).cursor, covered: new Set(fresh.get(w) || []), funds: a_.logs.get(w) || new Map(), ins: freshIns, credits });
     state.wallets.get(w).retryAt = 0;
     stats.read++;
   }
   for (const w of new Set([...overShare, ...gaveUp])) { const ws = state.wallets.get(w); if (ws) ws.retryAt = now + retryBackoffMs; }
   stats.overShare = overShare.size; stats.gaveUp = gaveUp.size; stats.tooLarge = tooLarge.size;
   stats.stopped = ctl.stop;
-  stats.budgetExhausted = stats.budgetExhausted || budget.calls >= budget.max && (a.incomplete.size + incompleteB.size) > 0;
+  stats.budgetExhausted = stats.budgetExhausted || budget.calls >= budget.max && (a_.incomplete.size + incompleteB.size) > 0;
   if (stats.transportError) onProgress(`      payer history read stopped (${ctl.stop || "RPC unreachable"}): ${stats.transportError}${ctl.stop === "range-limited" ? " - this RPC limits the block range of eth_getLogs; set FUNDING_HISTORY_CHUNK_BLOCKS under its limit, or LEADERBOARD_FUNDING_SCAN=off" : ""}`);
   return { histories, stats };
 }

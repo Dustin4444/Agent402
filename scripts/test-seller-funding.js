@@ -341,6 +341,18 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   ok(d3.stats.history.waiting === 0 && d3.stats.history.overShare === 1 && d3.calls.filter(touchesD).length > 0 && d3.calls.filter(touchesD).length <= 40,
     `a day later it is tried again, once more within its share (${d3.calls.filter(touchesD).length} call(s))`);
 
+  // Several such wallets on a tight budget: the reads go to the jobs whose
+  // wallets have overrun least, so every light wallet is read before any
+  // dense one gets another turn (a cap alone would let the first dense
+  // wallets take their whole share before the light ones were reached).
+  const Ds = [addr("d4"), addr("d5"), addr("d6")];
+  const manyPays = [...dPays];
+  Ds.forEach((d, n) => { for (let k = 0; k < 20; k++) for (let c = 0; c < 6; c++) manyPays.push({ wallet: d, payer: P(5100 + n * 20 + k), usd: 0.01, pos: posOf(latest - 4_000 + k * 6 + c, 2) }); });
+  const manyRpc = { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && Ds.some((d) => p.topics[1].includes(topic(d))) && span > 10_000 ? SIZE_REFUSAL : false) };
+  const many = await scanOnce({ sellers: [...Ds.map((d, n) => seller(d, `dense-${n}.example`)), ...sells.slice(1)], pays: manyPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: manyRpc, readOpts: { maxCalls: 60, walletChunk: 8 } });
+  ok(lights.every((w) => many.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => many.ev[w].circular === true) && many.stats.history.budgetExhausted,
+    `three dense wallets first, a 60-call budget: every one of the 20 light wallets is read (${lights.filter((w) => many.ev[w].fundingRead).length}) and the four circular ones found; the dense ones share what is left`);
+
   // AN RPC THAT LIMITS THE BLOCK RANGE (a public endpoint: "eth_getLogs is
   // limited to a 2,000 range"): no split fits a whole history under it.
   // Before, each refusal split the job and the scan spent its whole budget
