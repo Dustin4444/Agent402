@@ -615,6 +615,7 @@ const page = (results, extra = {}) =>
   const {
     enrichLiveQuotes, carryForwardLearnedQuotes, normaliseManifestTools, networksNeedLiveVerify,
     allPayToOrigins, sellerDetail, indexSnapshot, __testSeedCache, __testResetSubmitted,
+    markRouteGone, goneMark,
   } = await import("../src/x402-index.js");
 
   const PAYTO = "0x3aEDB825B264e82676A42B1a6d12EA253c0Ce852";
@@ -795,6 +796,20 @@ const page = (results, extra = {}) =>
         check(`GET ${get}: the GET row keeps nothing from the POST's read (got ${JSON.stringify({ n: g?.networks, v: g?.networksVerifiedAt, p: g?.payToByNetwork, l: g?.liveProvenAt, price: g?.price, s: g?.quoteSource })})`, untouched(g));
         check(`GET ${get}: the POST row takes the read (got ${JSON.stringify({ v: p?.networksVerifiedAt > readAt, l: p?.liveProvenAt > readAt, p: p?.payToByNetwork })})`,
           Number(p?.networksVerifiedAt) > readAt && Number(p?.liveProvenAt) > readAt && p?.payToByNetwork?.[BASE] === NOW_PAYTO);
+      }
+
+      // The proof that a verb answered lands on that verb's row: a pending
+      // miss mark on the answering verb is cleared, and the stated verb's own
+      // mark is not touched by an answer it did not give.
+      {
+        const route = "/x402/validates-first-marks";
+        globalThis.fetch = answers(route, 400);
+        markRouteGone(ORIGIN, "POST", route, { kind: "pending" });
+        markRouteGone(ORIGIN, "GET", route, { kind: "pending" });
+        const rows = crawl(route, readN(route));
+        await enrichLiveQuotes(rows, ORIGIN);
+        check(`GET 400, POST 402: the answering verb's pending mark is cleared, the stated verb's is left (got ${JSON.stringify({ post: goneMark(ORIGIN, "POST", route)?.kind ?? null, get: goneMark(ORIGIN, "GET", route)?.kind ?? null })})`,
+          goneMark(ORIGIN, "POST", route) === null && goneMark(ORIGIN, "GET", route)?.kind === "pending" && rows.length === 2);
       }
 
       // A verb is "refused" only when EVERY attempt on it said so: a route
