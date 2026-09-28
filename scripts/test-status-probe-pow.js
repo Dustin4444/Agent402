@@ -216,6 +216,12 @@ const sha = (t) => createHash("sha256").update(t).digest("hex");
   ok((await opStats()).status === 200, "control: the operator token still works from this source");
   for (let i = 0; i < 10; i++) await challenge(base, "hash", { "X-Operator-Token": `wrong-guess-${i}-dddddddddddddddddddd` });
   ok((await opStats()).status !== 200, "after a burst of wrong tokens on the challenge route, this source's operator budget is spent");
+  // ...and once it is spent, even the RIGHT probe token is not compared from
+  // that source, so the route cannot be used to keep guessing past the budget.
+  {
+    const j = await challenge(base, "hash", { "X-Operator-Token": PROBE });
+    ok(j.difficulty === NORMAL && j.token?.split(".")[4] !== "probe", `after the budget is spent the probe token earns no probe challenge from that source (difficulty ${j.difficulty})`);
+  }
 
   // 11. Source guards: the grant is wired in one place and read in one file.
   const src = await readFile("src/server.js", "utf8");

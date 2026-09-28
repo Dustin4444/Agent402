@@ -4304,6 +4304,9 @@ function statusProbeAuthed(req) {
   // The narrow credential first, so an observer carrying only it never touches
   // the operator limiter or the guessing counter.
   const presented = getOperatorToken(req);
+  // An IP whose operator budget is spent gets no comparison at all, of either
+  // token (a refused probe is a gap on /status, never a recorded outage).
+  if (presented && operatorAttemptLimiter.peek(operatorAttemptIp(req)).limited) return false;
   if (presented && statusProbeTokenOk(presented)) return true;
   // Otherwise the operator token still works, and a WRONG credential is
   // rate-limited and counted exactly as it was before.
@@ -4325,6 +4328,7 @@ function statusProbeAuthed(req) {
 function statusProbeChallengeAuthed(req) {
   const presented = req.headers["x-operator-token"];
   if (typeof presented !== "string" || !presented) return false;
+  if (operatorAttemptLimiter.peek(operatorAttemptIp(req)).limited) return false;
   if (statusProbeTokenOk(presented)) return true;
   if (STATUS_PROBE_TOKEN) {
     operatorAttemptLimiter.check(operatorAttemptIp(req));
