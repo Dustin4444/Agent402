@@ -30,7 +30,7 @@ import { timedSync } from "./boot-timing.js";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { EVM, OUR_EVM_WALLETS } from "./revenue-live.js";
 import { redactSecrets } from "./tools/redact.js";
-import { FUNDING_DEFAULTS, posOf, endOfBlock, circularWalletsFrom, readSellerFunding, readFundingGaps, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, pruneFundingState, fundingPairCount, isScannableWallet } from "./seller-funding.js";
+import { FUNDING_DEFAULTS, posOf, endOfBlock, circularWalletsFrom, readSellerFunding, readPayerHistory, readFundingGaps, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, pruneFundingState, fundingPairCount, fundingKnownCount, historyFromBlockFor, isScannableWallet } from "./seller-funding.js";
 import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { applyMetaTrims } from "./seo-meta.js";
@@ -810,7 +810,7 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
 // src/seller-funding.js; this is where the scan applies them. A wallet row gets
 // `funding` = the netted figures the router may credit, the gross beside them,
 // and the verdict. Only the paid wallet's OWN outbound transfers count.
-export { FUNDING_DEFAULTS, posOf, circularWalletsFrom, readSellerFunding, readFundingGaps, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, isScannableWallet } from "./seller-funding.js";
+export { FUNDING_DEFAULTS, posOf, circularWalletsFrom, readSellerFunding, readPayerHistory, readFundingGaps, processSellerFunding, sellerFundingFigures, createFundingState, serializeFundingState, parseFundingState, historyFromBlockFor, isScannableWallet } from "./seller-funding.js";
 
 /**
  * Attach `funding` to every scanned row that has funding state (or a verdict
@@ -1072,10 +1072,11 @@ export async function runLeaderboard(overrides = {}) {
   onProgress(`      ${transferCount} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
 
   // 2b. Seller-funded payers (src/seller-funding.js): read the outbound
-  // transfers of every wallet that received a counted payment, since each
-  // one's cursor, then work each (wallet, payer) pool through the payments in
-  // chain order. Router input only; the public rows stay gross. Base only by
-  // default (the router's chain).
+  // transfers each paid wallet sent its known payers since its cursor, the
+  // whole history of every payer seen for the first time, and the gap before
+  // the window of a wallet that fell behind; then work each (wallet, payer)
+  // pool through the payments in chain order. Router input only; the public
+  // rows stay gross. Base only by default (the router's chain).
   let fundingScan = null;
   let fundingStateUsed = null;
   const fundingOn = (opts.fundingScan ?? chain.key === "base") && process.env.LEADERBOARD_FUNDING_SCAN !== "off";
@@ -1096,27 +1097,32 @@ export async function runLeaderboard(overrides = {}) {
       const paid = [...byWallet.values()]
         .filter((w) => w.perPayer && w.perPayer.size && !skip(String(w.wallet).toLowerCase()))
         .sort((a, b) => clears(b) - clears(a) || (b.callsSettled || 0) - (a.callsSettled || 0));
+      const paidList = paid.map((w) => ({ wallet: w.wallet, payers: new Set([...w.perPayer.keys()].map((p) => String(p).toLowerCase())) }));
       const primary = Array.isArray(opts.rpcs) && opts.rpcs.length ? [opts.rpcs[0]] : opts.rpcs;
       // The primary RPC only, one attempt: a refusal is answered by splitting
       // the job, not by walking every public fallback.
       const fundingRpc = opts.fundingRpc || ((method, params) => rpcCall(primary, method, params, { passes: 1 }));
+      const maxCalls = Number.isFinite(opts.fundingMaxCalls) ? opts.fundingMaxCalls : FUNDING_DEFAULTS.maxCalls;
       const facts = await readSellerFunding({
         rpc: fundingRpc,
         token: chain.token, state,
-        wallets: paid.map((w) => ({ wallet: w.wallet, payers: new Set([...w.perPayer.keys()].map((p) => String(p).toLowerCase())) })),
+        wallets: paidList,
         latest,
-        freshFrom: Math.max(0, start - (Number.isFinite(opts.fundingLookbackBlocks) ? opts.fundingLookbackBlocks : FUNDING_DEFAULTS.lookbackBlocks)),
+        windowStartBlock: start,
         walletChunk: opts.walletChunk,
-        maxCalls: Number.isFinite(opts.fundingMaxCalls) ? opts.fundingMaxCalls : FUNDING_DEFAULTS.maxCalls,
+        maxCalls,
         ignore: new Set([...(OUR_EVM_WALLETS || [])].map((w) => String(w).toLowerCase())),
         now: nowMs,
         onProgress,
       });
+      // The whole history of every payer a wallet has not seen before (and
+      // the credit of a known payer about to be funded for the first time),
+      // from what is left of the budget.
+      const history = await readPayerHistory({ rpc: fundingRpc, token: chain.token, state, wallets: paidList, windowStartBlock: start, historyFromBlock: Number.isFinite(opts.fundingHistoryFromBlock) ? opts.fundingHistoryFromBlock : historyFromBlockFor(chain.token), walletChunk: opts.walletChunk, maxCalls: Math.max(0, maxCalls - facts.calls), onProgress });
       // Once per wallet whose pools start before the window: what its funded
       // payers paid it in between (see readFundingGaps), within what is left
       // of the budget.
-      const maxCalls = Number.isFinite(opts.fundingMaxCalls) ? opts.fundingMaxCalls : FUNDING_DEFAULTS.maxCalls;
-      const gapRead = await readFundingGaps({ rpc: fundingRpc, token: chain.token, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, maxCalls: Math.max(0, maxCalls - facts.calls), onProgress });
+      const gapRead = await readFundingGaps({ rpc: fundingRpc, token: chain.token, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, maxCalls: Math.max(0, maxCalls - facts.calls - history.stats.calls), onProgress });
       // The same rule the fold applies: a transfer the board would count is a
       // payment, anything larger is not a tool call.
       const classify = (wallet, micro) => {
@@ -1124,17 +1130,20 @@ export async function runLeaderboard(overrides = {}) {
         const usd = micro / 1e6;
         return (priceMatches(micro, row?.prices) && usd <= opts.priceMatchMaxUsd) || usd <= opts.maxCallUsd ? 1 : 2;
       };
-      processSellerFunding(state, byWallet, { throughFor, windowStartBlock: start, gaps: gapRead.gaps, classify });
+      processSellerFunding(state, byWallet, { throughFor, windowStartBlock: start, gaps: gapRead.gaps, histories: history.histories, classify });
       pruneFundingState(state, { now: nowMs, latest });
+      const h = history.stats;
       fundingScan = {
-        calls: facts.calls + gapRead.stats.calls, refusals: facts.refusals, wallets: facts.wallets,
+        calls: facts.calls + h.calls + gapRead.stats.calls, refusals: facts.refusals + h.refusals + (gapRead.stats.refusals || 0), wallets: facts.wallets,
+        historyCalls: h.calls, historyWallets: h.wallets, historyWalletsRead: h.read, historyWalletsFailed: h.failed, historyPayers: h.payers, historyPayersFunded: h.funded, creditReads: h.creditReads,
         gapWallets: gapRead.stats.wallets, gapWalletsRead: gapRead.stats.read, gapCalls: gapRead.stats.calls,
         walletsCaughtUp: facts.caughtUp, walletsBehind: facts.behind, walletsStuck: facts.stuck, walletsTruncated: facts.truncated, walletsNew: facts.fresh,
-        fundingEvents: facts.events, budgetExhausted: facts.budgetExhausted || gapRead.stats.budgetExhausted, ...(facts.transportError || gapRead.stats.transportError ? { transportError: redactSecrets(facts.transportError || gapRead.stats.transportError) } : {}),
-        partial: facts.behind > 0 || !!facts.transportError || gapRead.stats.failed > 0 || gapRead.stats.budgetExhausted,
-        stateWallets: state.wallets.size, statePairs: fundingPairCount(state),
+        fundingEvents: facts.events + h.events, budgetExhausted: facts.budgetExhausted || h.budgetExhausted || gapRead.stats.budgetExhausted,
+        ...(facts.transportError || h.transportError || gapRead.stats.transportError ? { transportError: redactSecrets(facts.transportError || h.transportError || gapRead.stats.transportError) } : {}),
+        partial: facts.behind > 0 || !!facts.transportError || h.failed > 0 || !!h.transportError || gapRead.stats.failed > 0 || facts.budgetExhausted || h.budgetExhausted || gapRead.stats.budgetExhausted,
+        stateWallets: state.wallets.size, statePairs: fundingPairCount(state), stateKnownPayers: fundingKnownCount(state),
       };
-      onProgress(`      funding read: ${facts.calls} eth_getLogs call(s) over ${facts.wallets} wallet(s), ${facts.caughtUp} caught up${facts.behind ? `, ${facts.behind} behind` : ""}`);
+      onProgress(`      funding read: ${fundingScan.calls} eth_getLogs call(s) over ${facts.wallets} wallet(s) (${h.calls} for ${h.payers} new payer(s)), ${facts.caughtUp} caught up${facts.behind ? `, ${facts.behind} behind` : ""}${h.failed ? `, ${h.failed} with history pending` : ""}`);
     } catch (e) {
       fundingScan = { error: redactSecrets(String(e?.message || e)).slice(0, 160), partial: true };
       onProgress(`      funding read failed: ${fundingScan.error}`);
@@ -1284,10 +1293,11 @@ export function persistLeaderboardHistoryPoint(snapshot, file = LEADERBOARD_HIST
   }
 }
 
-// Seller-funding state (src/seller-funding.js): per-wallet cursors and the
-// (wallet, payer) pools, so each hourly read covers only new blocks and a pool
-// is remembered until it is spent. Kept in its own file beside the snapshot,
-// read once (asynchronously) before the first scan and written after each.
+// Seller-funding state (src/seller-funding.js): per-wallet cursors, known
+// payers and the (wallet, payer) pools, so each hourly read covers only new
+// blocks, a payer's history is read once, and a pool is remembered until it is
+// spent. Kept in its own file beside the snapshot, read once (asynchronously)
+// before the first scan and written after each.
 export const LEADERBOARD_FUNDING_FILE =
   process.env.LEADERBOARD_FUNDING_FILE || "/data/leaderboard-funding.json";
 let fundingStateCache = null;
@@ -1304,7 +1314,7 @@ async function persistSellerFundingState(state, file = LEADERBOARD_FUNDING_FILE)
     await writeFile(tmp, serializeFundingState(state));
     await renameFile(tmp, file);
     return true;
-  } catch { return false; } // no /data volume (local dev, CI): the next scan reads from the lookback again
+  } catch { return false; } // no /data volume (local dev, CI): the next scan reads every payer's history again
 }
 
 // Operator levers for the seller-funding rule, handed in by the server:
@@ -1352,7 +1362,7 @@ async function refreshOnce(opts) {
     const snap = await runLeaderboard({ ...opts, fundingState, fundingSkip: fundingConfig.skip, previousWalletEvidence: cached.snapshot?.walletEvidence || null });
     if (snap?.routerFundingScan) {
       const f = snap.routerFundingScan;
-      console.log(`[leaderboard] seller-funding read: ${f.calls ?? 0} call(s) over ${f.wallets ?? 0} wallet(s), ${f.walletsCaughtUp ?? 0} caught up${f.walletsBehind ? `, ${f.walletsBehind} behind` : ""}${f.error ? ` (failed: ${f.error})` : ""}`);
+      console.log(`[leaderboard] seller-funding read: ${f.calls ?? 0} call(s) over ${f.wallets ?? 0} wallet(s) (${f.historyCalls ?? 0} for ${f.historyPayers ?? 0} new payer(s)), ${f.walletsCaughtUp ?? 0} caught up${f.walletsBehind ? `, ${f.walletsBehind} behind` : ""}${f.historyWalletsFailed ? `, ${f.historyWalletsFailed} with history pending` : ""}${f.error ? ` (failed: ${f.error})` : ""}`);
       if (fundingState) await persistSellerFundingState(fundingState);
     }
     cached.snapshot = snap;
@@ -1532,7 +1542,7 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
       cleared: !!cleared?.has?.(w),
       lastCircularAt: e?.lastCircularAt || ws?.lastCircularAt || null,
       evidence: e ? { callsSettled: e.callsSettled, uniqueBuyers: e.uniqueBuyers, grossCallsSettled: e.grossCallsSettled ?? null, grossUniqueBuyers: e.grossUniqueBuyers ?? null, selfFundedCalls: e.selfFundedCalls ?? null, selfFundedUsd: e.selfFundedUsd ?? null, grossUsd: e.grossUsd ?? null, fundingRead: e.fundingRead ?? null, fundingPending: !!e.fundingPending, fundingTruncated: !!e.fundingTruncated } : null,
-      state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, truncated: ws.truncated } : null,
+      state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, knownPayers: ws.known.size, truncated: ws.truncated } : null,
     };
   };
   if (wallet) return one(String(wallet).toLowerCase());
@@ -1542,6 +1552,7 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
     lastRead: cached.snapshot?.routerFundingScan || null,
     stateWallets: fundingStateCache?.wallets?.size ?? null,
     statePairs: fundingStateCache ? fundingPairCount(fundingStateCache) : null,
+    stateKnownPayers: fundingStateCache ? fundingKnownCount(fundingStateCache) : null,
     circular: circularWallets.map(one),
   };
 }

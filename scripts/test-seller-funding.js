@@ -29,7 +29,7 @@ process.env.LEADERBOARD_FUNDING_FILE = join(dir, "leaderboard-funding.json");
 const LB = await import("../src/leaderboard.js");
 const SF = await import("../src/seller-funding.js");
 const { initWalletAccumulator, foldTransfers, finalizeLeaderboard, applySellerFunding, runLeaderboard } = LB;
-const { readSellerFunding, readFundingGaps, processSellerFunding, createFundingState, serializeFundingState, parseFundingState, circularWalletsFrom, posOf, isScannableWallet, ZERO_ADDRESS } = SF;
+const { readSellerFunding, readPayerHistory, readFundingGaps, processSellerFunding, createFundingState, serializeFundingState, parseFundingState, circularWalletsFrom, posOf, isScannableWallet, ZERO_ADDRESS, pruneFundingState } = SF;
 const { buildEvidenceBinding, baseLiveGate } = await import("../src/evidence-binding.js");
 const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("../src/dispatch-eligibility.js");
 const { rankingPayersOf } = await import("../src/x402-index.js");
@@ -78,17 +78,18 @@ const fakeRpc = (list, { calls = [], transport = 0, refuse = null, rangeLimit = 
 };
 
 // One scan's funding step, exactly as runLeaderboard composes it (pinned from
-// source in section 11): fold, read the paid wallets' outbound (floor-clearing
-// wallets first), read the gap before the window once, work the pools, apply,
-// finalize. The fake chain holds the outbound logs AND every payment as a log,
-// so a gap read (payers to a wallet, before the window) sees what it would.
+// source in section 11): fold, read the paid wallets' outbound to their known
+// payers (floor-clearing wallets first), read every new payer's history, read
+// the gap before the window once, work the pools, apply, finalize. The fake
+// chain holds the outbound logs AND every payment as a log, so a history or
+// gap read (payers to a wallet, before the window) sees what it would.
 function paidInOrder(acc, floor = FLOORS) {
   const clears = (w) => ((w.callsSettled || 0) >= floor.minSettled && w.perPayer.size >= floor.minPayers ? 1 : 0);
   return [...acc.values()].filter((w) => w.perPayer.size).sort((a, b) => clears(b) - clears(a) || b.callsSettled - a.callsSettled)
     .map((w) => ({ wallet: w.wallet, payers: new Set([...w.perPayer.keys()].map((p) => p.toLowerCase())) }));
 }
 const payLog = (t) => log(t.payer, t.wallet, Math.round(t.usd * 1e6), Math.floor(t.pos / 1e6), t.pos % 1e6);
-async function scanOnce({ sellers, pays, outs, state, latest, span, lookback = 1_000_000, rpcOpts = {}, readOpts = {}, now = NOW, previous = null, gaps = true, chainHidesPaysBefore = 0 }) {
+async function scanOnce({ sellers, pays, outs, state, latest, span, historyFrom = 0, rpcOpts = {}, readOpts = {}, now = NOW, previous = null, gaps = true, history = true, chainHidesPaysBefore = 0 }) {
   const start = latest - span;
   const acc = initWalletAccumulator(sellers.map((s) => ({ ...s, origins: [...s.origins] })));
   foldTransfers(acc, pays.filter((t) => Math.floor(t.pos / 1e6) >= start && Math.floor(t.pos / 1e6) <= latest));
@@ -96,14 +97,22 @@ async function scanOnce({ sellers, pays, outs, state, latest, span, lookback = 1
   const chain = [...outs, ...pays.filter((t) => t.payer !== t.wallet && Math.floor(t.pos / 1e6) >= chainHidesPaysBefore).map(payLog)];
   const rpc = fakeRpc(chain, { ...rpcOpts, calls });
   const paid = paidInOrder(acc);
-  const stats = await readSellerFunding({ rpc, token: USDC, state, wallets: paid, latest, freshFrom: Math.max(0, start - lookback), now, ...readOpts });
-  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, maxCalls: Math.max(0, (readOpts.maxCalls ?? 400) - stats.calls) }) : { gaps: new Map(), stats: {} };
+  const maxCalls = readOpts.maxCalls ?? 400;
+  const stats = await readSellerFunding({ rpc, token: USDC, state, wallets: paid, latest, windowStartBlock: start, now, ...readOpts });
+  const hist = history ? await readPayerHistory({ rpc, token: USDC, state, wallets: paid, windowStartBlock: start, historyFromBlock: historyFrom, ...readOpts, maxCalls: Math.max(0, maxCalls - stats.calls) }) : { histories: new Map(), stats: { calls: 0 } };
+  stats.history = hist.stats;
+  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, maxCalls: Math.max(0, maxCalls - stats.calls - hist.stats.calls) }) : { gaps: new Map(), stats: {} };
   stats.gap = gapRead.stats;
-  processSellerFunding(state, acc, { windowStartBlock: start, gaps: gapRead.gaps, classify: (w, micro) => (micro <= 750_000 ? 1 : 2) });
+  processSellerFunding(state, acc, { windowStartBlock: start, gaps: gapRead.gaps, histories: hist.histories, classify: (w, micro) => (micro <= 750_000 ? 1 : 2), ...(readOpts.maxPairsTotal ? { maxPairsTotal: readOpts.maxPairsTotal } : {}) });
+  pruneFundingState(state, { now, latest });
   applySellerFunding(acc, state, { latest, now, previous });
   const ranked = finalizeLeaderboard(acc);
   return { acc, ranked, ev: ranked.walletEvidence, stats, calls };
 }
+// A state whose wallets already know some payers (as after an earlier scan),
+// with every cursor at `cursor`.
+const knownState = (map, cursor) => parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: Object.fromEntries(Object.entries(map).map(([w, ps]) => [w, { c: cursor, t: posOf(cursor + 1, 0) - 1, s: cursor + 1, x: 0, seen: NOW, lc: null, p: {}, k: Object.fromEntries(ps.map((p) => [p, [0, 0, 0, -1]])), b: {} }])) }), USDC);
+const isOutbound = (c) => c.topics[2] === null;
 
 // --- 1. What is never a wallet ----------------------------------------------------
 ok(!isScannableWallet(ZERO_ADDRESS, USDC) && !isScannableWallet(USDC, USDC) && !isScannableWallet(USDC.toUpperCase().replace("0X", "0x"), USDC) && isScannableWallet(addr("11"), USDC),
@@ -149,7 +158,8 @@ outs.push(log(ZERO_ADDRESS, P(25), usd(5), 60));
 const state1 = createFundingState(USDC);
 const s1 = await scanOnce({ sellers: SELLERS, pays, outs, state: state1, latest: 1000, span: 1000 });
 const ev = s1.ev;
-ok(s1.stats.calls === 1 && s1.calls[0].topics[2] === null && s1.stats.caughtUp === 6 && !state1.wallets.has(SIB_B), "one wide untargeted read covers every paid wallet when the RPC accepts it (a wallet with no payment this window is not read)");
+ok(s1.stats.calls === 0 && s1.stats.history.calls === 1 && Array.isArray(s1.calls[0].topics[2]) && s1.stats.history.payers === 43 && s1.stats.caughtUp === 6 && !state1.wallets.has(SIB_B),
+  "first scan: ONE targeted history read covers all 43 new payers of the 6 paid wallets (no untargeted read: nothing is known yet; a wallet with no payment this window is not read)");
 ok(!s1.calls[0].topics[1].includes(topic(ZERO_ADDRESS)) && ![...state1.wallets.keys()].includes(ZERO_ADDRESS), "the zero address is never read as a source (a mint is not a seller's money)");
 ok(ev[LOOP].grossCallsSettled === 62 && ev[LOOP].selfFundedCalls === 60 && ev[LOOP].callsSettled === 2 && ev[LOOP].uniqueBuyers === 2 && ev[LOOP].circular === true,
   "FUNDED FLEET: 60 of 62 payments were paid with the seller's own $0.13 per wallet -> net 2 calls / 2 payers, circular");
@@ -195,7 +205,9 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const re = parseFundingState(serializeFundingState(state1), USDC);
   ok(re.wallets.get(LOOP).cursor === 1400 && re.wallets.get(LOOP).pairs.get(P(1)).recs.length === state1.wallets.get(LOOP).pairs.get(P(1)).recs.length && re.wallets.get(HONEST).pairs.get(P(20)).pool === usd(0.01),
     "the state round-trips through its persisted form (cursors, pools, remembered payments)");
-  ok(parseFundingState(serializeFundingState(state1), "0x" + "9".repeat(40)).wallets.size === 0 && parseFundingState("{not json", USDC).wallets.size === 0, "a state for another token, or an unreadable file, starts empty (read again from the lookback)");
+  ok(parseFundingState(serializeFundingState(state1), "0x" + "9".repeat(40)).wallets.size === 0 && parseFundingState("{not json", USDC).wallets.size === 0 && parseFundingState(serializeFundingState(state1).replace('"v":2', '"v":1'), USDC).wallets.size === 0,
+    "a state for another token, of another version, or an unreadable file, starts empty (every payer's history is read again)");
+  ok(re.wallets.get(LOOP).known.has(P(90)) && re.wallets.get(LOOP).known.size === state1.wallets.get(LOOP).known.size, "...the known payers round-trip too");
 }
 {
   // WAITING IT OUT buys nothing: a buyer funded once, weeks before it pays, is
@@ -204,23 +216,56 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const st = createFundingState(USDC);
   const outsW = [log(W, R, usd(1), 100)];
   const paysW = [{ wallet: W, payer: O, usd: 0.01, pos: posOf(900, 0) }];
-  await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 1000, span: 500, lookback: 1000 });
-  ok(st.wallets.get(W).pairs.get(R)?.pool === usd(1), "scan 1: the $1 sent to a wallet that has not paid yet is remembered");
+  await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 1000, span: 500 });
+  ok(!st.wallets.get(W).pairs.has(R) && !st.wallets.get(W).known.has(R), "scan 1: nothing is kept for a wallet the seller funded that has not paid (its whole history is read if it ever does)");
   for (let k = 0; k < 30; k++) paysW.push({ wallet: W, payer: R, usd: 0.01, pos: posOf(40_000 + k, 0) });
   for (let i = 0; i < 20; i++) paysW.push({ wallet: W, payer: P(310 + i), usd: 0.01, pos: posOf(40_100 + i, 0) });
-  const w3 = await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 40_500, span: 1000, lookback: 1000 });
-  ok(w3.ev[W].selfFundedCalls === 30 && w3.ev[W].callsSettled === 20, "scan 3, ~40,000 blocks later (far past any lookback): all 30 of its payments are still the seller's money");
+  const w3 = await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 40_500, span: 1000 });
+  ok(w3.ev[W].selfFundedCalls === 30 && w3.ev[W].callsSettled === 20 && w3.stats.history.funded === 1, "scan 3, ~40,000 blocks later: its first payment brings its whole history in, and all 30 of its payments are still the seller's money");
   for (let k = 0; k < 80; k++) paysW.push({ wallet: W, payer: R, usd: 0.01, pos: posOf(41_600 + k, 0) });
-  const w4 = await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 42_000, span: 1000, lookback: 1000 });
-  ok(w4.ev[W].selfFundedCalls === 70 && w4.ev[W].callsSettled === 10 && st.wallets.get(W).pairs.get(R)?.pool === 0, "scan 4: the remaining $0.70 covers 70 more and the last 10 are its own money: a spent pool nets nothing more (no over-count forever)");
-  await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 44_000, span: 1000, lookback: 1000 });
-  ok(!st.wallets.get(W).pairs.has(R), "...and once its netted payments leave the window, the spent pool is forgotten");
+  const w4 = await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 42_000, span: 1000 });
+  ok(w4.ev[W].selfFundedCalls === 70 && w4.ev[W].callsSettled === 10 && st.wallets.get(W).pairs.get(R)?.pool === 0 && w4.stats.gap.read === 1, "scan 4: the remaining $0.70 covers 70 more and the last 10 are its own money: a spent pool nets nothing more (the gap before the window read once)");
+  await scanOnce({ sellers: [seller(W, "seller-w.example")], pays: paysW, outs: outsW, state: st, latest: 44_000, span: 1000 });
+  ok(!st.wallets.get(W).pairs.has(R) && st.wallets.get(W).known.has(R), "...and once its netted payments leave the window, the spent pool is forgotten (the payer stays known, so no history is read again)");
+}
+{
+  // THE LOOKBACK THE FIRST CUT HAD, WAITED OUT (the review's case, production
+  // numbers): the seller funds five wallets from its payTo about 37 days before
+  // any of them buys, and the wallet has never been paid before. The first
+  // cut's first read started 30 days before a 7-day window and credited all 60
+  // payments. Every payer's history is read from the token's deployment now.
+  const SPAN = 302_400, LOOKBACK = 1_296_000;
+  const latest = 60_000_000, start = latest - SPAN;
+  const W = addr("72");
+  const fundBlock = start - LOOKBACK - 10_000;
+  const o = [], p = [];
+  for (let i = 1; i <= 5; i++) { o.push(log(W, P(320 + i), usd(0.2), fundBlock, i)); for (let k = 0; k < 12; k++) p.push({ wallet: W, payer: P(320 + i), usd: 0.01, pos: posOf(start + 100 + k, i) }); }
+  const r = await scanOnce({ sellers: [seller(W, "seller-a.example")], pays: p, outs: o, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221 });
+  const histCall = r.calls.find((c) => Array.isArray(c.topics[2]) && c.topics[1].includes(topic(W)));
+  ok(r.ev[W].selfFundedCalls === 60 && r.ev[W].callsSettled === 0 && r.ev[W].circular === true && r.ev[W].fundingRead === true, "funded ~37 days before its fleet bought: all 60 payments netted, circular");
+  ok(histCall && parseInt(histCall.fromBlock, 16) === 2_797_221 && parseInt(histCall.toBlock, 16) === latest, "...found by a history read from the token's deployment block to the latest block");
+  const chunked = await scanOnce({ sellers: [seller(W, "seller-a.example")], pays: p, outs: o, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { historyChunkBlocks: 20_000_000 } });
+  ok(chunked.ev[W].selfFundedCalls === 60 && chunked.calls.filter((c) => Array.isArray(c.topics[2])).every((c) => c.span <= 20_000_000) && chunked.stats.history.calls === 8, `...and with a bounded history range (FUNDING_HISTORY_CHUNK_BLOCKS) the same 60 are found, each read at most 20M blocks (${chunked.stats.history.calls} calls)`);
+  // The same seller, known to us for months before its fleet is funded: the
+  // incremental read catches funding of a payer that already paid once.
+  const st = createFundingState(USDC);
+  const W2 = addr("73"), F = P(340), X = P(341);
+  const o2 = [], p2 = [{ wallet: W2, payer: F, usd: 0.01, pos: posOf(1_000, 0) }, { wallet: W2, payer: X, usd: 0.01, pos: posOf(1_001, 0) }];
+  await scanOnce({ sellers: [seller(W2, "seller-b.example")], pays: p2, outs: o2, state: st, latest: 2_000, span: 1_500 });
+  o2.push(log(W2, F, usd(0.5), 500_000));
+  for (let k = 0; k < 50; k++) p2.push({ wallet: W2, payer: F, usd: 0.01, pos: posOf(900_000 + k, 0) });
+  const r2 = await scanOnce({ sellers: [seller(W2, "seller-b.example")], pays: p2, outs: o2, state: st, latest: 1_000_000, span: 200_000 });
+  ok(r2.ev[W2].selfFundedCalls === 50 && r2.stats.history.payers === 0 && r2.stats.history.creditReads === 1 && r2.calls.filter(isOutbound).length === 1, `a KNOWN payer funded later is caught by the incremental read (one call over the blocks since the cursor; its own earlier transfers read once as credit, ${r2.stats.history.calls} call)`);
+  // A wallet whose state was dropped for being idle: every payer is new again.
+  const dropped = createFundingState(USDC);
+  const r3 = await scanOnce({ sellers: [seller(W2, "seller-b.example")], pays: p2, outs: o2, state: dropped, latest: 1_000_000, span: 200_000 });
+  ok(r3.ev[W2].selfFundedCalls === 50 && r3.stats.history.payers === 1, "...and a wallet whose state was dropped reads its payers' history again: the same 50 netted");
 }
 {
   // THE BUDGET, on the shape the review measured: one wallet sending over
-  // 10,000 transfers inside a chunk of 250 paid wallets with 1,250 payers, over
-  // a 14-day first read. Every other wallet is read in full, the heavy one is
-  // isolated and read by splitting only its own range.
+  // 10,000 transfers to its own payers inside a chunk of 250 paid wallets with
+  // 1,296 payers, on its first scan. Every other wallet's history is read in
+  // full; the heavy one is isolated and read by splitting its payer list.
   const HEAVY = addr("81");
   const lights = Array.from({ length: 249 }, (_, i) => "0x" + (0x1000 + i).toString(16).padStart(40, "0"));
   const sellersB = [seller(HEAVY, "seller-h.example"), ...lights.map((w, i) => seller(w, `light-${i}.example`))];
@@ -231,75 +276,81 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   for (let k = 0; k < 51 * 20; k++) paysB.push({ wallet: HEAVY, payer: P(1000 + (k % 51)), usd: 0.05, pos: posOf(LATEST - 300_000 + k * 20, 2) });
   lights.forEach((w, i) => {
     for (let j = 0; j < 5; j++) paysB.push({ wallet: w, payer: P(2000 + i * 5 + j), usd: 0.01, pos: posOf(LATEST - 1000 + j, 3) });
-    outsB.push(log(w, P(9000 + i), usd(0.5), 5000 + i, 4));
+    outsB.push(log(w, P(9000 + i), usd(0.5), 5000 + i, 4)); // to a recipient that never pays: never recorded
   });
   const st = createFundingState(USDC);
-  const b1 = await scanOnce({ sellers: sellersB, pays: paysB, outs: outsB, state: st, latest: LATEST, span: 302_400, lookback: 302_400 });
-  const full = LATEST - 0 + 1;
-  const outbound = b1.calls.filter((c) => c.topics[2] === null);
-  const lightCalls = outbound.filter((c) => !c.topics[1].includes(topic(HEAVY)));
-  const total = b1.stats.calls + b1.stats.gap.calls;
-  ok(b1.stats.caughtUp === 250 && b1.stats.behind === 0 && b1.stats.gap.read === 250 && total <= 25, `ALL 250 wallets read in full, and the gap before the window read for each, within ${total} call(s) of the 400 budget (the heavy source isolated, not the budget spent)`);
+  const b1 = await scanOnce({ sellers: sellersB, pays: paysB, outs: outsB, state: st, latest: LATEST, span: 302_400 });
+  const full = LATEST + 1;
+  const touchesHeavy = (c) => c.topics[1].includes(topic(HEAVY)) || (Array.isArray(c.topics[2]) && c.topics[2].includes(topic(HEAVY)));
+  const lightCalls = b1.calls.filter((c) => !touchesHeavy(c));
+  const total = b1.stats.calls + b1.stats.history.calls + b1.stats.gap.calls;
+  ok(b1.stats.caughtUp === 250 && b1.stats.history.read === 250 && b1.stats.history.payers === 1296 && total <= 25, `ALL 250 wallets' 1,296 new payers read in full within ${total} call(s) of the 400 budget (the heavy source isolated, not the budget spent)`);
   ok(lightCalls.length > 0 && lightCalls.every((c) => c.span === full), "no other wallet's read was narrowed by the heavy wallet's refusals (every call without it spans the whole range)");
   ok(b1.ev[HEAVY].circular === true && b1.ev[HEAVY].selfFundedCalls === 1020 && b1.ev[HEAVY].callsSettled === 0, "and the heavy source is netted: its 1,020 payments were all paid with its own money");
+  ok(lights.every((w) => st.wallets.get(w).pairs.size === 0), "a transfer to a recipient that never paid the wallet is never recorded (no pool, nothing to fill a cap with)");
   // A tiny budget reads the wallets that clear the floor on gross first.
   const st2 = createFundingState(USDC);
-  const tiny = await scanOnce({ sellers: [...lights.map((w, i) => seller(w, `light-${i}.example`)), seller(HEAVY, "seller-h.example")], pays: paysB.filter((t) => t.wallet !== HEAVY || true), outs: outsB.filter((l) => l.topics[1] !== topic(HEAVY)), state: st2, latest: LATEST, span: 302_400, lookback: 302_400, readOpts: { maxCalls: 1, walletChunk: 10 } });
-  ok(tiny.stats.budgetExhausted === true && tiny.stats.caughtUp === 10 && st2.wallets.get(HEAVY).cursor === LATEST, "with a budget of one call, the one read goes to the wallets that clear the floor on gross first (the busiest one included), the rest are behind, and the read says so");
+  const tiny = await scanOnce({ sellers: [...lights.map((w, i) => seller(w, `light-${i}.example`)), seller(HEAVY, "seller-h.example")], pays: paysB, outs: outsB.filter((l) => l.topics[1] !== topic(HEAVY)), state: st2, latest: LATEST, span: 302_400, readOpts: { maxCalls: 1, walletChunk: 10 } });
+  ok(tiny.stats.history.budgetExhausted === true && tiny.stats.history.read === 10 && tiny.ev[HEAVY].fundingRead === true && tiny.ev[lights[100]].fundingRead === false,
+    "with a budget of one call, the one history read goes to the wallets that clear the floor on gross first (the busiest one included), the rest are behind, and the read says so");
 }
 {
   // A transient refusal splits only its own job; a transport failure stops the read.
   const W1 = addr("91"), W2 = addr("92");
   const sp = [{ wallet: W1, payer: P(400), usd: 0.01, pos: posOf(900, 0) }, { wallet: W2, payer: P(401), usd: 0.01, pos: posOf(900, 1) }];
   const so = [log(W1, P(400), usd(0.01), 100), log(W2, P(401), usd(0.01), 100)];
+  const SELL = [seller(W1, "seller-x.example"), seller(W2, "seller-y.example")];
+  // The history read: one job per wallet here; the refused one splits alone.
   let first = true;
-  const st = createFundingState(USDC);
-  const r = await scanOnce({ sellers: [seller(W1, "seller-x.example"), seller(W2, "seller-y.example")], pays: sp, outs: so, state: st, latest: 1000, span: 500, rpcOpts: { refuse: (p) => { const hit = first && p.topics[1].includes(topic(W1)); first = false; return hit; } }, readOpts: { walletChunk: 1, minRangeBlocks: 100 } });
+  const r = await scanOnce({ sellers: SELL, pays: sp, outs: so, state: createFundingState(USDC), latest: 1000, span: 500, rpcOpts: { refuse: (p) => { const hit = first && p.topics[1].includes(topic(W1)); first = false; return hit; } }, readOpts: { walletChunk: 1, minRangeBlocks: 100 } });
   const w2calls = r.calls.filter((c) => c.topics[1].includes(topic(W2)));
-  ok(r.stats.caughtUp === 2 && w2calls.length === 1 && w2calls[0].span === 1001, "a refusal of one job narrows that job's range only: the next job still reads its whole range in one call");
-  const st2 = createFundingState(USDC);
-  const t = await scanOnce({ sellers: [seller(W1, "seller-x.example"), seller(W2, "seller-y.example")], pays: sp, outs: so, state: st2, latest: 1000, span: 500, rpcOpts: { transport: 5 }, readOpts: { walletChunk: 1 } });
-  ok(t.stats.calls === 2 && t.stats.behind === 2 && /fetch failed/.test(t.stats.transportError || ""), "an unreachable RPC is retried once and then the read stops (no fan-out), every wallet left behind at its cursor");
+  ok(r.stats.history.read === 2 && w2calls.length === 1 && w2calls[0].span === 1001 && r.ev[W1].selfFundedCalls === 1, "history read: a refusal of one job narrows that job's range only; the next job still reads its whole range in one call");
+  // The incremental read, on wallets that already know their payers.
+  let first2 = true;
+  const known = () => knownState({ [W1]: [P(400)], [W2]: [P(401)] }, 99);
+  const inc = await readSellerFunding({ rpc: fakeRpc(so, { calls: [], refuse: (p) => { const hit = first2 && isOutbound(p) && p.topics[1].includes(topic(W1)); first2 = false; return hit; } }), token: USDC, state: known(), wallets: [{ wallet: W1, payers: new Set([P(400)]) }, { wallet: W2, payers: new Set([P(401)]) }], latest: 1000, windowStartBlock: 500, walletChunk: 1, minRangeBlocks: 100 });
+  ok(inc.caughtUp === 2 && inc.refusals === 1, "incremental read: a refusal splits its own job and both wallets still catch up");
+  const t = await readSellerFunding({ rpc: fakeRpc(so, { transport: 5 }), token: USDC, state: known(), wallets: [{ wallet: W1, payers: new Set([P(400)]) }, { wallet: W2, payers: new Set([P(401)]) }], latest: 1000, windowStartBlock: 500, walletChunk: 1 });
+  ok(t.calls === 2 && t.behind === 2 && /fetch failed/.test(t.transportError || ""), "an unreachable RPC is retried once and then the read stops (no fan-out), every wallet left behind at its cursor");
+  const th = await scanOnce({ sellers: SELL, pays: sp, outs: so, state: createFundingState(USDC), latest: 1000, span: 500, rpcOpts: { transport: 5 }, readOpts: { walletChunk: 1 } });
+  ok(th.stats.history.calls === 2 && th.stats.history.failed === 2 && th.ev[W1].fundingRead === false && th.ev[W1].callsSettled === 1, "...the same for the history read: stopped after one retry, the wallets left behind (counted as they are, not netted blind)");
   // A read that times out may just be too large: it is split, a few times per
   // scan; an RPC that times out on everything stops the read instead.
-  const st4 = createFundingState(USDC);
   let slow = true;
   const timeoutRpc = async (m, params) => { const p = params[0]; const span = parseInt(p.toBlock, 16) - parseInt(p.fromBlock, 16) + 1; if (slow && span > 600) throw new Error("All RPCs failed for eth_getLogs: The operation was aborted due to timeout"); return filterLogs([...so, ...sp.map(payLog)], p); };
-  const ts = await readSellerFunding({ rpc: timeoutRpc, token: USDC, state: st4, wallets: [{ wallet: W1, payers: new Set([P(400)]) }], latest: 1000, freshFrom: 100, minRangeBlocks: 100 });
+  const ts = await readSellerFunding({ rpc: timeoutRpc, token: USDC, state: knownState({ [W1]: [P(400)] }, 99), wallets: [{ wallet: W1, payers: new Set([P(400)]) }], latest: 1000, windowStartBlock: 100, minRangeBlocks: 100 });
   ok(ts.caughtUp === 1 && ts.refusals === 1 && !ts.transportError, "one slow wide read is split rather than abandoned (caught up after a single timeout)");
-  const st5 = createFundingState(USDC);
-  const ts2 = await readSellerFunding({ rpc: async () => { throw new Error("The operation was aborted due to timeout"); }, token: USDC, state: st5, wallets: [{ wallet: W1, payers: new Set([P(400)]) }, { wallet: W2, payers: new Set([P(401)]) }], latest: 1000, freshFrom: 100, minRangeBlocks: 100 });
+  const ts2 = await readSellerFunding({ rpc: async () => { throw new Error("The operation was aborted due to timeout"); }, token: USDC, state: known(), wallets: [{ wallet: W1, payers: new Set([P(400)]) }, { wallet: W2, payers: new Set([P(401)]) }], latest: 1000, windowStartBlock: 100, minRangeBlocks: 100 });
   ok(ts2.calls === 4 && ts2.behind === 2 && /timeout/.test(ts2.transportError || ""), `an RPC that times out on everything stops after a few (${ts2.calls} calls), not after the budget`);
-  // The pool caps cannot be filled cheaply. Zero-value logs are never
-  // recorded; dust pools make way; a recipient that pays the wallet is always
-  // recorded.
+  // The pool caps: only a known payer is ever recorded, zero-value logs never
+  // are, dust pools make way, and a recipient paying this scan always is.
   const W3 = addr("93");
   const spray = [];
   for (let i = 0; i < 30; i++) spray.push(log(W3, P(3000 + i), 0, 100, i), log(W3, P(3100 + i), 1, 101, i));
   spray.push(log(W3, P(3200), usd(2), 150, 0), log(W3, P(3201), usd(2), 151, 0));
-  const st6 = createFundingState(USDC);
-  await readSellerFunding({ rpc: fakeRpc(spray), token: USDC, state: st6, wallets: [{ wallet: W3, payers: new Set([P(3201)]) }], latest: 1000, freshFrom: 50, maxPairsPerWallet: 10 });
+  const st6 = knownState({ [W3]: [P(3201), ...Array.from({ length: 30 }, (_, i) => P(3000 + i))] }, 49);
+  await readSellerFunding({ rpc: fakeRpc(spray), token: USDC, state: st6, wallets: [{ wallet: W3, payers: new Set([P(3201)]) }], latest: 1000, windowStartBlock: 50, maxPairsPerWallet: 10 });
   const pairs6 = st6.wallets.get(W3).pairs;
-  const zeroKept = Array.from({ length: 30 }, (_, i) => P(3000 + i)).some((p) => pairs6.has(p));
-  ok(!zeroKept && !st6.wallets.get(W3).truncated && pairs6.has(P(3200)) && pairs6.has(P(3201)), `SPRAY: 30 zero-value and 30 one-unit transfers do not fill a 10-pool cap; the real $2 fundings are recorded (${pairs6.size} pools, truncated ${st6.wallets.get(W3).truncated})`);
-  const st7 = createFundingState(USDC);
+  ok(pairs6.size === 1 && pairs6.has(P(3201)) && !pairs6.has(P(3200)) && !st6.wallets.get(W3).truncated, `SPRAY: 30 zero-value logs to known payers and 30 one-unit transfers to strangers record nothing; the $2 to a payer is recorded, the $2 to a stranger is not (${pairs6.size} pool)`);
   const big = [];
   for (let i = 0; i < 15; i++) big.push(log(W3, P(3300 + i), usd(0.5), 100, i));
   big.push(log(W3, P(3400), usd(2), 150, 0));
-  await readSellerFunding({ rpc: fakeRpc(big), token: USDC, state: st7, wallets: [{ wallet: W3, payers: new Set([P(3400)]) }], latest: 1000, freshFrom: 50, maxPairsPerWallet: 10 });
-  ok(st7.wallets.get(W3).truncated === true && st7.wallets.get(W3).pairs.has(P(3400)), "past the cap with real pools, the wallet is flagged truncated, and a recipient that pays it is still recorded");
-  // A single wallet refused even over the narrowest range is read targeted at its own payers.
-  const st3 = createFundingState(USDC);
-  const g = await scanOnce({ sellers: [seller(W1, "seller-x.example")], pays: sp.slice(0, 1), outs: so, state: st3, latest: 1000, span: 500, rpcOpts: { refuse: (p) => p.topics[2] === null } , readOpts: { minRangeBlocks: 2000 } });
-  ok(g.stats.caughtUp === 1 && st3.wallets.get(W1).truncated === true && g.ev[W1].selfFundedCalls === 1 && g.calls.some((c) => Array.isArray(c.topics[2])), "a wallet no untargeted read can serve is read targeted at its own payers and flagged truncated");
+  const st7 = knownState({ [W3]: [...Array.from({ length: 15 }, (_, i) => P(3300 + i)), P(3400)] }, 49);
+  await readSellerFunding({ rpc: fakeRpc(big), token: USDC, state: st7, wallets: [{ wallet: W3, payers: new Set([P(3400)]) }], latest: 1000, windowStartBlock: 50, maxPairsPerWallet: 10 });
+  ok(st7.wallets.get(W3).truncated === true && st7.wallets.get(W3).pairs.has(P(3400)), "past the cap with real pools, the wallet is flagged truncated, and a recipient paying it this scan is still recorded");
+  // A single wallet refused even over the narrowest range is read targeted
+  // at its known payers: exactly what is recorded anyway, so nothing is lost.
+  const st3 = knownState({ [W1]: [P(400)] }, 99);
+  const tg = [];
+  const g = await readSellerFunding({ rpc: fakeRpc(so, { calls: tg, refuse: (p) => p.topics[2] === null }), token: USDC, state: st3, wallets: [{ wallet: W1, payers: new Set([P(400)]) }], latest: 1000, windowStartBlock: 500, minRangeBlocks: 2000 });
+  ok(g.caughtUp === 1 && !st3.wallets.get(W1).truncated && st3.wallets.get(W1).pairs.get(P(400))?.pend.length === 1 && tg.some((c) => Array.isArray(c.topics[2])), "a wallet no untargeted read can serve is read targeted at its known payers (complete, not truncated)");
 }
 
 {
-  // COLD START: a new wallet's first read looks back before the window, but the
-  // window's inbound read never saw what its payers paid it back then. A payer
-  // in a steady two-way flow (pays $1, gets $0.99 back, pays $0.0042) must not
-  // be left with an inflated pool: the gap read finds its earlier $1s, which a
-  // later transfer from the seller gives back first (credit).
+  // A payer's history comes in whole: a steady two-way flow (pays $1, gets
+  // $0.9946 back, pays $0.0042) must not leave an inflated pool. The history
+  // read finds its earlier $1s, which a later transfer from the seller gives
+  // back first (credit), so its small payments are its own money.
   const W = addr("c1"), B2 = P(800);
   const so = [], sp = [];
   for (let d = 0; d < 12; d++) {
@@ -309,12 +360,57 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
     sp.push({ wallet: W, payer: B2, usd: 0.0042, pos: posOf(b0 + 110, 2) }, { wallet: W, payer: B2, usd: 0.0042, pos: posOf(b0 + 130, 2) });
   }
   for (let i = 0; i < 3; i++) for (let k = 0; k < 20; k++) sp.push({ wallet: W, payer: P(810 + i), usd: 0.01, pos: posOf(4200 + i * 30 + k, 3) });
-  const withGap = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000, lookback: 4000 });
-  const noGap = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000, lookback: 4000, gaps: false });
-  ok(withGap.stats.gap.read === 1 && withGap.ev[W].selfFundedCalls === 0 && withGap.ev[W].callsSettled === 72 && withGap.ev[W].uniqueBuyers === 4, "cold start WITH the gap read: the two-way payer's small payments are its own money (its earlier $1s come back first): 72 / 4, nothing netted");
-  ok(noGap.ev[W].fundingRead === false && noGap.ev[W].callsSettled === 72, "without the gap read the wallet is left behind (its pools are not advanced on half the story), not netted");
-  const blind = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000, lookback: 4000, chainHidesPaysBefore: 4000 });
-  ok(blind.ev[W].selfFundedCalls === 12 && blind.ev[W].uniqueBuyers === 3, "control: had the pools been worked blind to the payer's earlier $1s, every one of its small payments would read as the seller's money (12 netted, a buyer lost)");
+  const withHist = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000 });
+  const inCall = withHist.calls.find((c) => Array.isArray(c.topics[2]) && c.topics[2].includes(topic(W)) && c.topics[1].includes(topic(B2)));
+  ok(withHist.stats.history.funded === 1 && inCall && parseInt(inCall.toBlock, 16) === 3999 && withHist.ev[W].selfFundedCalls === 0 && withHist.ev[W].callsSettled === 72 && withHist.ev[W].uniqueBuyers === 4,
+    "the funded payer's own transfers before the window are read (up to the window), and its small payments are its own money: 72 / 4, nothing netted");
+  const noHist = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000, history: false });
+  ok(noHist.ev[W].fundingRead === false && noHist.ev[W].callsSettled === 72, "without the history read the wallet is left behind (its pools are never worked on half the story), not netted");
+  const blind = await scanOnce({ sellers: [seller(W, "seller-t.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 7000, span: 3000, chainHidesPaysBefore: 4000 });
+  ok(blind.ev[W].selfFundedCalls > 0 && blind.ev[W].uniqueBuyers === 3, `control: had the pools been built blind to the payer's earlier $1s, its small payments would read as the seller's money (${blind.ev[W].selfFundedCalls} netted, a buyer lost)`);
+  // CREDIT FOR A KNOWN PAYER: it sent $5 (not a call) before it was first
+  // seen paying; the seller refunds the $5 later. That refund is its own money
+  // coming back, so its later small payments are genuine.
+  const Wc = addr("c2"), C = P(820);
+  const so2 = [], sp2 = [{ wallet: Wc, payer: C, usd: 5, pos: posOf(100, 0) }];
+  for (let k = 0; k < 20; k++) sp2.push({ wallet: Wc, payer: C, usd: 0.01, pos: posOf(1_000 + k, 0) });
+  const stc = createFundingState(USDC);
+  await scanOnce({ sellers: [seller(Wc, "seller-c.example")], pays: sp2, outs: so2, state: stc, latest: 1_500, span: 600 });
+  ok(stc.wallets.get(Wc).known.has(C) && !stc.wallets.get(Wc).pairs.has(C), "(the payer is known, never funded: no pool)");
+  so2.push(log(Wc, C, usd(5), 2_000));
+  for (let k = 0; k < 30; k++) sp2.push({ wallet: Wc, payer: C, usd: 0.01, pos: posOf(2_100 + k, 0) });
+  const rc = await scanOnce({ sellers: [seller(Wc, "seller-c.example")], pays: sp2, outs: so2, state: stc, latest: 2_500, span: 600 });
+  const creditCall = rc.calls.find((c) => Array.isArray(c.topics[2]) && c.topics[1].includes(topic(C)));
+  ok(rc.stats.history.creditReads === 1 && creditCall && parseInt(creditCall.toBlock, 16) === 899 && rc.ev[Wc].selfFundedCalls === 0 && rc.ev[Wc].callsSettled === 30 && (stc.wallets.get(Wc).pairs.get(C)?.pool ?? 0) === 0,
+    "a known payer's first funding reads its own earlier transfers first: the $5 refund returns its $5, and none of its 30 later payments is netted");
+  const blindC = createFundingState(USDC);
+  await scanOnce({ sellers: [seller(Wc, "seller-c.example")], pays: sp2, outs: so2, state: blindC, latest: 1_500, span: 600, chainHidesPaysBefore: 1_000 });
+  const rcb = await scanOnce({ sellers: [seller(Wc, "seller-c.example")], pays: sp2, outs: so2, state: blindC, latest: 2_500, span: 600, chainHidesPaysBefore: 1_000 });
+  ok(rcb.ev[Wc].selfFundedCalls === 30, "control: blind to that $5, the refund would have netted all 30");
+}
+{
+  // THE GLOBAL POOL CAP CANNOT BE FILLED FROM OUTSIDE (the review's cap case):
+  // one wallet, already known to have a payer, sprays one base unit to 60
+  // strangers (read by its incremental outbound read); another funds five
+  // wallets that then buy from it. With a global cap of 60 pools, the funded
+  // fleet is still netted: strangers are never recorded.
+  const A = addr("e1"), V = addr("e2");
+  const logs = [], allPays = [];
+  allPays.push({ wallet: A, payer: P(900), usd: 0.01, pos: posOf(500, 1) });
+  for (let i = 0; i < 60; i++) logs.push(log(A, "0x" + "d0".repeat(18) + i.toString(16).padStart(4, "0"), 1, 1_500, i));
+  allPays.push({ wallet: V, payer: P(901), usd: 0.01, pos: posOf(500, 2) });
+  for (let i = 1; i <= 5; i++) logs.push(log(V, P(i), usd(0.12), 700, i));
+  for (let i = 1; i <= 5; i++) for (let k = 0; k < 12; k++) allPays.push({ wallet: V, payer: P(i), usd: 0.01, pos: posOf(1100 + k, i) });
+  const SELL = [seller(A, "sprayer.example"), seller(V, "seller-v.example")];
+  const run = async (maxPairsTotal) => {
+    const st = createFundingState(USDC);
+    const opts = { readOpts: { maxPairsTotal } };
+    await scanOnce({ sellers: SELL, pays: allPays.filter((t) => t.pos < posOf(1001, 0)), outs: logs, state: st, latest: 1000, span: 1000, ...opts });
+    const r = await scanOnce({ sellers: SELL, pays: allPays, outs: logs, state: st, latest: 2000, span: 2000, ...opts });
+    return { ev: r.ev[V], pairs: SF.fundingPairCount(st) };
+  };
+  const wide = await run(1000), tight = await run(60);
+  ok(wide.ev.selfFundedCalls === 60 && tight.ev.selfFundedCalls === 60 && !tight.ev.fundingTruncated && tight.pairs <= 6, `a global cap of 60 pools: V's funded fleet is netted either way (60 of 61), ${tight.pairs} pool(s) held, none for the 60 strangers`);
 }
 
 // --- 4. Behind: known facts net it, and a circular wallet behind credits nothing ----
@@ -486,8 +582,8 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   let LATEST = 10_000;
   const e2ePays = [], e2eOuts = [];
   const inLog = (to, from, block, idx) => ({ address: USDC, topics: [TRANSFER, topic(from), topic(to)], data: "0x" + (10_000).toString(16).padStart(64, "0"), blockNumber: hex(block), logIndex: hex(idx) });
-  // seller-a funds three payers well BEFORE the window (inside the first read's
-  // lookback), each pays 20x in the window; one organic payer.
+  // seller-a funds three payers well BEFORE the window, each pays 20x in the
+  // window; one organic payer.
   for (let i = 1; i <= 3; i++) { e2eOuts.push(log(LOOP, P(i), usd(3), 8_500, i)); for (let k = 0; k < 20; k++) e2ePays.push(inLog(LOOP, P(i), 9_100 + k, i)); }
   e2ePays.push(inLog(LOOP, P(90), 9_200, 0));
   // seller-b: four payers x 15, a refund to one after its payments.
@@ -519,22 +615,24 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   });
   await new Promise((r) => srv.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${srv.address().port}`;
-  const opts = { bazaarUrl: `${base}/bazaar`, rpcs: [`${base}/rpc`, `${base}/rpc-fallback`], spanBlocks: 1_000, chunkBlocks: 500, fundingLookbackBlocks: 2_000, intervalMs: 3_600_000, firstDelayMs: 0 };
+  const opts = { bazaarUrl: `${base}/bazaar`, rpcs: [`${base}/rpc`, `${base}/rpc-fallback`], spanBlocks: 1_000, chunkBlocks: 500, fundingHistoryFromBlock: 0, intervalMs: 3_600_000, firstDelayMs: 0 };
   const waitForScan = async (after) => { for (let i = 0; i < 200; i++) { const s = LB.getLeaderboardSnapshot(); if (s.asOf && s.asOf !== after && !s.warming && LB.getLeaderboardFundingScan()) return s; await new Promise((r) => setTimeout(r, 25)); } return null; };
   try {
     const direct = await runLeaderboard({ ...opts, now: NOW });
     ok(direct.walletsQueried === 2 && !direct.leaderboard.some((r) => r.wallets.includes(ZERO_ADDRESS)), "scan: a listing whose payTo is the zero address is not scanned (burns are not sales)");
-    ok(direct.walletEvidence[LOOP]?.callsSettled === 1 && direct.walletEvidence[LOOP]?.grossCallsSettled === 61 && direct.walletEvidence[LOOP]?.circular === true, "scan: funding read in the lookback nets seller-a to 1 genuine call and marks it circular");
+    ok(direct.walletEvidence[LOOP]?.callsSettled === 1 && direct.walletEvidence[LOOP]?.grossCallsSettled === 61 && direct.walletEvidence[LOOP]?.circular === true, "scan: each new payer's history (funded before the window) nets seller-a to 1 genuine call and marks it circular");
     ok(direct.walletEvidence[HONEST]?.callsSettled === 60 && direct.walletEvidence[HONEST]?.circular === false, "scan: seller-b's refund after payment leaves all 60 counted");
     rpcCalls.length = 0;
     LB._resetLeaderboardCacheForTests();
     LB.startLeaderboardRefresh(opts);
     const first = await waitForScan(null);
     const outbound1 = rpcCalls.filter((p) => Array.isArray(p.topics?.[1]) && p.topics?.[2] === null);
-    const gap1 = rpcCalls.filter((p) => Array.isArray(p.topics?.[1]) && Array.isArray(p.topics?.[2]));
-    ok(first && outbound1.length === 1 && parseInt(outbound1[0].fromBlock, 16) === LATEST - 1_000 - 2_000 && parseInt(outbound1[0].toBlock, 16) === LATEST, "refresh 1: ONE outbound read for both paid wallets over the window plus the first read's lookback");
-    ok(gap1.length === 1 && parseInt(gap1[0].toBlock, 16) === LATEST - 1_000 - 1, "refresh 1: ONE gap read (both wallets' funded payers, up to the window) so their pools start right");
-    ok(LB.getLeaderboardCircularWallets(NOW).wallets.has(LOOP) && LB.getLeaderboardFundingScan()?.walletsCaughtUp === 2, "refresh 1: the verdict and the read's counts are published to the router");
+    const hist1 = rpcCalls.filter((p) => Array.isArray(p.topics?.[1]) && Array.isArray(p.topics?.[2]));
+    const histOut = hist1.filter((p) => p.topics[1].includes(topic(LOOP)));
+    const histIn = hist1.filter((p) => p.topics[2].includes(topic(LOOP)));
+    ok(first && outbound1.length === 0 && histOut.length === 1 && parseInt(histOut[0].fromBlock, 16) === 0 && parseInt(histOut[0].toBlock, 16) === LATEST, "refresh 1: nothing known yet, so no outbound read; ONE history read of both wallets' new payers from the history start to the latest block");
+    ok(histIn.length === 1 && hist1.length === 2 && parseInt(histIn[0].toBlock, 16) === LATEST - 1_000 - 1, "refresh 1: ONE read of the funded payers' own transfers before the window, so their pools start right");
+    ok(LB.getLeaderboardCircularWallets(NOW).wallets.has(LOOP) && LB.getLeaderboardFundingScan()?.walletsCaughtUp === 2 && LB.getLeaderboardFundingScan()?.historyPayers === 8, "refresh 1: the verdict and the read's counts are published to the router");
     await new Promise((r) => setTimeout(r, 50));
     ok(existsSync(process.env.LEADERBOARD_FUNDING_FILE) && parseFundingState(readFileSync(process.env.LEADERBOARD_FUNDING_FILE, "utf8"), USDC).wallets.get(LOOP)?.cursor === LATEST, "refresh 1: the funding state is persisted beside the snapshot with each wallet's cursor");
     const served = LB.getLeaderboardSnapshot();
@@ -565,10 +663,11 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   ok(/configureSellerFunding\(\{ cleared: selfFundingClearedStore\(\), skip: \(w\) => sharedPayToStore\(\)\.has\(w\) \}\)/.test(server), "the server hands the rule the operator's clearances and skips the shared settlement contracts");
   const lbSrc = readFileSync(new URL("../src/leaderboard.js", import.meta.url), "utf8");
   const run = lbSrc.slice(lbSrc.indexOf("export async function runLeaderboard("), lbSrc.indexOf("// --- history persistence"));
-  const order = ["await readSellerFunding(", "processSellerFunding(state, byWallet,", "applySellerFunding(byWallet, state,", "const ranked = finalizeLeaderboard(byWallet"].map((x) => run.indexOf(x));
-  ok(order.every((i) => i > 0) && order.every((i, k) => k === 0 || i > order[k - 1]), "runLeaderboard reads, works the pools, applies, then finalizes (the order scanOnce above mirrors)");
+  const order = ["await readSellerFunding(", "await readPayerHistory(", "await readFundingGaps(", "processSellerFunding(state, byWallet,", "applySellerFunding(byWallet, state,", "const ranked = finalizeLeaderboard(byWallet"].map((x) => run.indexOf(x));
+  ok(order.every((i) => i > 0) && order.every((i, k) => k === 0 || i > order[k - 1]), "runLeaderboard reads the outbound, the new payers' history and the gaps, works the pools, applies, then finalizes (the order scanOnce above mirrors)");
+  ok(/processSellerFunding\(state, byWallet, \{[^\n]*histories: history\.histories/.test(run) && /historyFromBlockFor\(chain\.token\)/.test(run), "the pools are worked with the history just read, from the token's own history start");
   ok(/rpcCall\(primary, method, params, \{ passes: 1 \}\)/.test(run) && /\.filter\(\(s\) => isScannableWallet\(s\.wallet, chain\.token\)\)/.test(run), "the funding read uses the primary RPC once per call; non-wallet payTos are dropped from the scan");
-  ok(/\.sort\(\(a, b\) => clears\(b\) - clears\(a\) \|\| \(b\.callsSettled \|\| 0\) - \(a\.callsSettled \|\| 0\)\)/.test(run) && /await readFundingGaps\(\{ rpc: fundingRpc,[^\n]*maxCalls: Math\.max\(0, maxCalls - facts\.calls\)/.test(run), "wallets that clear the floor on gross are read first, and the gap read spends only what the outbound read left of the budget");
+  ok(/\.sort\(\(a, b\) => clears\(b\) - clears\(a\) \|\| \(b\.callsSettled \|\| 0\) - \(a\.callsSettled \|\| 0\)\)/.test(run) && /await readPayerHistory\(\{ rpc: fundingRpc,[^\n]*maxCalls: Math\.max\(0, maxCalls - facts\.calls\)/.test(run) && /await readFundingGaps\(\{ rpc: fundingRpc,[^\n]*maxCalls: Math\.max\(0, maxCalls - facts\.calls - history\.stats\.calls\)/.test(run), "wallets that clear the floor on gross are read first, and each later read spends only what the earlier ones left of the one budget");
   ok(/await loadSellerFundingState\(\)/.test(lbSrc) && /await persistSellerFundingState\(fundingState\)/.test(lbSrc), "every refresh loads the persisted state and writes it back");
 }
 
