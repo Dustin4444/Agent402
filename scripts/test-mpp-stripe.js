@@ -143,7 +143,7 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
   const savedKeyBudget = process.env.HANGUP_FORGIVE_KEY_USD;
   delete process.env.HANGUP_FORGIVE_KEY_USD;
   const byDefault = {}; reserveHangupForgiveness(byDefault, { keys: ["ip:stripe-default"], priceUsd: 0.5 });
-  ok(!hangupForgiven(byDefault) && byDefault.__a402HangupTicket.reason === "ip budget", `gate F: under the default budget a $0.50 card charge takes no forgiveness ticket (${byDefault.__a402HangupTicket.reason})`);
+  ok(!hangupForgiven(byDefault) && byDefault.__a402HangupTicket.reason === "over per-key budget", `gate F: under the default budget a $0.50 card charge takes no forgiveness ticket (${byDefault.__a402HangupTicket.reason})`);
   _resetHangupForgiveness();
   process.env.HANGUP_FORGIVE_KEY_USD = "1";
   const replay = new Map();

@@ -32,13 +32,30 @@
 // RECOVERED from a Tempo transaction's signature, or the credits key, plus
 // always the client IP. A client-supplied field (a Tempo credential's
 // `source`) is never a key, because choosing a fresh key per request is how a
-// per-key bound is walked around.
+// per-key bound is walked around. A key is held only as a keyed digest of that
+// identity (its kind prefix kept, so a denial can still say "ip budget"): the
+// module never needs the address itself, and the persisted file below must not
+// hold a list of client IPs.
 //
-// In memory, like the settle breaker and the composite guard: a restart
-// resets the window. Money is counted in integer micro-dollars.
+// The ABANDONED records persist: a deploy is a restart, we deploy often, and a
+// budget that every restart refills is not a bound. They are written to
+// HANGUP_FORGIVE_FILE (default /data/hangup-forgiveness.json when /data exists,
+// nothing otherwise; "off" disables) shortly after each abandoned run, flushed
+// on shutdown, and read back at boot, pruned to the window. In-flight
+// reservations are not persisted: a restart ends every run in flight. Per-key
+// records carry across a restart only when the digest secret is stable
+// (HANGUP_FORGIVE_SALT, else POW_SECRET, else MPP_SECRET_KEY); the
+// service-wide record always does. Money is counted in integer micro-dollars.
+
+import { createHmac, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { writeFile, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 const MICRO = 1_000_000;
 const MAX_KEYS = 20_000;
+const PERSIST_DEBOUNCE_MS = 2_000;
+const FILE_VERSION = 1;
 
 // Default budgets, per 24 h window, sized for micro-transactions: most
 // catalog calls cost a fraction of a cent, so a quarter per key still covers
@@ -79,6 +96,26 @@ export const LASTING_EFFECT_SLUG_LIST = Object.freeze([...LASTING_EFFECT_SLUGS])
 /** True for a slug whose effect outlives an undelivered answer: never forgiven. */
 export function hasLastingEffect(slug) {
   return typeof slug === "string" && LASTING_EFFECT_SLUGS.has(slug);
+}
+
+const KEY_KINDS = new Set(["ip", "tempo", "credits"]);
+let processSecret = null;
+function digestSecret() {
+  const s = String(process.env.HANGUP_FORGIVE_SALT || process.env.POW_SECRET || process.env.MPP_SECRET_KEY || "").trim();
+  if (s) return s;
+  // No stable secret: digests still work within this process, and per-key
+  // records simply do not match after a restart (the service-wide one does).
+  if (!processSecret) processSecret = randomBytes(32).toString("hex");
+  return processSecret;
+}
+
+/** `kind:digest` for a raw identity key. The kind ("ip", "tempo", "credits",
+ *  else "payer") survives so a denial can name which budget bound it. */
+export function hangupKeyDigest(raw) {
+  const k = String(raw);
+  const i = k.indexOf(":");
+  const kind = i > 0 && KEY_KINDS.has(k.slice(0, i)) ? k.slice(0, i) : "payer";
+  return `${kind}:${createHmac("sha256", digestSecret()).update(k).digest("hex").slice(0, 24)}`;
 }
 
 function envNumber(name, dflt) {
@@ -163,7 +200,7 @@ export function hangupTicketDenial(req) {
  */
 export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = null, now = Date.now() } = {}) {
   const cfg = hangupForgivenessConfig();
-  const uniq = [...new Set(keys.filter((k) => typeof k === "string" && k))];
+  const uniq = [...new Set(keys.filter((k) => typeof k === "string" && k).map(hangupKeyDigest))];
   const micro = Math.max(0, Math.round(Number(priceUsd) * MICRO) || 0);
   const ticket = { granted: false, keys: uniq, micro, state: "denied", reason: null };
   const store = (t) => { if (req && typeof req === "object") Object.defineProperty(req, "__a402HangupTicket", { value: t, writable: true, configurable: true, enumerable: false }); return t; };
@@ -175,6 +212,10 @@ export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = 
   // Every request carries at least the IP key; one that carries none is not
   // bounded per key, so it is never forgiven.
   if (!uniq.length) { ticket.reason = "no key"; return store(ticket); }
+  // A single call priced above the per-key budget could never be forgiven,
+  // whatever else is spent: say so, and keep it from reading as (and warning
+  // about) a spent service-wide budget.
+  if (micro > cfg.keyMicro) { ticket.reason = "over per-key budget"; return store(ticket); }
   globalAbandoned = prune(globalAbandoned, now, cfg.windowMs);
   if (globalInflight + sumOf(globalAbandoned) + micro > cfg.globalMicro) {
     ticket.reason = "global budget";
@@ -215,6 +256,7 @@ export function settleHangupTicket(req, { abandoned = false, now = Date.now() } 
     for (const k of t.keys) { const list = abandonedByKey.get(k) || []; list.push([now, t.micro]); abandonedByKey.set(k, list); }
     globalAbandoned.push([now, t.micro]);
     t.state = "abandoned";
+    schedulePersist();
   } else {
     t.state = "released";
   }
@@ -234,12 +276,133 @@ export function hangupForgivenessStatus(now = Date.now()) {
     abandonedUsdInWindow: sumOf(globalAbandoned) / MICRO,
     inflightUsd: globalInflight / MICRO,
     keysTracked: abandonedByKey.size,
+    persisted: persistPath() !== null,
+    lastPersistError: lastPersistError,
     // Routes a hang-up is never forgiven on (their effect outlives the answer).
     neverForgiven: LASTING_EFFECT_SLUG_LIST,
   };
 }
 
+// ---- Persistence of the abandoned records ----
+
+let persistTimer = null;
+let persistWriting = false;
+let persistAgain = false;
+let lastPersistError = null;
+
+/** Where the abandoned records live, or null when nothing is persisted. */
+export function persistPath() {
+  const raw = String(process.env.HANGUP_FORGIVE_FILE ?? "").trim();
+  if (raw.toLowerCase() === "off") return null;
+  if (raw) return raw;
+  return existsSync("/data") ? join("/data", "hangup-forgiveness.json") : null;
+}
+
+function snapshot(now = Date.now()) {
+  const { windowMs } = hangupForgivenessConfig();
+  globalAbandoned = prune(globalAbandoned, now, windowMs);
+  const keys = [];
+  for (const k of [...abandonedByKey.keys()]) {
+    if (abandonedMicro(k, now, windowMs) > 0) keys.push([k, abandonedByKey.get(k)]);
+  }
+  return JSON.stringify({ v: FILE_VERSION, savedAt: now, global: globalAbandoned, keys });
+}
+
+function schedulePersist() {
+  if (!persistPath() || persistTimer) return;
+  persistTimer = setTimeout(() => { persistTimer = null; void persistNow(); }, PERSIST_DEBOUNCE_MS);
+  persistTimer.unref?.();
+}
+
+/** Write the abandoned records now (tmp + rename). Never throws. */
+export async function persistNow() {
+  const path = persistPath();
+  if (!path) return false;
+  if (persistWriting) { persistAgain = true; return false; }
+  persistWriting = true;
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp-${process.pid}`;
+    await writeFile(tmp, snapshot(), { mode: 0o600 });
+    await rename(tmp, path);
+    lastPersistError = null;
+    return true;
+  } catch (err) {
+    lastPersistError = String(err?.code || err?.message || err).slice(0, 80);
+    return false;
+  } finally {
+    persistWriting = false;
+    if (persistAgain) { persistAgain = false; schedulePersist(); }
+  }
+}
+
+/** Synchronous flush for shutdown. Never throws. */
+export function flushHangupForgiveness() {
+  const path = persistPath();
+  if (!path) return false;
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp-${process.pid}-sync`;
+    writeFileSync(tmp, snapshot(), { mode: 0o600 });
+    renameSync(tmp, path);
+    lastPersistError = null;
+    return true;
+  } catch (err) {
+    lastPersistError = String(err?.code || err?.message || err).slice(0, 80);
+    return false;
+  }
+}
+
+// One [t, micro] record from the file, or null. Strict: a record from the
+// future (past a minute of clock skew) or outside the window is dropped, and
+// micro must be a positive whole number no larger than the service budget.
+function cleanEntry(e, now, windowMs, maxMicro) {
+  if (!Array.isArray(e) || e.length !== 2) return null;
+  const [t, m] = e;
+  if (!Number.isFinite(t) || !Number.isInteger(m) || m <= 0 || m > maxMicro) return null;
+  if (t > now + 60_000 || now - t >= windowMs) return null;
+  return [t, m];
+}
+
+/**
+ * Read the abandoned records back at boot and merge them in, pruned to the
+ * window. Anything malformed is skipped, never trusted. Returns what was
+ * loaded; a missing file loads nothing.
+ */
+export function loadHangupForgiveness(now = Date.now()) {
+  const path = persistPath();
+  const out = { loaded: false, global: 0, keys: 0 };
+  if (!path || !existsSync(path)) return out;
+  let doc;
+  try { doc = JSON.parse(readFileSync(path, "utf8")); } catch (err) { lastPersistError = `load: ${String(err?.code || err?.message || err).slice(0, 60)}`; return out; }
+  if (!doc || typeof doc !== "object" || doc.v !== FILE_VERSION) return out;
+  const { windowMs } = hangupForgivenessConfig();
+  // A sanity bound only: a record is never larger than the per-key budget
+  // that granted it, and a budget lowered since then must not discard records
+  // granted under the old one (they keep counting in full).
+  const maxMicro = 1_000 * MICRO;
+  const g = (Array.isArray(doc.global) ? doc.global : []).map((e) => cleanEntry(e, now, windowMs, maxMicro)).filter(Boolean);
+  globalAbandoned = [...globalAbandoned, ...g].sort((a, b) => a[0] - b[0]);
+  out.global = g.length;
+  const rows = Array.isArray(doc.keys) ? doc.keys : [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length !== 2) continue;
+    const [k, list] = row;
+    if (typeof k !== "string" || !/^(ip|tempo|credits|payer):[0-9a-f]{24}$/.test(k) || !Array.isArray(list)) continue;
+    const kept = list.map((e) => cleanEntry(e, now, windowMs, maxMicro)).filter(Boolean);
+    if (!kept.length) continue;
+    evictIfFull();
+    abandonedByKey.set(k, [...(abandonedByKey.get(k) || []), ...kept].sort((a, b) => a[0] - b[0]));
+    out.keys++;
+  }
+  out.loaded = true;
+  return out;
+}
+
 /** Test seam only. */
 export function _resetHangupForgiveness() {
   inflightByKey.clear(); globalInflight = 0; abandonedByKey.clear(); globalAbandoned = []; lastExhaustedLog = 0;
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+  lastPersistError = null;
 }

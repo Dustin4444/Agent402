@@ -604,7 +604,7 @@ function trialClientKey(ip) {
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort } from "./hangup-settlement.js";
-import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus } from "./hangup-forgiveness.js";
+import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -8656,7 +8656,13 @@ app.use((req, res, next) => {
 //     marked) records the run as abandoned or returns the reservation; a paid
 //     success never clears an abandoned record.
 // A free proof-of-work or trial call is not a charge and takes no ticket.
+// The abandoned records are read back before the listener opens: a deploy is a
+// restart, and a budget every restart refilled would not bound anything.
 if (!FREE_MODE) {
+  try {
+    const r = loadHangupForgiveness();
+    if (r.loaded) console.log(`[hangup] forgiveness records restored: ${r.global} service-wide, ${r.keys} keys`);
+  } catch (err) { console.warn(`[hangup] forgiveness records not restored: ${err?.message || err}`); }
   app.use((req, res, next) => {
     const def = CATALOG[`${req.method} ${req.path}`];
     if (!def || res.getHeader("X-Pow-Accepted") || res.getHeader("X-Trial-Accepted")) return next();
@@ -9573,6 +9579,9 @@ function shutdown(signal, { code = 0, deadlineMs = DRAIN_DEADLINE_MS } = {}) {
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
+  // Keep the hang-up forgiveness record across the restart (no-op when not
+  // persisted); runs still in flight are recorded by their own close events.
+  try { flushHangupForgiveness(); } catch { /* never blocks the drain */ }
   console.log(`${signal} received - closing listener, draining in-flight requests (exit ${code})`);
   // Cut off every composite in flight NOW: its upstream calls reject, the
   // handler throws, the buyer sees a 503 (never charged) and the replacement

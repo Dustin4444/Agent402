@@ -817,7 +817,7 @@ async function withWarnings(fn) {
   const { gatewaySettleBreakerKey } = await import("../src/gateway-settle-breaker.js");
   const reqA = { mppTempoPayer: bA.payerHint, mppTempoSender: tempoSenderOf(spoofA), ip: "1.2.3.4", headers: {}, header: () => undefined };
   const reqB = { mppTempoPayer: bB.payerHint, mppTempoSender: tempoSenderOf(spoofB), ip: "1.2.3.4", headers: {}, header: () => undefined };
-  ok(gatewaySettleBreakerKey(reqA) === gatewaySettleBreakerKey(reqB) && gatewaySettleBreakerKey(reqA) === `tempo:${PULL_SIGNER.address.toLowerCase()}`, `case T: the settle breaker keys both on the recovered sender (the reviewers' repro gave three distinct keys) (${gatewaySettleBreakerKey(reqA)})`);
+  ok(gatewaySettleBreakerKey(reqA) === gatewaySettleBreakerKey(reqB) && gatewaySettleBreakerKey(reqA) === `tempo:${PULL_SIGNER.address.toLowerCase()}`, `case T: the settle breaker keys both on the recovered sender (three credentials from one signer, one key) (${gatewaySettleBreakerKey(reqA)})`);
   ok(gatewaySettleBreakerKey({ mppTempoPayer: bA.payerHint, ip: "1.2.3.4", headers: {}, header: () => undefined }) === "ip:1.2.3.4", "case T: a Tempo request with only the source hint keys on the client IP, never the hint");
   // "proof" credentials move no money and are refused before any relay call.
   const proof = buildTempoCredential({ payload: { signature: `0x${"cd".repeat(65)}`, type: "proof" } });

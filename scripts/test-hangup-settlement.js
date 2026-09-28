@@ -24,11 +24,11 @@
 //   c. close during verify: the handler never runs, nothing settles, no budget spent;
 //   d. close mid-handler inside the budget: nothing settles, nothing owed,
 //      the spent credential cannot buy a second run;
-//   e. the reviewers' R3 (hang-ups interleaved with a paid success from one
+//   e. hang-ups interleaved with a paid success from one
 //      wallet): forgiven and cut off inside the wallet's budget, then settled
 //      and owed, never refused;
 //   f. one IP rotating wallets: the IP's budget binds;
-//   g. the reviewers' R2 (ten concurrent hang-ups): in-flight runs count;
+//   g. ten concurrent hang-ups: in-flight runs count;
 //   h. rotating wallets AND IPs: the service-wide budget binds;
 //   i. close AFTER the whole answer arrived: an ordinary settled sale;
 //   j. no hang-up feeds the settle breaker or the composite guard;
@@ -47,7 +47,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, CLIENT_GONE_TEXT } from "../src/hangup-settlement.js";
-import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, hangupTicketDenial, hasLastingEffect, LASTING_EFFECT_SLUG_LIST, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
+import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, hangupTicketDenial, hasLastingEffect, LASTING_EFFECT_SLUG_LIST, _resetHangupForgiveness, hangupKeyDigest, persistPath, persistNow, flushHangupForgiveness, loadHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { createCredits } from "../src/credits.js";
 import { getFreePorts } from "./lib/free-port.js";
 let pass = 0, proc = null, facilitator = null, orStub = null;
@@ -141,14 +141,14 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   // $0.50: over the default per-key budget ($0.25), under the service-wide
   // one ($2.00).
   const g2 = gone(); reserveHangupForgiveness(g2, { keys: ["ip:1.1.1.3"], priceUsd: 0.5 });
-  ok(!hangupForgiven(g2) && !chargeCancelledForClientGone(g2) && g2.__a402HangupTicket.reason === "ip budget", `gone with a DENIED ticket: the charge stands (${g2.__a402HangupTicket.reason})`);
+  ok(!hangupForgiven(g2) && !chargeCancelledForClientGone(g2) && g2.__a402HangupTicket.reason === "over per-key budget", `gone with a DENIED ticket: the charge stands (${g2.__a402HangupTicket.reason})`);
   const g3 = Object.assign(Object.create({ __a402HangupTicket: { granted: true } }), { __a402ClientGoneAt: Date.now() });
   ok(!hangupForgiven(g3) && !chargeCancelledForClientGone(g3), "a ticket on the PROTOTYPE is ignored (a polluted prototype must not make every request unsettled)");
   _resetHangupForgiveness();
 }
 
-// 1d. The forgiveness budget itself (src/hangup-forgiveness.js), with the
-// reviewers' three shapes: hang-ups interleaved with paid successes, a burst
+// 1d. The forgiveness budget itself (src/hangup-forgiveness.js), in three
+// shapes: hang-ups interleaved with paid successes, a burst
 // of concurrent hang-ups, and rotation across wallets.
 {
   const saved = { k: process.env.HANGUP_FORGIVE_KEY_USD, g: process.env.HANGUP_FORGIVE_GLOBAL_USD, w: process.env.HANGUP_FORGIVE_WINDOW_MS, o: process.env.HANGUP_FORGIVE };
@@ -162,7 +162,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   // A single call priced above the per-key default is never forgiven, even
   // with nothing spent: $0.26 on a fresh wallet and IP.
   const pricey = {}; reserveHangupForgiveness(pricey, { keys: ["0xdefault", "ip:10.10.0.1"], priceUsd: 0.26 });
-  ok(!hangupForgiven(pricey) && pricey.__a402HangupTicket.reason === "payer budget", `defaults: a $0.26 call is over the per-key budget on its own (${pricey.__a402HangupTicket.reason})`);
+  ok(!hangupForgiven(pricey) && pricey.__a402HangupTicket.reason === "over per-key budget", `defaults: a $0.26 call is over the per-key budget on its own (${pricey.__a402HangupTicket.reason})`);
   // The service-wide default binds after $2.00 of abandoned runs across
   // rotating wallets and IPs: eight $0.25 runs fit, the ninth does not.
   const rotDefault = Array.from({ length: 9 }, (_, i) => { const req = {}; const t = reserveHangupForgiveness(req, { keys: [`0xdg${i}`, `ip:10.10.1.${i}`], priceUsd: 0.25 }); settleHangupTicket(req, { abandoned: true }); return t.granted; });
@@ -172,20 +172,20 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   _resetHangupForgiveness();
   const T0 = 1_000_000;
   const run = (keys, { price = 0.003, now = T0, abandoned = true } = {}) => { const req = {}; const t = reserveHangupForgiveness(req, { keys, priceUsd: price, now }); settleHangupTicket(req, { abandoned, now }); return t.granted; };
-  // R1: [2 hang-ups, 1 paid success] x 4 from one wallet on one IP. The
+  // Interleaved: [2 hang-ups, 1 paid success] x 4 from one wallet on one IP. The
   // success returns its own reservation and clears NOTHING, so the budget
   // (3 x $0.003) is spent by the third hang-up and every later one is charged.
   const r1 = [];
   for (let c = 0; c < 4; c++) { r1.push(run(["0xr1", "ip:10.1.0.1"], { now: T0 + c })); r1.push(run(["0xr1", "ip:10.1.0.1"], { now: T0 + c })); run(["0xr1", "ip:10.1.0.1"], { now: T0 + c, abandoned: false }); }
-  ok(hangupForgivenessStatus(T0 + 4).inflightUsd === 0, "R1: every paid success returned its reservation (nothing left in flight)");
-  ok(r1.filter(Boolean).length === 3 && r1.slice(3).every((g) => g === false), `R1: a paid success between hang-ups never resets the budget - 3 of 8 hang-ups forgiven, the other 5 charged (${JSON.stringify(r1)})`);
-  // R2: 10 concurrent runs from one wallet, each from a different IP. The
+  ok(hangupForgivenessStatus(T0 + 4).inflightUsd === 0, "interleaved: every paid success returned its reservation (nothing left in flight)");
+  ok(r1.filter(Boolean).length === 3 && r1.slice(3).every((g) => g === false), `interleaved: a paid success between hang-ups never resets the budget - 3 of 8 hang-ups forgiven, the other 5 charged (${JSON.stringify(r1)})`);
+  // Burst: 10 concurrent runs from one wallet, each from a different IP. The
   // reservation happens BEFORE any of them ends, so in-flight runs count.
   _resetHangupForgiveness();
   const burst = Array.from({ length: 10 }, (_, i) => { const req = {}; reserveHangupForgiveness(req, { keys: ["0xr2", `ip:10.2.0.${i}`], priceUsd: 0.003, now: T0 }); return req; });
-  ok(burst.filter(hangupForgiven).length === 3, `R2: 10 concurrent runs from one wallet: only 3 hold a ticket (${burst.filter(hangupForgiven).length})`);
+  ok(burst.filter(hangupForgiven).length === 3, `burst: 10 concurrent runs from one wallet: only 3 hold a ticket (${burst.filter(hangupForgiven).length})`);
   for (const req of burst) settleHangupTicket(req, { abandoned: true, now: T0 });
-  ok(!run(["0xr2", "ip:10.2.9.9"], { now: T0 + 1 }), "R2: and the wallet's next run is not forgiven either (the abandoned burst stays on the books)");
+  ok(!run(["0xr2", "ip:10.2.9.9"], { now: T0 + 1 }), "burst: and the wallet's next run is not forgiven either (the abandoned burst stays on the books)");
   // One IP rotating wallets is bounded by the IP key.
   _resetHangupForgiveness();
   const ipRot = Array.from({ length: 5 }, (_, i) => run([`0xip${i}`, "ip:10.3.0.1"], { now: T0 }));
@@ -216,6 +216,54 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const off = {}; reserveHangupForgiveness(off, { keys: ["0xoff", "ip:10.8.0.1"], priceUsd: 0.001 });
   ok(!hangupForgiven(off) && off.__a402HangupTicket.reason === "disabled", "HANGUP_FORGIVE=off: nothing is forgiven (every hang-up is settled and owed)");
   for (const [k, v] of [["HANGUP_FORGIVE_KEY_USD", saved.k], ["HANGUP_FORGIVE_GLOBAL_USD", saved.g], ["HANGUP_FORGIVE_WINDOW_MS", saved.w], ["HANGUP_FORGIVE", saved.o]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  _resetHangupForgiveness();
+}
+
+// 1d-2. The abandoned records persist (a deploy is a restart). Keys are held
+// as keyed digests, the file is read back strictly, and nothing past the
+// window, from the future, or of the wrong shape is trusted.
+{
+  const saved = { f: process.env.HANGUP_FORGIVE_FILE, s: process.env.HANGUP_FORGIVE_SALT };
+  const file = join(TMP, "unit-hangup.json");
+  process.env.HANGUP_FORGIVE_FILE = file; process.env.HANGUP_FORGIVE_SALT = "unit-salt";
+  _resetHangupForgiveness();
+  ok(/^ip:[0-9a-f]{24}$/.test(hangupKeyDigest("ip:203.0.113.7")) && /^payer:[0-9a-f]{24}$/.test(hangupKeyDigest("0xabc")) && /^tempo:[0-9a-f]{24}$/.test(hangupKeyDigest("tempo:0xabc")) && /^credits:[0-9a-f]{24}$/.test(hangupKeyDigest("credits:k1")), "keys are held as kind:digest, the kind kept for the denial reason");
+  ok(hangupKeyDigest("ip:203.0.113.7") !== hangupKeyDigest("ip:203.0.113.8") && hangupKeyDigest("0xabc") === hangupKeyDigest("0xabc"), "the digest is stable per identity and distinct across identities");
+  const now = Date.now();
+  const spend = (keys, price) => { const req = {}; reserveHangupForgiveness(req, { keys, priceUsd: price, now }); settleHangupTicket(req, { abandoned: true, now }); return req; };
+  spend(["0xpersist", "ip:203.0.113.7"], 0.2);
+  spend(["0xother", "ip:203.0.113.8"], 0.1);
+  ok(flushHangupForgiveness() === true, "the shutdown flush writes the records");
+  const text = readFileSync(file, "utf8");
+  ok(!text.includes("203.0.113") && !text.includes("0xpersist"), "the file holds no client IP and no wallet address");
+  const before = hangupForgivenessStatus(now);
+  _resetHangupForgiveness();
+  ok(hangupForgivenessStatus(now).abandonedInWindow === 0, "(the in-memory record is empty before the load)");
+  const r = loadHangupForgiveness(now);
+  const after = hangupForgivenessStatus(now);
+  ok(r.loaded && r.global === 2 && r.keys === 4 && after.abandonedInWindow === before.abandonedInWindow && Math.abs(after.abandonedUsdInWindow - 0.3) < 1e-9, `loading restores the service-wide and per-key records (${JSON.stringify(r)})`);
+  const again = {}; reserveHangupForgiveness(again, { keys: ["0xpersist", "ip:203.0.113.99"], priceUsd: 0.1, now });
+  ok(!hangupForgiven(again) && again.__a402HangupTicket.reason === "payer budget", `after the load the same wallet is still past its budget (${again.__a402HangupTicket.reason})`);
+  // Strict read: only well-formed records inside the window come back.
+  const { writeFileSync } = await import("node:fs");
+  const W = 86_400_000, good = [now - 1_000, 5_000];
+  writeFileSync(file, JSON.stringify({ v: 1, global: [good, [now - W - 1, 5_000], [now + 3_600_000, 5_000], [now - 1, -5], [now - 1, 1.5], ["x", 5], [now - 1, 2e9], "junk"],
+    keys: [["ip:" + "a".repeat(24), [good]], ["203.0.113.7", [good]], ["ip:" + "b".repeat(24), [[now - W - 5, 5]]], ["__proto__", [good]], ["payer:" + "c".repeat(24), "nope"]] }));
+  _resetHangupForgiveness();
+  const strict = loadHangupForgiveness(now);
+  ok(strict.global === 1 && strict.keys === 1 && hangupForgivenessStatus(now).abandonedInWindow === 1 && ({}).polluted === undefined, `a malformed, expired, future or oversized record is dropped, and a raw key is refused (${JSON.stringify(strict)})`);
+  writeFileSync(file, "{not json");
+  _resetHangupForgiveness();
+  ok(loadHangupForgiveness(now).loaded === false && hangupForgivenessStatus(now).abandonedInWindow === 0, "an unreadable file loads nothing and does not throw");
+  writeFileSync(file, JSON.stringify({ v: 99, global: [good] }));
+  ok(loadHangupForgiveness(now).loaded === false, "a file of another version is not read");
+  // The debounced writer: an abandoned run schedules a write, persistNow writes.
+  _resetHangupForgiveness();
+  spend(["0xdebounce", "ip:203.0.113.20"], 0.01);
+  ok(await persistNow() === true && JSON.parse(readFileSync(file, "utf8")).global.length === 1, "persistNow writes the current records (tmp then rename)");
+  process.env.HANGUP_FORGIVE_FILE = "off";
+  ok(persistPath() === null && flushHangupForgiveness() === false && hangupForgivenessStatus().persisted === false, "HANGUP_FORGIVE_FILE=off persists nothing");
+  for (const [k, v] of [["HANGUP_FORGIVE_FILE", saved.f], ["HANGUP_FORGIVE_SALT", saved.s]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   _resetHangupForgiveness();
 }
 
@@ -403,7 +451,10 @@ await new Promise((r) => orStub.listen(OR_PORT, "127.0.0.1", r));
 // $0.40 for the service, over a day. The nano tier is $0.003, the image tiers
 // $0.02 (fast) and $0.05 (pro). The breaker and composite-guard thresholds
 // stay at 3 so the test would show it if a hang-up still fed either of them.
-proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "--import", "./scripts/lib/hold-json-preload.js", "src/server.js"], {
+// The abandoned records persist across a restart (a deploy is a restart):
+// case m stops this server gracefully and boots a second one on the same file.
+const HANGUP_FILE = join(TMP, "hangup-forgiveness.json");
+const bootServer = () => spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "--import", "./scripts/lib/hold-json-preload.js", "src/server.js"], {
   env: { ...process.env, PORT: String(PORT), FREE_MODE: "", WALLET_ADDRESS: TREASURY, NETWORK: "base",
     FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`, PAYMENT_NETWORKS: "base",
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: "", TEMPO_API_KEY: "", STRIPE_SECRET_KEY: "", POSTHOG_API_KEY: "",
@@ -411,11 +462,13 @@ proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "-
     GATEWAY_SETTLE_BREAKER_MAX: "3", GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000", GATEWAY_SETTLE_BREAKER_GLOBAL_MAX: "3",
     COMPOSITE_GUARD_MAX_FAILS: "3", COMPOSITE_GUARD_GLOBAL_MAX_FAILS: "3",
     HANGUP_FORGIVE: "", HANGUP_FORGIVE_KEY_USD: "0.1", HANGUP_FORGIVE_GLOBAL_USD: "0.4", HANGUP_FORGIVE_WINDOW_MS: "86400000",
+    HANGUP_FORGIVE_FILE: HANGUP_FILE, HANGUP_FORGIVE_SALT: "hangup-test-salt",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
     AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: TMP, SALES_LEDGER_DB: join(TMP, "sales.db"), HANGUP_TEST_HOLD_JSON: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 const keepLog = (chunk) => { for (const line of String(chunk).split("\n")) { if (line.trim()) serverLog.push(line.slice(0, 500)); } };
+proc = bootServer();
 proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
 const logSince = (i) => serverLog.slice(i).join("\n");
 
@@ -569,7 +622,7 @@ try {
     or.chatDelayMs = 0;
   }
 
-  // e. The reviewers' R3: one wallet, [2 hang-ups on /v1/images/pro, then a
+  // e. Interleaved: one wallet, [2 hang-ups on /v1/images/pro, then a
   // paid /v1/images/fast] - each from a different IP, so only the WALLET's
   // budget binds. The first two are forgiven and cut off in flight; the paid
   // success resets nothing; the third hang-up is past the wallet's $0.10, so it
@@ -614,7 +667,7 @@ try {
     or.imagesDelayMs = 0;
   }
 
-  // g. The reviewers' R2: ten CONCURRENT hang-ups from one wallet on
+  // g. Ten CONCURRENT hang-ups from one wallet on
   // /v1/images/fast, each from its own IP. Tickets are reserved when each
   // handler starts, so in-flight runs count: exactly five fit the wallet's
   // $0.10, and the other five are settled and owed.
@@ -791,6 +844,39 @@ try {
     const r1 = await pay(CHAT, wallet(0xd1), "10.0.6.1");
     const r2 = await pay(PRO, wallet(0x61c), "10.0.6.2");
     ok(r1.status === 200 && r2.status === 200, `j. no 429 anywhere: the hang-up wallets are served (${r1.status}, ${r2.status})`);
+  }
+
+  // m. The budget survives a restart. Every deploy is one, so a record kept
+  // only in memory would hand a fresh budget to whoever hung up before it.
+  // Stop this server the way a deploy does (SIGTERM, so the shutdown flush
+  // runs), boot a second one on the same file, and read the budget back.
+  {
+    const before = (await refundsDoc()).hangupForgiveness;
+    const remaining = before.globalBudgetUsd - before.abandonedUsdInWindow;
+    ok(before.persisted === true && before.abandonedUsdInWindow > 0.3 && remaining < 0.05, `m. precondition: the service budget is nearly spent before the restart ($${before.abandonedUsdInWindow.toFixed(3)} of $${before.globalBudgetUsd})`);
+    const fileText = readFileSync(HANGUP_FILE, "utf8");
+    ok(!/10\.0\.\d+\.\d+/.test(fileText) && !/0x0{20,}[0-9a-f]+/i.test(fileText) && /"(ip|payer):[0-9a-f]{24}"/.test(fileText), "m. the persisted file holds keyed digests, never a client IP or a wallet address");
+    const exited = new Promise((r) => proc.once("exit", r));
+    proc.kill("SIGTERM");
+    ok(await Promise.race([exited.then(() => true), sleep(90_000).then(() => false)]), "m. the first server exits on SIGTERM");
+    const logAt = serverLog.length;
+    proc = bootServer();
+    proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
+    let back = false;
+    for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { back = true; break; } } catch { /* booting */ } await sleep(500); }
+    ok(back, "m. the second server booted on the same forgiveness file");
+    ok(/\[hangup\] forgiveness records restored: \d+ service-wide, \d+ keys/.test(logSince(logAt)), "m. the boot log says the records were restored");
+    const after = (await refundsDoc()).hangupForgiveness;
+    ok(after.abandonedInWindow === before.abandonedInWindow && Math.abs(after.abandonedUsdInWindow - before.abandonedUsdInWindow) < 1e-9 && after.keysTracked === before.keysTracked && after.inflightUsd === 0, `m. the budget in use is the same after the restart (${before.abandonedInWindow}/${before.keysTracked} -> ${after.abandonedInWindow}/${after.keysTracked})`);
+    // Behaviour, not only counts: a fresh server would forgive a $0.05
+    // hang-up from a fresh wallet on a fresh IP; this one must settle it and
+    // book it as owed, because the restored record leaves less than $0.05.
+    or.imagesDelayMs = 1_500;
+    const s0 = fac.settle, owed0 = (await refunds()).length, e0 = or.imagesClosedEarly, at = serverLog.length;
+    await hangUpMidRun(PRO, wallet(0x91), "10.0.9.1"); await sleep(2_300);
+    or.imagesDelayMs = 0;
+    ok(or.imagesClosedEarly === e0 && fac.settle === s0 + 1 && (await refunds()).length === owed0 + 1, `m. after the restart a fresh wallet's hang-up is past the restored service budget: settled and owed (settles +${fac.settle - s0}, owed +${(await refunds()).length - owed0})`);
+    ok(/not forgiven: global budget/.test(logSince(at)), "m. and the owed line names the service-wide budget");
   }
 
   if (process.env.HANGUP_TEST_SHOW_LOG) console.log(serverLog.filter((l) => /\[hangup\]/.test(l)).join("\n"));
