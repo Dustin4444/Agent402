@@ -111,11 +111,32 @@ function buildChain(K, days = 2, { newPerDay = 0, late = null, pays = 6 } = {}) 
   return { logs, items, heavy, lights, H, L, heavySet: new Set(heavy.map(topic)), dense };
 }
 
+// Wallets with MANY new payers (each payer chunk of 200 is one planned read):
+// `n` wallets x `perWallet` payers paying once in the window; the first funded
+// each of its payers long before the window.
+function buildManyPayers(n, perWallet) {
+  const start = LATEST0 - SPAN;
+  const logs = [], items = [];
+  const wallets = Array.from({ length: n }, (_, i) => A(0xe000 + i));
+  wallets.forEach((w, i) => {
+    items.push({ resource: `https://many-${i}.example/api/x`, accepts: [{ network: "eip155:8453", asset: USDC, payTo: w, amount: "10000" }] });
+    for (let j = 0; j < perWallet; j++) {
+      const p = A(0x10000000 + i * perWallet + j);
+      if (i === 0) logs.push(log(w, p, 20_000, start - 500_000 + (j % 5_000), 500 + Math.floor(j / 5_000)));
+      logs.push(log(p, w, 10_000, start + 1_000 + i * 5_000 + (j % 5_000), 2 + Math.floor(j / 5_000)));
+    }
+  });
+  return { logs, items, heavy: [], lights: [], H: A(0x4e4e), L: A(0x4c4c), heavySet: new Set(), dense: new Set(), wallets };
+}
+
 // --- the stub Bazaar + RPC -------------------------------------------------------------
 let chain = null;
 let byFrom = new Map(), byTo = new Map();
 let LATEST = LATEST0;
 const counter = { funding: 0, namingHeavy: 0 };
+// Every funding read of one wallet's payers: its direction, wallet, payer set
+// and block range (to find a chunk read twice).
+const reads = [];
 function index(c) {
   byFrom = new Map(); byTo = new Map();
   for (const l of c.logs) {
@@ -151,6 +172,7 @@ const srv = createServer((req, res) => {
     const funding = Array.isArray(p.topics?.[1]);
     if (funding) {
       counter.funding++;
+      if (Array.isArray(p.topics[2])) reads.push({ t1: p.topics[1].map((x) => x.toLowerCase()).sort().join(), t2: p.topics[2].map((x) => x.toLowerCase()).sort().join(), lo: parseInt(p.fromBlock, 16), hi: parseInt(p.toBlock, 16) });
       const named = [...p.topics[1], ...(Array.isArray(p.topics[2]) ? p.topics[2] : [])].map((t) => t.toLowerCase());
       if (named.some((t) => chain.heavySet.has(t))) counter.namingHeavy++;
       if (span > 10_000 && named.some((t) => chain.heavySet.has(t)) && named.some((t) => chain.dense.has(t))) return send({ jsonrpc: "2.0", id: j.id, error: { code: -32602, message: SIZE_REFUSAL } });
@@ -164,8 +186,9 @@ await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${srv.address().port}`;
 
 // --- one run: `hours` hourly refreshes of the real scan -------------------------------
-async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, late = null, pays } = {}) {
-  chain = buildChain(K, Math.ceil(hours / 24) + 1, { newPerDay, late, ...(pays ? { pays } : {}) });
+async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, late = null, pays, many = null } = {}) {
+  chain = many || buildChain(K, Math.ceil(hours / 24) + 1, { newPerDay, late, ...(pays ? { pays } : {}) });
+  reads.length = 0;
   index(chain);
   let state = SF.createFundingState(USDC);
   let prev = null;
@@ -195,6 +218,7 @@ async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, 
       H: { read: ev[chain.H]?.fundingRead === true, circular: ev[chain.H]?.circular === true },
       L: { read: ev[chain.L]?.fundingRead === true, circular: ev[chain.L]?.circular === true, net: ev[chain.L]?.callsSettled },
       retryDay: f.historyRetryCallsDay ?? null, retries: f.historyRetryCalls ?? 0, dayCap: !!f.dayCapReached, notes: LB.fundingReadNotes(f),
+      many: (chain.wallets || []).map((w) => ({ read: ev[w]?.fundingRead === true, circular: ev[w]?.circular === true })),
     });
   }
   return { rows, state };
@@ -233,6 +257,24 @@ try {
   ok(perDay.slice(1).every((c, d) => c <= perDay[d]), `every day costs no more than the day before (${perDay.join(", ")})`);
   ok(heavyPerDay.slice(1).every((c) => c === 0) && Math.max(...week.rows.slice(6).map((r) => r.calls)) <= 3, `after the first day not one call names a heavy payTo, however many new payers they get, and no refresh makes more than 3 calls`);
   ok(week.rows.every((r) => r.retryDay <= DAY_MAX && r.calls === r.stubCalls), `...every rolling day's retries within the allowance, and every call counted`);
+
+  // WALLETS WITH MANY NEW PAYERS: three wallets with 30,000 each (150 payer
+  // chunks of reads apiece, 450 planned before the funded one's second read:
+  // more than one scan). Each chunk keeps its own progress and planned work
+  // finishes one wallet at a time, so all three are read within two scans,
+  // the one that funded its payers is found paying itself, and no chunk's
+  // blocks are read twice. Before, a request kept one frontier for all its
+  // chunks, a finished chunk beside an untouched one kept nothing, and the
+  // budget was spread over every wallet: none was ever read.
+  const many = await run(0, { hours: 3, many: buildManyPayers(3, 30_000) });
+  const readAt = many.rows.findIndex((r) => r.many.every((x) => x.read));
+  const byChunk = new Map();
+  for (const r of reads) { const k = `${r.t1}|${r.t2}`; if (!byChunk.has(k)) byChunk.set(k, []); byChunk.get(k).push([r.lo, r.hi]); }
+  const twice = [...byChunk.values()].filter((rs) => rs.some(([lo, hi], i) => rs.some(([lo2, hi2], j) => j !== i && lo2 <= hi && lo <= hi2))).length;
+  console.log(`# 3 wallets x 30,000 new payers: calls per refresh ${many.rows.map((r) => r.calls).join(",")}`);
+  ok(readAt >= 0 && readAt <= 1 && many.rows[readAt].many[0].circular === true && many.rows[readAt].many.slice(1).every((x) => !x.circular) && many.rows.every((r) => r.calls <= MAX_CALLS),
+    `three wallets with 30,000 new payers each are all read by refresh ${readAt}, and the one that funded its payers is found paying itself`);
+  ok(twice === 0 && byChunk.size >= 450, `...and no payer chunk has any block read twice (${byChunk.size} chunk reads, ${twice} overlapping)`);
 
   // THE DAY'S ALLOWANCE binds retries, not first reads: 200 heavy payTos on a
   // day of 150 retries - the refresh that spends them says so, and no more
