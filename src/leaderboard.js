@@ -808,6 +808,9 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
           // The same over the Bazaar's 30 days: what third-party counts of
           // this wallet are reduced by (src/evidence-binding.js).
           selfFundedCalls30d: f.fundedCalls30d, selfFundedPayers30d: f.fundedPayers30d,
+          // Payments the seller refunded: removed from the evidence, and from
+          // third-party counts of the same wallet (src/evidence-binding.js).
+          refundedCalls: f.refundedCalls || 0, refundedCalls30d: f.refundedCalls30d || 0, refundedUsd: Number((f.refundedUsd || 0).toFixed(6)),
           circular: f.circular, lastCircularAt: f.lastCircularAt, fundingRead: f.read,
           ...(f.withheldUntilRead ? { fundingPending: true } : {}),
           ...(f.truncated ? { fundingTruncated: true } : {}),

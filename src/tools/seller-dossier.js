@@ -256,6 +256,8 @@ export function composeSellerDossier(a) {
   const nettedCalls = netted.reduce((a, n) => a + (Number(n?.calls) || 0), 0);
   const nettedUsd = Number(netted.reduce((a, n) => a + (Number(n?.usd) || 0), 0).toFixed(6));
   const mostlySelfFunded = netted.some((n) => n?.circular === true);
+  // Payments the seller refunded: removed from the evidence, not self-funding.
+  const refundedCalls = netted.reduce((a, n) => a + (Number(n?.refunded) || 0), 0);
   const baseReason = dispatch?.routerDispatchByChain?.base?.reason || dispatch?.routerDispatchReason || null;
   const changesRouterVerdict = baseReason === "settlement_self_funded";
   const wallets = {
@@ -271,7 +273,10 @@ export function composeSellerDossier(a) {
         ? [...evidenceBinding.withheld.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
         : [],
       selfFunded: nettedCalls > 0 || mostlySelfFunded
-        ? { nettedCalls, nettedUsd, mostlySelfFunded, changesRouterVerdict, note: "payments the router's scan found paid with USDC this seller's own wallet had sent the payer earlier (a refund counts here only by what it exceeds the payer's own earlier payments it gives back); they are not counted as settlement. Summed over the scan window and this origin's wallets" }
+        ? { nettedCalls, nettedUsd, mostlySelfFunded, changesRouterVerdict, note: "payments the router's scan found paid with USDC this seller's own wallet had sent the payer earlier (a refund of the payer's own earlier payments is not counted here: see refunded); they are not counted as settlement. Summed over the scan window and this origin's wallets" }
+        : null,
+      refunded: refundedCalls > 0
+        ? { calls: refundedCalls, note: "payments the seller refunded to the payer that made them; refunded payments are not counted as settlement, and are not self-funding. Summed over the scan window and this origin's wallets" }
         : null,
       inheritedFrom: inherited.length ? inherited : [],
       inheritedNote: inherited.length ? "evidence counted for this origin came partly from wallets other listings also name; the router requires the live 402 to pay one of them" : null,

@@ -18,17 +18,23 @@
 //     a later W -> P transfer spends before it adds to the pool (the refund of
 //     a payment that was never counted is P's own money coming back, not the
 //     seller's).
-//   - a COUNTED payment P made with its own money (not netted) is refund
-//     ROOM (2026-09-28): a later W -> P transfer first gives back that room
-//     (a refund of a payment P genuinely made, which P may then spend on a
-//     retry) and only the excess adds to the pool. Each genuine payment gives
-//     room once; a NETTED payment gives none, so fund -> pay -> fund -> pay
-//     stays netted end to end. Before this, a flaky tool that refunded twice
-//     and was retried twice read 2/3 self-funded and could be marked circular.
+//   - a W -> P transfer that fits inside P's counted payments made with its
+//     own money and not yet refunded is a REFUND of them (2026-09-28): the
+//     refunded payments, NEWEST FIRST (a refund follows the call it returns),
+//     are taken out of the evidence altogether - neither a settled call nor
+//     self-funding, and not in the dollars the circular share is judged on:
+//     they did not happen as revenue. Only the excess becomes pool. A payment
+//     is removed once at least half of it is refunded. A NETTED payment is
+//     never refundable, so fund -> pay -> fund -> pay stays netted, and a
+//     payer ping-ponging one dollar through pay / refund is left with at most
+//     its unrefunded payments counted, however many rounds it runs. Only the
+//     newest REFUNDABLE_MAX genuine payments per payer are refundable; a
+//     refund reaching further back becomes pool (it nets, never counts).
+//     Before this, a flaky tool that refunded twice and was retried twice
+//     read 2/3 self-funded and could be marked circular.
 // So a refund (W -> P after P paid) never makes the earlier payment
-// self-funded, and it covers later payments only by what it exceeds P's
-// unrefunded genuine payments; a seller that funds a buyer once is netted
-// until that buyer has spent the money, and never after. Judged by DOLLARS: a wallet is "circular" when more
+// self-funded; a seller that funds a buyer once is netted until that buyer
+// has spent the money, and never after. Judged by DOLLARS: a wallet is "circular" when more
 // than half of the dollars it received (of what has been read) were
 // self-funded. Counting calls or payers instead would let anyone flip an
 // honest seller with a few cheap calls from wallets the seller once refunded.
@@ -249,9 +255,11 @@ function newWalletState(windowStartBlock, now) {
   // been worked through against the payments the scan counted. `known`: payer
   // -> [addedAt, lastOwnMoneyPos, lastSellerMoneyPos, preWindowEnd] (positions,
   // -1 for never; preWindowEnd is the last block before the window when it
-  // became known), and optionally a fifth: refund room, the payer's counted
-  // payments made with its own money not yet offset by a refund (micro-units;
-  // absent when 0, so a state written before it existed reads as none).
+  // became known), and optionally a fifth: the payer's REFUNDABLE payments,
+  // flat [position, amount, unrefunded, ...] oldest first (its counted
+  // payments made with its own money, newest REFUNDABLE_MAX; absent when
+  // none, so a state written before it existed reads as none).
+  // `refunded`: day bucket -> payments removed as refunded.
   // `netted`: day bucket -> payments netted.
   // `retryAt`: a wallet whose history or gap reads went past its share waits
   // until then (ms) before they are tried again. The read accounting (see ONE
@@ -262,7 +270,7 @@ function newWalletState(windowStartBlock, now) {
   // (see capProgress). `oh`: when its untargeted outbound read last had to be
   // isolated (ms; see readSellerFunding).
   const s = Math.max(0, windowStartBlock);
-  return { cursor: s - 1, through: posOf(s, 0) - 1, since: s, truncated: false, lastSeenAt: now, lastCircularAt: null, retryAt: 0, ep: null, st: 0, hp: [], td: null, oh: 0, pairs: new Map(), known: new Map(), netted: new Map() };
+  return { cursor: s - 1, through: posOf(s, 0) - 1, since: s, truncated: false, lastSeenAt: now, lastCircularAt: null, retryAt: 0, ep: null, st: 0, hp: [], td: null, oh: 0, pairs: new Map(), known: new Map(), netted: new Map(), refunded: new Map() };
 }
 // A read's progress, kept between scans: kind `k` ("o" the wallet's transfers
 // to new payers, "i" those payers' transfers to it before the window, "c" a
@@ -309,7 +317,10 @@ export function fundingPartialLogCount(state) {
 }
 // `h`: 1 once the payer's transfers to the wallet before it became known are
 // accounted for (its credit); a pool is never worked without it.
-function newPair(h = 0) { return { pool: 0, credit: 0, at: 0, recs: [], pend: [], h }; }
+// `rf`: [payment position, micro refunded] for the payer's refunded payments.
+function newPair(h = 0) { return { pool: 0, credit: 0, at: 0, recs: [], pend: [], h, rf: [] }; }
+// Refundable payments kept per payer (see the rule above).
+export const REFUNDABLE_MAX = 16;
 // Below this a pool is dust (token units: $0.01 of USDC).
 const DUST_UNITS = 10_000;
 // Payers kept per wallet marked too dense to hold (see capProgress).
@@ -319,7 +330,7 @@ const MAX_DENSE_PAYERS = 64;
 function dropDustPairs(ws, payers) {
   let n = 0;
   for (const [p, pair] of ws.pairs) {
-    if (payers?.has(p) || pair.recs.length || pair.credit > 0) continue;
+    if (payers?.has(p) || pair.recs.length || pair.rf?.length || pair.credit > 0) continue;
     const held = pair.pool + pair.pend.reduce((a, [, v]) => a + v, 0);
     if (held < DUST_UNITS) { ws.pairs.delete(p); n++; }
   }
@@ -341,9 +352,11 @@ export function serializeFundingState(state, { now = Date.now() } = {}) {
   const wallets = {};
   for (const [w, ws] of state.wallets) {
     const p = {}, k = {}, b = {};
-    for (const [payer, pair] of ws.pairs) p[payer] = [pair.pool, pair.recs.flat(), pair.pend.flat(), pair.credit, pair.at, pair.h ? 1 : 0];
-    for (const [payer, e] of ws.known) k[payer] = e[4] > 0 ? e : e.slice(0, 4);
+    const rb = {};
+    for (const [payer, pair] of ws.pairs) p[payer] = [pair.pool, pair.recs.flat(), pair.pend.flat(), pair.credit, pair.at, pair.h ? 1 : 0, ...(pair.rf?.length ? [pair.rf.flat()] : [])];
+    for (const [payer, e] of ws.known) k[payer] = Array.isArray(e[4]) && e[4].length ? e : e.slice(0, 4);
     for (const [day, n] of ws.netted) b[day] = n;
+    for (const [day, n] of ws.refunded || []) rb[day] = n;
     wallets[w] = {
       c: ws.cursor, t: ws.through, s: ws.since, x: ws.truncated ? 1 : 0, seen: ws.lastSeenAt, lc: ws.lastCircularAt || null,
       ...(ws.retryAt > 0 ? { ra: ws.retryAt } : {}),
@@ -353,6 +366,7 @@ export function serializeFundingState(state, { now = Date.now() } = {}) {
       ...(ws.td?.length ? { td: ws.td } : {}),
       ...(ws.oh > 0 ? { oh: ws.oh } : {}),
       p, k, b,
+      ...(Object.keys(rb).length ? { rb } : {}),
     };
   }
   return JSON.stringify({ v: 2, token: state.token, savedAt: new Date(now).toISOString(), wallets, d: (state.day || []).map(([t, n]) => [t, n]) });
@@ -391,19 +405,25 @@ export function parseFundingState(text, token) {
       hp.push({ k, h, p: payers, lo, w: wd, l: l.slice(), pg: pg === 0 ? 0 : pg === 2 ? 2 : 1, g: int(gr) !== null && gr > 0 ? gr : 0 });
     }
     const td = Array.isArray(e.td) ? [...new Set(e.td.map(lower))].filter((x) => EVM.test(x)).slice(0, MAX_DENSE_PAYERS) : [];
-    const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, retryAt: int(e.ra) !== null && e.ra > 0 ? e.ra : 0, ep, st: int(e.st) !== null && e.st > 0 ? e.st : 0, hp, td: td.length ? td : null, oh: int(e.oh) !== null && e.oh > 0 ? e.oh : 0, pairs: new Map(), known: new Map(), netted: new Map() };
+    const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, retryAt: int(e.ra) !== null && e.ra > 0 ? e.ra : 0, ep, st: int(e.st) !== null && e.st > 0 ? e.st : 0, hp, td: td.length ? td : null, oh: int(e.oh) !== null && e.oh > 0 ? e.oh : 0, pairs: new Map(), known: new Map(), netted: new Map(), refunded: new Map() };
     for (const [p0, v] of Object.entries(e.k || {})) {
       const p = lower(p0);
-      if (EVM.test(p) && Array.isArray(v) && (v.length === 4 || (v.length === 5 && v[4] >= 0)) && v.every((x) => int(x) !== null && x >= -1)) ws.known.set(p, v.slice());
+      if (!EVM.test(p) || !Array.isArray(v) || (v.length !== 4 && v.length !== 5) || !v.slice(0, 4).every((x) => int(x) !== null && x >= -1)) continue;
+      const k = v.slice(0, 4);
+      // Refundable payments; anything else in the fifth place reads as none.
+      const rf = v.length === 5 ? triples(v[4], 3).slice(-REFUNDABLE_MAX) : [];
+      if (rf.length) k.push(rf.flat());
+      ws.known.set(p, k);
     }
     for (const [p0, v] of Object.entries(e.p || {})) {
       const p = lower(p0);
       if (!EVM.test(p) || !Array.isArray(v) || int(v[0]) === null || v[0] < 0) continue;
-      ws.pairs.set(p, { pool: v[0], recs: triples(v[1], 3), pend: triples(v[2], 2), credit: int(v[3]) !== null && v[3] >= 0 ? v[3] : 0, at: int(v[4]) !== null && v[4] >= 0 ? v[4] : 0, h: v[5] === 1 ? 1 : 0 });
+      ws.pairs.set(p, { pool: v[0], recs: triples(v[1], 3), pend: triples(v[2], 2), credit: int(v[3]) !== null && v[3] >= 0 ? v[3] : 0, at: int(v[4]) !== null && v[4] >= 0 ? v[4] : 0, h: v[5] === 1 ? 1 : 0, rf: triples(v[6], 2) });
       // A pool always belongs to a known payer.
       if (!ws.known.has(p)) ws.known.set(p, [0, -1, -1, -1]);
     }
     for (const [d, n] of Object.entries(e.b || {})) if (int(Number(d)) !== null && int(n) !== null && n > 0) ws.netted.set(Number(d), n);
+    for (const [d, n] of Object.entries(e.rb || {})) if (int(Number(d)) !== null && int(n) !== null && n > 0) ws.refunded.set(Number(d), n);
     state.wallets.set(w, ws);
   }
   for (const x of Array.isArray(j.d) ? j.d : []) if (Array.isArray(x) && x.length === 2 && int(x[0]) !== null && int(x[1]) !== null && x[1] >= 0) state.day.push([x[0], x[1]]);
@@ -424,10 +444,11 @@ export function pruneFundingState(state, { now = Date.now(), latest = null, wall
     const dayCut = Math.floor((latest - bazaarWindowBlocks) / bucketBlocks) - 1;
     for (const ws of state.wallets.values()) {
       for (const [p, pair] of ws.pairs) {
-        if (pair.pool <= 0 && !pair.recs.length && !pair.pend.length && pair.at < cutoff) ws.pairs.delete(p);
+        if (pair.pool <= 0 && !pair.recs.length && !pair.rf?.length && !pair.pend.length && pair.at < cutoff) ws.pairs.delete(p);
       }
       for (const [p, k] of ws.known) if (!ws.pairs.has(p) && Math.max(k[0], k[1], k[2]) < knownCut) ws.known.delete(p);
       for (const d of ws.netted.keys()) if (d < dayCut) ws.netted.delete(d);
+      for (const d of ws.refunded?.keys?.() || []) if (d < dayCut) ws.refunded.delete(d);
     }
   }
   for (const [w, ws] of state.wallets) {
@@ -1563,10 +1584,9 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
           // Money of its own the payer sent before it became known: with no
           // funding before then its pool was empty, so all of it is credit.
           // Its counted payments then were its own money too: refund room.
-          const k = ws.known.get(p);
-          for (const [, m] of hist.credits.get(p) || []) {
+          for (const [pos, m] of hist.credits.get(p) || []) {
             if (classify(w, m) !== 1) pair.credit += m;
-            else if (k) k[4] = (k[4] || 0) + m;
+            else addRefundable(ws, p, pos, m, m);
           }
           pair.h = 1;
         }
@@ -1594,6 +1614,46 @@ function evictKnownTotal(state, payingNow, maxKnownTotal) {
   idle.sort((x, y) => x[0] - y[0]);
   for (const [, ws, p] of idle.slice(0, n - maxKnownTotal)) ws.known.delete(p);
 }
+/** Record a counted payment made (at least partly) with the payer's own money
+ *  as refundable: its position, amount and the part a refund may give back. */
+function addRefundable(ws, p, pos, amt, own) {
+  const k = ws.known.get(p);
+  if (!k || !(own > 0)) return;
+  const list = Array.isArray(k[4]) ? k[4] : [];
+  list.push(pos, amt, own);
+  if (list.length > 3 * REFUNDABLE_MAX) list.splice(0, list.length - 3 * REFUNDABLE_MAX);
+  k[4] = list;
+}
+/** A seller transfer of `amt` to payer p: refund its refundable payments,
+ *  newest first. A payment at least `coveredShareToNet` refunded is removed
+ *  from the evidence (recorded in pair.rf and the day's refunded count).
+ *  Returns how much of `amt` was a refund. */
+function refundPayments(ws, p, pair, amt, { coveredShareToNet, bucketBlocks }) {
+  const k = ws.known.get(p);
+  const list = k && Array.isArray(k[4]) ? k[4] : null;
+  let left = amt;
+  if (!list || !(left > 0)) return 0;
+  if (!pair.rf) pair.rf = [];
+  if (!ws.refunded) ws.refunded = new Map();
+  while (left > 0 && list.length) {
+    const i = list.length - 3;
+    const [pos, full, rem] = list.slice(i);
+    const take = Math.min(rem, left);
+    left -= take;
+    let e = null;
+    for (let j = pair.rf.length - 1; j >= 0; j--) if (pair.rf[j][0] === pos) { e = pair.rf[j]; break; }
+    const before = e ? e[1] : 0;
+    if (e) e[1] += take; else pair.rf.push([pos, take]);
+    if (before < full * coveredShareToNet && before + take >= full * coveredShareToNet) {
+      const day = Math.floor(pos / 1_000_000 / bucketBlocks);
+      ws.refunded.set(day, (ws.refunded.get(day) || 0) + 1);
+    }
+    if (take >= rem) list.splice(i, 3); else list[i + 2] = rem - take;
+  }
+  if (!list.length) k.length = 4;
+  pair.rf.sort((x, y) => x[0] - y[0]);
+  return amt - left;
+}
 function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(), maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, total = { n: 0, max: Infinity }, gapIns = null, classify = () => 1, coveredShareToNet = FUNDING_DEFAULTS.coveredShareToNet, bucketBlocks = FUNDING_DEFAULTS.bucketBlocks } = {}) {
   const from = ws.through;
   // A payer seen for the first time has never been worked: all of its events
@@ -1611,15 +1671,13 @@ function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(),
       ws.netted.set(day, (ws.netted.get(day) || 0) + 1);
     } else k[1] = Math.max(k[1], pos);
   };
-  // A counted payment made with the payer's own money: room a refund may give back.
-  const addRoom = (p, m) => { const k = ws.known.get(p); if (k && m > 0) k[4] = (k[4] || 0) + m; };
   const byPayer = new Map();
   for (const [p0, v] of row.perPayer || []) {
     const p = lower(p0);
     const pays = paymentsOf(v).filter(inRange(p));
     if (!pays.length) continue;
     if (ws.pairs.has(p)) byPayer.set(p, pays);
-    else for (const [pos, m] of pays) { note(p, pos, false); addRoom(p, m); } // never funded: its own money
+    else for (const [pos, m] of pays) { note(p, pos, false); addRefundable(ws, p, pos, m, m); } // never funded: its own money
   }
   // Uncounted money a KNOWN payer sent this wallet: its credit, kept even
   // before the wallet has sent that payer anything (a refund can come later).
@@ -1656,20 +1714,18 @@ function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(),
       pair.at = Math.max(pair.at || 0, pos);
       if (kind === 0) {
         // The seller sends: first give back the payer's own uncounted money,
-        // then refund its unrefunded genuine payments; only the rest is pool.
+        // then refund its genuine payments (removing them); only the rest is pool.
         const refund = Math.min(pair.credit || 0, amt);
         pair.credit = (pair.credit || 0) - refund;
-        const k = ws.known.get(p);
-        const offset = k ? Math.min(k[4] || 0, amt - refund) : 0;
-        if (k && offset > 0) k[4] -= offset;
-        pair.pool += amt - refund - offset;
+        const refunded = refundPayments(ws, p, pair, amt - refund, { coveredShareToNet, bucketBlocks });
+        pair.pool += amt - refund - refunded;
       } else if (kind === 1) {
         const covered = Math.min(pair.pool, amt);
         if (covered > 0) { pair.pool -= covered; pair.recs.push([pos, covered, amt]); }
         const netted = covered > 0 && covered >= amt * coveredShareToNet;
         note(p, pos, netted);
-        // A netted payment gives no room: its refund would launder the loop.
-        if (!netted) addRoom(p, amt - covered);
+        // A netted payment is never refundable: its refund would launder the loop.
+        if (!netted) addRefundable(ws, p, pos, amt, amt - covered);
       } else {
         // Uncounted money from the payer: it pays back the pool first, the
         // rest is the payer's credit.
@@ -1711,8 +1767,9 @@ function trimWallet(ws, windowStartBlock, maxRecordsPerWallet) {
   let recs = 0;
   for (const [p, pair] of ws.pairs) {
     if (pair.recs.length && pair.recs[0][0] < keepFrom) pair.recs = pair.recs.filter(([pos]) => pos >= keepFrom);
-    recs += pair.recs.length;
-    if (pair.pool <= 0 && !pair.recs.length && !pair.pend.length && !(pair.credit > 0)) ws.pairs.delete(p);
+    if (pair.rf?.length && pair.rf[0][0] < keepFrom) pair.rf = pair.rf.filter(([pos]) => pos >= keepFrom);
+    recs += pair.recs.length + (pair.rf?.length || 0);
+    if (pair.pool <= 0 && !pair.recs.length && !pair.rf?.length && !pair.pend.length && !(pair.credit > 0)) ws.pairs.delete(p);
   }
   if (recs > maxRecordsPerWallet) {
     const cut = [...ws.pairs.values()].flatMap((pair) => pair.recs.map((r) => r[0])).sort((a, b) => a - b)[recs - maxRecordsPerWallet];
@@ -1727,15 +1784,16 @@ function trimWallet(ws, windowStartBlock, maxRecordsPerWallet) {
  * own money inside the window. Counts only.
  */
 export function selfFundedOver(ws, latest, { windowBlocks = FUNDING_DEFAULTS.bazaarWindowBlocks, bucketBlocks = FUNDING_DEFAULTS.bucketBlocks } = {}) {
-  if (!ws || !Number.isFinite(latest)) return { calls: 0, payers: 0 };
+  if (!ws || !Number.isFinite(latest)) return { calls: 0, payers: 0, refunded: 0 };
   const cutBlock = Math.max(0, latest - windowBlocks);
   const cutDay = Math.floor(cutBlock / bucketBlocks);
-  let calls = 0;
+  let calls = 0, refunded = 0;
   for (const [day, n] of ws.netted) if (day >= cutDay) calls += n;
+  for (const [day, n] of ws.refunded || []) if (day >= cutDay) refunded += n;
   const cut = posOf(cutBlock, 0);
   let payers = 0;
   for (const k of ws.known.values()) if (k[2] >= cut && k[1] < cut) payers++;
-  return { calls, payers };
+  return { calls, payers, refunded };
 }
 
 /**
@@ -1753,10 +1811,12 @@ export function sellerFundingFigures(row, ws, { latest, now = Date.now(), carrie
   const grossCalls = row.callsSettled || 0;
   const grossBuyers = row.perPayer ? row.perPayer.size : 0;
   const grossMicro = Math.round((Number(row.totalUsd) || 0) * 1e6);
-  let fundedCalls = 0, fundedMicro = 0, unknownMicro = 0, netPayers = 0;
+  let fundedCalls = 0, fundedMicro = 0, unknownMicro = 0, netPayers = 0, refundedCalls = 0, refundedMicro = 0, refundedPayers = 0;
   for (const [p0, v] of row.perPayer || []) {
     const pair = ws?.pairs.get(lower(p0));
     const covered = pair && pair.recs.length ? new Map(pair.recs.map(([pos, c]) => [pos, c])) : null;
+    const back = pair && pair.rf?.length ? new Map(pair.rf.map(([pos, r]) => [pos, r])) : null;
+    let netted = false;
     const pos = Array.isArray(v?.pos) ? v.pos : [];
     const micro = Array.isArray(v?.micro) ? v.micro : [];
     const each = v?.calls ? Math.round((Number(v.usd) || 0) * 1e6 / v.calls) : 0;
@@ -1765,14 +1825,20 @@ export function sellerFundingFigures(row, ws, { latest, now = Date.now(), carrie
     for (let i = 0; i < pos.length; i++) {
       const b = Number.isFinite(micro[i]) ? micro[i] : each;
       if (pos[i] > through) { unknownMicro += b; genuine = true; continue; }
+      // A refunded payment did not happen as revenue: not a call, not
+      // self-funding, and not in the dollars the share is judged on.
+      const r = Math.min(b, back?.get(pos[i]) || 0);
+      if (r > 0 && r >= b * coveredShareToNet) { refundedCalls++; refundedMicro += b; continue; }
+      refundedMicro += r;
       const c = covered?.get(pos[i]) || 0;
       fundedMicro += c;
-      if (c > 0 && c >= b * coveredShareToNet) fundedCalls++;
+      if (c > 0 && c >= b * coveredShareToNet) { fundedCalls++; netted = true; }
       else genuine = true;
     }
     if (genuine) netPayers++;
+    else if (!netted) refundedPayers++;
   }
-  const knownMicro = Math.max(0, grossMicro - unknownMicro);
+  const knownMicro = Math.max(0, grossMicro - unknownMicro - refundedMicro);
   const circularNow = knownMicro > 0 && fundedMicro * 2 > knownMicro;
   const nowIso = new Date(now).toISOString();
   const carried = typeof carriedAt === "string" && now - Date.parse(carriedAt) < circularWindowMs ? carriedAt : null;
@@ -1782,18 +1848,21 @@ export function sellerFundingFigures(row, ws, { latest, now = Date.now(), carrie
   const withheldUntilRead = !caughtUp && !!lastCircularAt;
   const over = selfFundedOver(ws, latest, { windowBlocks: bazaarWindowBlocks, bucketBlocks });
   return {
-    netCalls: withheldUntilRead ? 0 : Math.max(0, grossCalls - fundedCalls),
+    netCalls: withheldUntilRead ? 0 : Math.max(0, grossCalls - fundedCalls - refundedCalls),
     netPayers: withheldUntilRead ? 0 : netPayers,
     grossCalls, grossBuyers,
     fundedCalls,
     // Payers every one of whose payments in the window was netted.
-    fundedPayers: Math.max(0, grossBuyers - netPayers),
+    fundedPayers: Math.max(0, grossBuyers - netPayers - refundedPayers),
+    // Payments removed as refunded (every payment of `refundedPayers` was).
+    refundedCalls, refundedPayers, refundedUsd: refundedMicro / 1e6,
     fundedUsd: fundedMicro / 1e6,
     grossUsd: grossMicro / 1e6,
     unknownUsd: unknownMicro / 1e6,
     // The same, over the Bazaar's 30-day window.
     fundedCalls30d: over.calls,
     fundedPayers30d: over.payers,
+    refundedCalls30d: over.refunded,
     circular: circularNow,
     lastCircularAt,
     read: caughtUp,
