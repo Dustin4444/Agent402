@@ -76,7 +76,7 @@ function jsValueProblem(value, before) {
   if (/\?\?\s*null$/.test(value)) return null;
   if (/process\.env/.test(value)) return `\`${value}\` falls back to the SDK's own environment variable when unset`;
   if (IDENT.test(value)) {
-    const guard = new RegExp(`if\\s*\\(\\s*!\\s*${value.replace(/\$/g, "\\$")}\\s*\\)\\s*throw`);
+    const guard = new RegExp(`if\\s*\\(\\s*!\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)\\s*throw`);
     return guard.test(before) ? null : `\`${value}\` is never checked (no \`if (!${value}) throw\` before the client)`;
   }
   return `\`${value}\` is not a literal, null, \`?? null\` or a checked identifier`;
