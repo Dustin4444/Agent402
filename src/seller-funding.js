@@ -66,7 +66,27 @@
 // heavy source), then its payer list, else its block range; the narrower range
 // never spreads to other jobs. An unreachable RPC is retried once and then
 // stops the read for this scan rather than fanning out; a timed-out read is
-// split like a refusal, at most three times a scan. A wallet whose history
+// split like a refusal, at most three times a scan (one count shared by every
+// pass of the scan, `newFundingReadControl`). A rate-limit answer stops the
+// read for the scan (splitting would only send more requests to a provider
+// that is throttling), and so does an RPC that says it LIMITS the block range
+// of eth_getLogs, when the read is a whole-history one: that is a property of
+// the RPC, no split of this job can fit the history under it, and the log line
+// names FUNDING_HISTORY_CHUNK_BLOCKS as the setting that can.
+// ONE WALLET CANNOT SPEND THE SCAN (2026-09-28, after review). A history or gap
+// read is charged to every wallet in it, and the next job read is always the
+// one whose wallets have spent the least so far (ties in priority order), so
+// every other wallet is served before a wallet whose history keeps being
+// refused gets a second turn. Each wallet may spend the calls its reads were
+// planned to take (payer jobs x range chunks) plus `walletMaxCalls` more on
+// splits; past that its reads stop for the scan, and a wallet stopped there, or
+// refused even over the narrowest range, is not read again for
+// `retryBackoffMs` (a day), persisted, instead of from the token's deployment
+// every hour. Such a wallet stays behind (its payments count as they are, the
+// behaviour without this reader), which the scan's counts report. A history
+// that could never fit one scan's budget (a range bound so small that one job
+// needs more chunks than the whole budget) is not started at all.
+// A wallet whose history
 // reads did not complete this scan, or whose pools start before the window and
 // whose gap before it was not read (readFundingGaps), is not advanced: it is
 // "behind". What is known still nets it, what is not is unknown, and a circular
@@ -92,6 +112,12 @@ export const FUNDING_DEFAULTS = {
   historyChunkBlocks: parseInt(process.env.FUNDING_HISTORY_CHUNK_BLOCKS || "0", 10) > 0 ? parseInt(process.env.FUNDING_HISTORY_CHUNK_BLOCKS, 10) : Infinity,
   walletChunk: 200,
   payerChunk: 200,
+  // Calls one wallet may spend in a scan on history and gap reads beyond the
+  // ones its reads were planned to take (splits after refusals), and how long
+  // a wallet whose reads went past that, or were refused over the narrowest
+  // range, waits before it is read again.
+  walletMaxCalls: parseInt(process.env.LEADERBOARD_FUNDING_WALLET_MAX_CALLS || "32", 10) >= 0 ? parseInt(process.env.LEADERBOARD_FUNDING_WALLET_MAX_CALLS || "32", 10) : 32,
+  retryBackoffMs: 86_400_000,
   // Pools kept per wallet and in total. Only a known payer ever has one; past
   // a cap, dust pools of payers not paying this scan make way first, and a
   // wallet that still cannot record one is flagged truncated.
@@ -167,8 +193,10 @@ function newWalletState(windowStartBlock, now) {
   // -1 for never; preWindowEnd is the last block before the window when it
   // became known).
   // `netted`: day bucket -> payments netted.
+  // `retryAt`: a wallet whose history or gap reads went past its share of a
+  // scan waits until then (ms) before they are tried again.
   const s = Math.max(0, windowStartBlock);
-  return { cursor: s - 1, through: posOf(s, 0) - 1, since: s, truncated: false, lastSeenAt: now, lastCircularAt: null, pairs: new Map(), known: new Map(), netted: new Map() };
+  return { cursor: s - 1, through: posOf(s, 0) - 1, since: s, truncated: false, lastSeenAt: now, lastCircularAt: null, retryAt: 0, pairs: new Map(), known: new Map(), netted: new Map() };
 }
 // `h`: 1 once the payer's transfers to the wallet before it became known are
 // accounted for (its credit); a pool is never worked without it.
@@ -205,7 +233,7 @@ export function serializeFundingState(state, { now = Date.now() } = {}) {
     for (const [payer, pair] of ws.pairs) p[payer] = [pair.pool, pair.recs.flat(), pair.pend.flat(), pair.credit, pair.at, pair.h ? 1 : 0];
     for (const [payer, e] of ws.known) k[payer] = e;
     for (const [day, n] of ws.netted) b[day] = n;
-    wallets[w] = { c: ws.cursor, t: ws.through, s: ws.since, x: ws.truncated ? 1 : 0, seen: ws.lastSeenAt, lc: ws.lastCircularAt || null, p, k, b };
+    wallets[w] = { c: ws.cursor, t: ws.through, s: ws.since, x: ws.truncated ? 1 : 0, seen: ws.lastSeenAt, lc: ws.lastCircularAt || null, ...(ws.retryAt > 0 ? { ra: ws.retryAt } : {}), p, k, b };
   }
   return JSON.stringify({ v: 2, token: state.token, savedAt: new Date(now).toISOString(), wallets });
 }
@@ -231,7 +259,7 @@ export function parseFundingState(text, token) {
     const w = lower(w0);
     if (!isScannableWallet(w, token) || !e || typeof e !== "object") continue;
     if (int(e.c) === null || int(e.t) === null || int(e.s) === null) continue;
-    const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, pairs: new Map(), known: new Map(), netted: new Map() };
+    const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, retryAt: int(e.ra) !== null && e.ra > 0 ? e.ra : 0, pairs: new Map(), known: new Map(), netted: new Map() };
     for (const [p0, v] of Object.entries(e.k || {})) {
       const p = lower(p0);
       if (EVM.test(p) && Array.isArray(v) && v.length === 4 && v.every((x) => int(x) !== null && x >= -1)) ws.known.set(p, v.slice());
@@ -282,17 +310,45 @@ export function pruneFundingState(state, { now = Date.now(), latest = null, wall
 const TOO_MANY = /response size|more than [\d,]+ (?:results|logs)|too many (?:results|logs)|returned more than|(?:results|logs) exceed|exceed(?:s|ed)? (?:the )?(?:max(?:imum)? )?(?:[\d,]+ )?(?:results|logs)|log response|query returned/i;
 const UNREACHABLE = /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|non-JSON \(5\d\d\)/i;
 const TIMEOUT = /timed? ?out|TimeoutError|ETIMEDOUT|aborted/i;
+// The provider is throttling us: more requests only make it worse.
+const RATE_LIMITED = /"code":\s*429\b|\b429\b|rate[- ]?limit|too many requests|compute units per second|exceeded (?:its|your) (?:compute|request|throughput)/i;
+// The provider limits the block RANGE of eth_getLogs, whatever the answer's
+// size ("eth_getLogs is limited to a 2,000 range", "block range too large",
+// "exceeds the maximum block range"). Checked after TOO_MANY: a size refusal
+// that also names a range it would accept is about THIS job, not the RPC.
+const RANGE_LIMITED = /limited to a [\d,]+(?: block)? range|block range (?:is )?too (?:large|wide|big)|range (?:is )?too (?:large|wide)|exceed(?:s|ed)? (?:the )?max(?:imum)? (?:block )?range|max(?:imum)? block range|maximum is set to|too many blocks|up to a [\d,.]+k? block range/i;
+/** The range limit a RANGE_LIMITED answer states, or null. */
+function statedRangeLimit(msg) {
+  const m = /limited to a ([\d,]+)|max(?:imum)?(?: block)? range(?: is| of)?:? ([\d,]+)|maximum is set to ([\d,]+)/i.exec(msg);
+  const n = m ? parseInt(String(m[1] || m[2] || m[3]).replace(/,/g, ""), 10) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 // A timed-out read may simply be too large to answer in time, so it is split
-// like a refusal - but only this many times in one scan, so an RPC that hangs
-// on everything costs a few timeouts, not the budget.
+// like a refusal - but only this many times in one scan (shared by every pass,
+// see newFundingReadControl), so an RPC that hangs on everything costs a few
+// timeouts, not the budget.
 const MAX_TIMEOUTS_PER_READ = 3;
-/** How to answer a failed read: stop (the RPC is unreachable, or keeps timing
- *  out), or split the job (refused, too large, or one slow read). */
+/** How to answer a failed read: split the job (refused, too large, or one
+ *  slow read), stop the read for the scan ("stop": keeps timing out; "rate":
+ *  throttled), retry once then stop ("unreachable"), or "range" (the RPC
+ *  limits the block range: narrow it, or stop a whole-history read). */
 function failureKind(msg, timeouts) {
   if (TOO_MANY.test(msg)) return "split";
+  if (RATE_LIMITED.test(msg)) return "rate";
+  if (RANGE_LIMITED.test(msg)) return "range";
   if (TIMEOUT.test(msg)) return timeouts < MAX_TIMEOUTS_PER_READ ? "split" : "stop";
   if (UNREACHABLE.test(msg)) return "unreachable";
   return "split";
+}
+/**
+ * What the reads of ONE scan share: the timeouts and the transport retry are
+ * counted once for the scan (not once per pass), a reason the read stopped
+ * ends every later pass without a call, and each wallet's calls (`spent`) and
+ * planned calls (`allow`) on history and gap reads are kept across passes, so
+ * its share of the scan is one share. runLeaderboard makes one per scan.
+ */
+export function newFundingReadControl() {
+  return { timeouts: 0, transportRetried: false, stop: null, spent: new Map(), allow: new Map() };
 }
 /** A transfer log's value in token units, or null (zero, unreadable, or past
  *  the safe-integer range). Zero-value logs are free to forge (a zero
@@ -319,7 +375,7 @@ function posOfLog(l) {
  * @returns counts only: { calls, refusals, wallets, caughtUp, behind, stuck,
  *   truncated, fresh, events, budgetExhausted, transportError }
  */
-export async function readSellerFunding({ rpc, token, state, wallets = [], latest, windowStartBlock, walletChunk = FUNDING_DEFAULTS.walletChunk, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, maxPairsTotal = FUNDING_DEFAULTS.maxPairsTotal, ignore = new Set(), now = Date.now(), onProgress = () => {} } = {}) {
+export async function readSellerFunding({ rpc, token, state, wallets = [], latest, windowStartBlock, walletChunk = FUNDING_DEFAULTS.walletChunk, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, maxPairsTotal = FUNDING_DEFAULTS.maxPairsTotal, ignore = new Set(), now = Date.now(), onProgress = () => {}, ctl = newFundingReadControl() } = {}) {
   const tok = lower(token);
   const stats = { calls: 0, refusals: 0, wallets: 0, caughtUp: 0, behind: 0, stuck: 0, truncated: 0, fresh: 0, events: 0, budgetExhausted: false, transportError: null };
   const payersOf = new Map();
@@ -394,10 +450,8 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
     topics: [TRANSFER, froms.map(pad), tos ? tos.map(pad) : null],
   });
   const BUDGET = Symbol("budget");
-  let transportRetried = false;
-  let timeouts = 0;
 
-  while (queue.length) {
+  while (queue.length && !ctl.stop) {
     const job = queue.shift();
     // Contiguity: a wallet reads a range only right after its cursor; one
     // whose earlier range failed this scan (stuck) sits out the rest.
@@ -425,14 +479,19 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
     } catch (e) {
       if (e === BUDGET) { stats.budgetExhausted = true; break; }
       const msg = String(e?.message || e);
-      const kind = failureKind(msg, timeouts);
-      if (TIMEOUT.test(msg)) timeouts++;
+      // A range limit is answered here by narrowing the range: the ranges
+      // this read asks for are the blocks since each cursor, not a history.
+      const kind0 = failureKind(msg, ctl.timeouts);
+      const kind = kind0 === "range" ? "split" : kind0;
+      if (TIMEOUT.test(msg)) ctl.timeouts++;
       if (kind !== "split") {
-        // The RPC is not answering: retry this job once, then stop the read
-        // for this scan (cursors stay; the next scan carries on).
-        if (kind === "unreachable" && !transportRetried) { transportRetried = true; queue.unshift({ ...job, froms }); continue; }
+        // The RPC is not answering, or is throttling us: retry an unreachable
+        // one once, then stop the read for this scan (cursors stay; the next
+        // scan carries on).
+        if (kind === "unreachable" && !ctl.transportRetried) { ctl.transportRetried = true; queue.unshift({ ...job, froms }); continue; }
+        ctl.stop = kind === "rate" ? "rate-limited" : kind === "stop" ? "timeouts" : "unreachable";
         stats.transportError = msg.slice(0, 160);
-        onProgress(`      funding read stopped (RPC not answering): ${stats.transportError}`);
+        onProgress(`      funding read stopped (${ctl.stop}): ${stats.transportError}`);
         break;
       }
       stats.refusals++;
@@ -473,18 +532,49 @@ export async function readSellerFunding({ rpc, token, state, wallets = [], lates
 // payers]), "in" is payer -> wallet. Requests with the same range are packed
 // up to `walletChunk` wallets and `payerChunk` payers per call. Returns the
 // logs per (wallet, payer), deduplicated by position, and the wallets whose
-// requests did not all complete.
-async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks = Infinity }) {
+// requests did not all complete: of those, `overShare` spent their share of the
+// scan, `gaveUp` were refused over the narrowest range, and `tooLarge` needed
+// more range chunks than the whole scan's budget (see ONE WALLET CANNOT SPEND
+// THE SCAN above; `ctl` is the scan's newFundingReadControl).
+//
+// `stopOnRangeLimit`: a whole-history read stops for the scan when the RPC
+// says it limits the block range (no split fits a history under it); a gap
+// read narrows its range instead.
+/** How many calls the halving takes to bring `span` blocks under `limit`,
+ *  capped at `cap` (the exact count: halves differ by at most one block). */
+export function rangePieces(span, limit, cap = Infinity) {
+  if (!(span > 0)) return 0;
+  if (!(limit > 0)) return Infinity;
+  const memo = new Map();
+  const count = (n) => {
+    if (n <= limit) return 1;
+    if (memo.has(n)) return memo.get(n);
+    const left = Math.floor((n - 1) / 2) + 1;
+    const c = Math.min(cap, count(left) + count(n - left));
+    memo.set(n, c);
+    return c;
+  };
+  return count(span);
+}
+async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks = Infinity, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, scanMaxCalls = budget.max, ctl = newFundingReadControl(), stopOnRangeLimit = false }) {
   const tok = lower(token);
   const out = new Map();
-  const failed = new Set();
+  const failed = new Set(), overShare = new Set(), gaveUp = new Set(), tooLarge = new Set();
+  const spentOf = (w) => ctl.spent.get(w) || 0;
+  // A wallet's overrun: calls spent beyond the ones its reads were planned to
+  // take. The next job read is one whose wallets have overrun least.
+  const overrunOf = (w) => Math.max(0, spentOf(w) - (ctl.allow.get(w) || 0));
   const byRange = new Map();
   for (const [w, r] of requests) {
     if (!(r.hi >= r.lo) || !r.payers.length) continue;
+    const pieces = rangePieces(r.hi - r.lo + 1, maxSpanBlocks, scanMaxCalls + 1);
+    if (pieces > scanMaxCalls) { tooLarge.add(w); continue; }
+    ctl.allow.set(w, (ctl.allow.get(w) || 0) + pieces * Math.max(1, Math.ceil(r.payers.length / payerChunk)));
     const key = `${r.lo}:${r.hi}`;
     if (!byRange.has(key)) byRange.set(key, []);
     byRange.get(key).push(w);
   }
+  if (tooLarge.size) onProgress(`      ${tooLarge.size} wallet(s) not read: one history needs more range chunks than a scan's budget (raise FUNDING_HISTORY_CHUNK_BLOCKS)`);
   const payersOf = (w) => requests.get(w).payers;
   const pack = (ws, lo, hi, lineage) => {
     const jobs = [];
@@ -501,12 +591,25 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
     return jobs;
   };
   const queue = [];
-  for (const [key, ws] of byRange) { const [lo, hi] = key.split(":").map(Number); queue.push(...pack(ws, lo, hi, { limit: maxSpanBlocks })); }
+  const stoppedBefore = !!ctl.stop;
+  if (!stoppedBefore) for (const [key, ws] of byRange) { const [lo, hi] = key.split(":").map(Number); queue.push(...pack(ws, lo, hi, { limit: maxSpanBlocks })); }
   const wanted = new Map([...requests].map(([w, r]) => [w, new Set(r.payers)]));
   const seen = new Map();
-  let transportRetried = false, timeouts = 0;
+  // The job whose wallets have overrun least; ties go to the front of the
+  // queue (priority order, and a job's own pieces depth first).
+  const pick = () => {
+    let bi = 0, bk = Infinity;
+    for (let i = 0; i < queue.length && bk > 0; i++) {
+      let k = 0;
+      for (const w of queue[i].ws) { const o = overrunOf(w); if (o > k) k = o; }
+      if (k < bk) { bk = k; bi = i; }
+    }
+    return queue.splice(bi, 1)[0];
+  };
   while (queue.length) {
-    const job = queue.shift();
+    const job = pick();
+    // A wallet past its share of the scan stops here, for this scan.
+    for (const w of job.ws) if (!failed.has(w) && overrunOf(w) >= walletMaxCalls) { failed.add(w); overShare.add(w); }
     const live = job.ws.filter((w) => !failed.has(w));
     if (!live.length) continue;
     if (live.length < job.ws.length) { queue.unshift(...pack(live, job.lo, job.hi, job.lineage)); continue; }
@@ -514,16 +617,26 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
     if (span > job.lineage.limit) { const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); continue; }
     if (budget.calls >= budget.max) { stats.budgetExhausted = true; queue.unshift(job); break; }
     budget.calls++; stats.calls++;
+    for (const w of job.ws) ctl.spent.set(w, spentOf(w) + 1);
     let logs;
     try {
       const walletTopics = job.ws.map(pad), payerTopics = job.tos.map(pad);
       logs = await rpc("eth_getLogs", [{ fromBlock: "0x" + job.lo.toString(16), toBlock: "0x" + job.hi.toString(16), address: tok, topics: dir === "out" ? [TRANSFER, walletTopics, payerTopics] : [TRANSFER, payerTopics, walletTopics] }]);
     } catch (e) {
       const msg = String(e?.message || e);
-      const kind = failureKind(msg, timeouts);
-      if (TIMEOUT.test(msg)) timeouts++;
+      const kind = failureKind(msg, ctl.timeouts);
+      if (TIMEOUT.test(msg)) ctl.timeouts++;
+      if (kind === "range" && !stopOnRangeLimit && span > minRangeBlocks) {
+        // A gap read under a range limit: narrow this job's range to it.
+        stats.refusals++;
+        job.lineage.limit = Math.min(job.lineage.limit, span - 1, statedRangeLimit(msg) ?? Infinity);
+        const mid = job.lo + Math.floor((job.hi - job.lo) / 2);
+        queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 });
+        continue;
+      }
       if (kind !== "split") {
-        if (kind === "unreachable" && !transportRetried) { transportRetried = true; queue.unshift(job); continue; }
+        if (kind === "unreachable" && !ctl.transportRetried) { ctl.transportRetried = true; queue.unshift(job); continue; }
+        ctl.stop = kind === "range" ? "range-limited" : kind === "rate" ? "rate-limited" : kind === "stop" ? "timeouts" : "unreachable";
         stats.transportError = msg.slice(0, 160); queue.unshift(job); break;
       }
       stats.refusals++;
@@ -531,7 +644,7 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
       if (job.tos.length > 1 && (TOO_MANY.test(msg) || span <= minRangeBlocks)) { const mid = Math.ceil(job.tos.length / 2); queue.unshift({ ...job, tos: job.tos.slice(0, mid), lineage: { ...job.lineage } }, { ...job, tos: job.tos.slice(mid), lineage: { ...job.lineage } }); continue; }
       if (span > minRangeBlocks) { job.lineage.limit = Math.min(job.lineage.limit, span - 1); const mid = job.lo + Math.floor((job.hi - job.lo) / 2); queue.unshift({ ...job, hi: mid }, { ...job, lo: mid + 1 }); continue; }
       onProgress(`      payer history read gave up on one wallet at blocks ${job.lo}-${job.hi}: ${msg.slice(0, 120)}`);
-      failed.add(job.ws[0]);
+      failed.add(job.ws[0]); gaveUp.add(job.ws[0]);
       continue;
     }
     const inJob = new Set(job.ws);
@@ -551,9 +664,12 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
       stats.events++;
     }
   }
+  if (overShare.size) onProgress(`      ${overShare.size} wallet(s) spent their share of this scan's reads; each is tried again in a day`);
   const unfinished = new Set(queue.flatMap((j) => j.ws));
+  // Nothing is read once an earlier pass of the scan stopped it.
+  if (stoppedBefore) for (const ws of byRange.values()) for (const w of ws) unfinished.add(w);
   for (const m of out.values()) for (const list of m.values()) list.sort((x, y) => x[0] - y[0]);
-  return { logs: out, incomplete: new Set([...failed, ...unfinished]) };
+  return { logs: out, incomplete: new Set([...failed, ...unfinished, ...tooLarge]), overShare, gaveUp, tooLarge };
 }
 
 /**
@@ -572,9 +688,12 @@ async function readPairs({ rpc, token, requests, dir, budget, walletChunk, payer
  * @returns { histories: Map(wallet -> { upTo, covered: Set, funds, ins, credits }),
  *   stats } - a wallet appears only when every read it needed completed.
  */
-export async function readPayerHistory({ rpc, token, state, wallets = [], windowStartBlock, historyFromBlock = historyFromBlockFor(token), historyChunkBlocks = FUNDING_DEFAULTS.historyChunkBlocks, walletChunk = FUNDING_DEFAULTS.walletChunk, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, onProgress = () => {} } = {}) {
+export async function readPayerHistory({ rpc, token, state, wallets = [], windowStartBlock, historyFromBlock = historyFromBlockFor(token), historyChunkBlocks = FUNDING_DEFAULTS.historyChunkBlocks, walletChunk = FUNDING_DEFAULTS.walletChunk, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, retryBackoffMs = FUNDING_DEFAULTS.retryBackoffMs, scanMaxCalls = maxCalls, now = Date.now(), ctl = newFundingReadControl(), onProgress = () => {} } = {}) {
   const tok = lower(token);
-  const stats = { calls: 0, refusals: 0, wallets: 0, payers: 0, funded: 0, creditReads: 0, read: 0, failed: 0, events: 0, budgetExhausted: false, transportError: null };
+  // overShare / gaveUp / tooLarge: wallets whose reads stopped for the reasons
+  // readPairs names; waiting: wallets not read this scan because an earlier
+  // one stopped them (their `retryAt` is still ahead).
+  const stats = { calls: 0, refusals: 0, wallets: 0, payers: 0, funded: 0, creditReads: 0, read: 0, failed: 0, overShare: 0, gaveUp: 0, tooLarge: 0, waiting: 0, events: 0, budgetExhausted: false, transportError: null, stopped: null };
   const budget = { calls: 0, max: Math.max(0, maxCalls) };
   const from = Math.max(0, historyFromBlock);
   const fresh = new Map(); // wallet -> new payers
@@ -584,9 +703,12 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
     const ws = state.wallets.get(w);
     if (!ws || fresh.has(w) || credit.has(w)) continue;
     const ps = [...new Set([...(e.payers || [])].map(lower))].filter((p) => EVM.test(p) && p !== w && isScannableWallet(p, tok) && !ws.known.has(p));
-    if (ps.length) fresh.set(w, ps);
     const cr = [];
     for (const [p, pair] of ws.pairs) if (!pair.h && pair.pend.length) cr.push({ payer: p, hi: ws.known.get(p)?.[3] ?? -1 });
+    // A wallet whose reads went past its share of a scan, or were refused over
+    // the narrowest range, waits a day: it stays behind, read nothing.
+    if ((ps.length || cr.length) && ws.retryAt > now) { stats.waiting++; continue; }
+    if (ps.length) fresh.set(w, ps);
     if (cr.length) credit.set(w, cr);
   }
   stats.wallets = new Set([...fresh.keys(), ...credit.keys()]).size;
@@ -594,7 +716,9 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
   // 1. The wallet's transfers to its new payers, over their whole history.
   const reqA = new Map();
   for (const [w, ps] of fresh) reqA.set(w, { payers: ps, lo: from, hi: state.wallets.get(w).cursor });
-  const a = await readPairs({ rpc, token: tok, requests: reqA, dir: "out", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks });
+  const share = { walletMaxCalls, scanMaxCalls, ctl, stopOnRangeLimit: true };
+  const a = await readPairs({ rpc, token: tok, requests: reqA, dir: "out", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks, ...share });
+  const overShare = new Set(a.overShare), gaveUp = new Set(a.gaveUp), tooLarge = new Set(a.tooLarge);
   // 2 and 3: transfers TO the wallet, before the window (new funded payers),
   // or before the payer became known (credit). One request per wallet and
   // range, so a wallet may carry two.
@@ -616,8 +740,11 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
   const insByWallet = new Map(); // w -> Map(p -> [[pos, amt]])
   const incompleteB = new Set();
   for (const reqs of reqByRange.values()) {
-    const b = await readPairs({ rpc, token: tok, requests: reqs, dir: "in", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks });
+    const b = await readPairs({ rpc, token: tok, requests: reqs, dir: "in", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, maxSpanBlocks: historyChunkBlocks, ...share });
     for (const w of b.incomplete) incompleteB.add(w);
+    for (const w of b.overShare) overShare.add(w);
+    for (const w of b.gaveUp) gaveUp.add(w);
+    for (const w of b.tooLarge) tooLarge.add(w);
     for (const [w, m] of b.logs) {
       if (!insByWallet.has(w)) insByWallet.set(w, new Map());
       for (const [p, list] of m) insByWallet.get(w).set(p, list);
@@ -632,10 +759,14 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
     for (const [p, list] of ins) (creditPayers.has(p) && !(fresh.get(w) || []).includes(p) ? credits : freshIns).set(p, list);
     for (const p of creditPayers) if (!credits.has(p)) credits.set(p, []);
     histories.set(w, { upTo: state.wallets.get(w).cursor, covered: new Set(fresh.get(w) || []), funds: a.logs.get(w) || new Map(), ins: freshIns, credits });
+    state.wallets.get(w).retryAt = 0;
     stats.read++;
   }
+  for (const w of new Set([...overShare, ...gaveUp])) { const ws = state.wallets.get(w); if (ws) ws.retryAt = now + retryBackoffMs; }
+  stats.overShare = overShare.size; stats.gaveUp = gaveUp.size; stats.tooLarge = tooLarge.size;
+  stats.stopped = ctl.stop;
   stats.budgetExhausted = stats.budgetExhausted || budget.calls >= budget.max && (a.incomplete.size + incompleteB.size) > 0;
-  if (stats.transportError) onProgress(`      payer history read stopped (RPC unreachable): ${stats.transportError}`);
+  if (stats.transportError) onProgress(`      payer history read stopped (${ctl.stop || "RPC unreachable"}): ${stats.transportError}${ctl.stop === "range-limited" ? " - this RPC limits the block range of eth_getLogs; set FUNDING_HISTORY_CHUNK_BLOCKS under its limit, or LEADERBOARD_FUNDING_SCAN=off" : ""}`);
   return { histories, stats };
 }
 
@@ -650,9 +781,9 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
 // position and the window's start are read (targeted: those payers to that
 // wallet, a handful of calls) and worked through the pools in order. Until that
 // read completes, the wallet's pools are not advanced (it reads as behind).
-export async function readFundingGaps({ rpc, token, state, wallets = [], windowStartBlock, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, payerChunk = FUNDING_DEFAULTS.payerChunk, walletChunk = FUNDING_DEFAULTS.walletChunk, onProgress = () => {} } = {}) {
+export async function readFundingGaps({ rpc, token, state, wallets = [], windowStartBlock, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, payerChunk = FUNDING_DEFAULTS.payerChunk, walletChunk = FUNDING_DEFAULTS.walletChunk, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, retryBackoffMs = FUNDING_DEFAULTS.retryBackoffMs, scanMaxCalls = maxCalls, now = Date.now(), ctl = newFundingReadControl(), onProgress = () => {} } = {}) {
   const tok = lower(token);
-  const stats = { calls: 0, refusals: 0, wallets: 0, read: 0, failed: 0, events: 0, budgetExhausted: false, transportError: null };
+  const stats = { calls: 0, refusals: 0, wallets: 0, read: 0, failed: 0, overShare: 0, gaveUp: 0, waiting: 0, events: 0, budgetExhausted: false, transportError: null };
   const gaps = new Map();
   const requests = new Map();
   for (const w0 of wallets) {
@@ -660,17 +791,20 @@ export async function readFundingGaps({ rpc, token, state, wallets = [], windowS
     const ws = state.wallets.get(w);
     const n = gapNeeded(ws, windowStartBlock);
     if (!n || requests.has(w)) continue;
+    if (ws.retryAt > now) { stats.waiting++; continue; }
     requests.set(w, { payers: [...ws.pairs.keys()], lo: n.from, hi: n.to, need: n });
   }
   stats.wallets = requests.size;
   const budget = { calls: 0, max: Math.max(0, maxCalls) };
-  const r = await readPairs({ rpc, token: tok, requests, dir: "in", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats });
+  const r = await readPairs({ rpc, token: tok, requests, dir: "in", budget, walletChunk, payerChunk, minRangeBlocks, onProgress, stats, walletMaxCalls, scanMaxCalls, ctl, stopOnRangeLimit: false });
+  for (const w of new Set([...r.overShare, ...r.gaveUp])) { const ws = state.wallets.get(w); if (ws) ws.retryAt = now + retryBackoffMs; }
+  stats.overShare = r.overShare.size; stats.gaveUp = r.gaveUp.size;
   for (const [w, req] of requests) {
     if (r.incomplete.has(w)) { stats.failed++; continue; }
     gaps.set(w, { toBlock: req.need.to, ins: r.logs.get(w) || new Map() });
     stats.read++;
   }
-  if (stats.transportError) onProgress(`      funding gap read stopped (RPC unreachable): ${stats.transportError}`);
+  if (stats.transportError) onProgress(`      funding gap read stopped (${ctl.stop || "RPC unreachable"}): ${stats.transportError}`);
   return { gaps, stats };
 }
 /** The block range [from, to] of payments a wallet's pools have not seen that

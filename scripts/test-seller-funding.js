@@ -69,7 +69,8 @@ const fakeRpc = (list, { calls = [], transport = 0, refuse = null, rangeLimit = 
     const span = parseInt(p.toBlock, 16) - parseInt(p.fromBlock, 16) + 1;
     calls.push({ ...p, span });
     if (transportLeft > 0) { transportLeft--; throw new Error("All RPCs failed for eth_getLogs: fetch failed"); }
-    if (refuse && refuse(p, span)) throw new Error("All RPCs failed for eth_getLogs: base.example: {\"code\":-32000,\"message\":\"temporarily unable to serve\"}");
+    const refused = refuse && refuse(p, span);
+    if (refused) throw new Error(typeof refused === "string" ? `All RPCs failed for eth_getLogs: base.example: ${refused}` : "All RPCs failed for eth_getLogs: base.example: {\"code\":-32000,\"message\":\"temporarily unable to serve\"}");
     if (span > rangeLimit) throw new Error(`block range too large (${span})`);
     const logs = filterLogs(list, p);
     if (span > 2000 && logs.length > 10_000) throw new Error(SIZE_REFUSAL);
@@ -99,9 +100,9 @@ async function scanOnce({ sellers, pays, outs, state, latest, span, historyFrom 
   const paid = paidInOrder(acc);
   const maxCalls = readOpts.maxCalls ?? 400;
   const stats = await readSellerFunding({ rpc, token: USDC, state, wallets: paid, latest, windowStartBlock: start, now, ...readOpts });
-  const hist = history ? await readPayerHistory({ rpc, token: USDC, state, wallets: paid, windowStartBlock: start, historyFromBlock: historyFrom, ...readOpts, maxCalls: Math.max(0, maxCalls - stats.calls) }) : { histories: new Map(), stats: { calls: 0 } };
+  const hist = history ? await readPayerHistory({ rpc, token: USDC, state, wallets: paid, windowStartBlock: start, historyFromBlock: historyFrom, now, ...readOpts, maxCalls: Math.max(0, maxCalls - stats.calls) }) : { histories: new Map(), stats: { calls: 0 } };
   stats.history = hist.stats;
-  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, maxCalls: Math.max(0, maxCalls - stats.calls - hist.stats.calls) }) : { gaps: new Map(), stats: {} };
+  const gapRead = gaps ? await readFundingGaps({ rpc, token: USDC, state, wallets: paid.map((w) => w.wallet), windowStartBlock: start, now, maxCalls: Math.max(0, maxCalls - stats.calls - hist.stats.calls) }) : { gaps: new Map(), stats: {} };
   stats.gap = gapRead.stats;
   processSellerFunding(state, acc, { windowStartBlock: start, gaps: gapRead.gaps, histories: hist.histories, classify: (w, micro) => (micro <= 750_000 ? 1 : 2), ...(readOpts.maxPairsTotal ? { maxPairsTotal: readOpts.maxPairsTotal } : {}) });
   pruneFundingState(state, { now, latest });
@@ -293,6 +294,88 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const tiny = await scanOnce({ sellers: [...lights.map((w, i) => seller(w, `light-${i}.example`)), seller(HEAVY, "seller-h.example")], pays: paysB, outs: outsB.filter((l) => l.topics[1] !== topic(HEAVY)), state: st2, latest: LATEST, span: 302_400, readOpts: { maxCalls: 1, walletChunk: 10 } });
   ok(tiny.stats.history.budgetExhausted === true && tiny.stats.history.read === 10 && tiny.ev[HEAVY].fundingRead === true && tiny.ev[lights[100]].fundingRead === false,
     "with a budget of one call, the one history read goes to the wallets that clear the floor on gross first (the busiest one included), the rest are behind, and the read says so");
+}
+{
+  // ONE WALLET CANNOT SPEND THE SCAN (review, 2026-09-28). A payTo whose
+  // outbound history to its payers is so dense the provider answers it only
+  // over narrow ranges (a busy contract's shape: size refusals down to about
+  // 10,000 blocks, all the way through the token's history) sorts FIRST, as
+  // the busiest wallet clearing the floor. Before, its range halving spent the
+  // whole budget, every wallet packed or queued behind it was left behind, and
+  // the same calls were spent again the next hour.
+  const D = addr("d7");
+  const SPAN = 302_400, latest = 60_000_000, start = latest - SPAN;
+  const lights = Array.from({ length: 20 }, (_, i) => "0x" + (0x2000 + i).toString(16).padStart(40, "0"));
+  const sells = [seller(D, "dense.example"), ...lights.map((w, i) => seller(w, `lt-${i}.example`))];
+  const dPays = [], dOuts = [];
+  for (let k = 0; k < 20; k++) for (let c = 0; c < 5; c++) dPays.push({ wallet: D, payer: P(5000 + k), usd: 0.01, pos: posOf(latest - 5_000 + k * 5 + c, 1) });
+  // The first four light wallets funded their five payers ~2M blocks before
+  // the window, and each of those payers pays 12 times: circular.
+  lights.forEach((w, i) => {
+    for (let j = 0; j < 5; j++) {
+      const p = P(6000 + i * 5 + j);
+      if (i < 4) dOuts.push(log(w, p, usd(0.2), start - 2_000_000, j));
+      for (let k = 0; k < 12; k++) dPays.push({ wallet: w, payer: p, usd: 0.01, pos: posOf(latest - 20_000 + k, j) });
+    }
+  });
+  const denseRpc = { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(D)) && span > 10_000 ? SIZE_REFUSAL : false) };
+  const touchesD = (c) => (Array.isArray(c.topics[1]) && c.topics[1].includes(topic(D))) || (Array.isArray(c.topics[2]) && c.topics[2].includes(topic(D)));
+  const st = createFundingState(USDC);
+  const d1 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc });
+  const circ = lights.filter((w) => d1.ev[w].circular === true);
+  ok(d1.stats.history.read === 20 && d1.stats.history.overShare === 1 && !d1.stats.history.budgetExhausted && d1.stats.history.calls <= 60,
+    `the dense wallet first in line: all 20 other wallets' histories read in ${d1.stats.history.calls} call(s) of the 400, the dense one stopped at its share (read ${d1.stats.history.read}, over share ${d1.stats.history.overShare})`);
+  ok(circ.length === 4 && circ.every((w) => lights.indexOf(w) < 4) && d1.ev[lights[4]].circular === false && d1.ev[lights[0]].selfFundedCalls === 60,
+    `...and the circular wallets behind it are found (${circ.length} of 4)`);
+  ok(d1.ev[D].fundingRead === false && d1.ev[D].callsSettled === 100 && d1.ev[D].circular === false,
+    "the dense wallet itself is behind: its payments count as they are (the behaviour without the reader), never netted blind");
+  const retryAt = st.wallets.get(D).retryAt;
+  ok(retryAt === NOW + 86_400_000 && parseFundingState(serializeFundingState(st), USDC).wallets.get(D).retryAt === retryAt && lights.every((w) => st.wallets.get(w).retryAt === 0),
+    "its retry is a day away, persisted with the state (every other wallet has none)");
+  // An hour later: it waits, and costs nothing.
+  const d2 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest: latest + 1_800, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc, now: NOW + 3_600_000 });
+  ok(d2.stats.history.waiting === 1 && d2.calls.filter((c) => touchesD(c) && Array.isArray(c.topics[2])).length === 0 && d2.ev[D].callsSettled === 100,
+    `an hour later the dense wallet waits: no history read touches it (${d2.calls.filter(touchesD).length} call(s) touching it at all)`);
+  // A day later it is tried again, within its share again.
+  const d3 = await scanOnce({ sellers: sells, pays: dPays, outs: dOuts, state: st, latest: latest + 45_000, span: SPAN, historyFrom: 2_797_221, rpcOpts: denseRpc, now: NOW + 90_000_000 });
+  ok(d3.stats.history.waiting === 0 && d3.stats.history.overShare === 1 && d3.calls.filter(touchesD).length > 0 && d3.calls.filter(touchesD).length <= 40,
+    `a day later it is tried again, once more within its share (${d3.calls.filter(touchesD).length} call(s))`);
+
+  // AN RPC THAT LIMITS THE BLOCK RANGE (a public endpoint: "eth_getLogs is
+  // limited to a 2,000 range"): no split fits a whole history under it.
+  // Before, each refusal split the job and the scan spent its whole budget
+  // reading nothing, every hour. Now the history read stops at the first such
+  // answer and says why; no wallet is made to wait for the RPC's limit.
+  const RANGE = "{\"code\":-32614,\"message\":\"eth_getLogs is limited to a 2,000 range\"}";
+  const rl = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (span > 2_000 ? RANGE : false) } });
+  ok(rl.stats.history.calls === 1 && rl.stats.history.stopped === "range-limited" && rl.stats.history.read === 0 && rl.stats.history.overShare === 0 && rl.ev[lights[0]].fundingRead === false && rl.ev[lights[0]].callsSettled === 60,
+    `a range-limited RPC: the history read stops after ${rl.stats.history.calls} call (not the budget), every wallet counted as it is`);
+  const rst = createFundingState(USDC);
+  await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: rst, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (span > 2_000 ? RANGE : false) } });
+  ok([...rst.wallets.values()].every((ws) => !ws.retryAt), "...and no wallet waits a day for it: the limit is the RPC's, not the wallet's");
+  const blk = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { rangeLimit: 100_000 } });
+  ok(blk.stats.history.calls === 1 && blk.stats.history.stopped === "range-limited", "the same for a 'block range too large' answer");
+  const chunked = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { rangeLimit: 20_000_000 }, readOpts: { historyChunkBlocks: 20_000_000 } });
+  ok(chunked.stats.history.read === 20 && lights.slice(0, 4).every((w) => chunked.ev[w].circular === true), `with FUNDING_HISTORY_CHUNK_BLOCKS under the limit the same histories are read in full (${chunked.stats.history.calls} calls)`);
+  const tiny = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { historyChunkBlocks: 10_000 } });
+  ok(tiny.stats.history.calls === 0 && tiny.stats.history.tooLarge === 20, `a range bound so small no history fits one scan's budget is not started (${tiny.stats.history.calls} calls, ${tiny.stats.history.tooLarge} too large)`);
+  // A RATE LIMIT stops the read: splitting would only send more requests to a
+  // provider that is throttling us.
+  const RATE = "{\"code\":429,\"message\":\"Your app has exceeded its compute units per second capacity.\"}";
+  const rt = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: () => RATE } });
+  ok(rt.stats.history.calls === 1 && rt.stats.history.stopped === "rate-limited" && rt.stats.history.read === 0, `a rate-limited RPC: stopped after ${rt.stats.history.calls} call`);
+  // THE TIMEOUT BOUND IS THE SCAN'S: with one control shared by the passes
+  // (as runLeaderboard does), an RPC that times out on everything costs a few
+  // calls in all, not a few per pass.
+  const W1 = addr("d8");
+  const tState = knownState({ [W1]: [P(7000)] }, start - 1);
+  const shared = SF.newFundingReadControl();
+  const hang = async () => { throw new Error("All RPCs failed for eth_getLogs: The operation was aborted due to timeout"); };
+  const wl = [{ wallet: W1, payers: new Set([P(7000), P(7001)]) }];
+  const o1 = await readSellerFunding({ rpc: hang, token: USDC, state: tState, wallets: wl, latest, windowStartBlock: start, minRangeBlocks: 100, ctl: shared });
+  const o2 = await readPayerHistory({ rpc: hang, token: USDC, state: tState, wallets: wl, windowStartBlock: start, historyFromBlock: 2_797_221, minRangeBlocks: 100, ctl: shared });
+  const o3 = await readFundingGaps({ rpc: hang, token: USDC, state: tState, wallets: [W1], windowStartBlock: start, ctl: shared });
+  ok(o1.calls + o2.stats.calls + o3.stats.calls === 4 && shared.stop === "timeouts" && o2.stats.failed === 1, `an RPC that times out on everything: ${o1.calls + o2.stats.calls + o3.stats.calls} calls across the three passes, then stopped (was a few per pass)`);
 }
 {
   // A transient refusal splits only its own job; a transport failure stops the read.
@@ -676,6 +759,7 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   for (let i = 20; i < 24; i++) for (let k = 0; k < 15; k++) e2ePays.push(inLog(HONEST, P(i), 9_300 + k, i));
   e2eOuts.push(log(HONEST, P(20), 10_000, 9_900));
   const rpcCalls = [];
+  let rangeLimitedTargeted = 0;
   const srv = createServer((req, res) => {
     let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
       const send = (o) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
@@ -692,6 +776,8 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
       if (j.method === "eth_getLogs") {
         const p = j.params[0];
         rpcCalls.push(p);
+        const spanOf = parseInt(p.toBlock, 16) - parseInt(p.fromBlock, 16) + 1;
+        if (rangeLimitedTargeted && Array.isArray(p.topics?.[1]) && Array.isArray(p.topics?.[2]) && spanOf > rangeLimitedTargeted) return send({ jsonrpc: "2.0", id: j.id, error: { code: -32614, message: "eth_getLogs is limited to a 2,000 range" } });
         // One chain: the filter's topics pick inbound payments, outbound
         // funding, or a gap read (funded payers to a wallet) out of it.
         return send({ jsonrpc: "2.0", id: j.id, result: filterLogs([...e2ePays, ...e2eOuts], p) });
@@ -735,6 +821,19 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
     ok(second && outbound2.length === 1 && parseInt(outbound2[0].fromBlock, 16) === 10_001 && parseInt(outbound2[0].toBlock, 16) === 10_400, `refresh after a restart: the persisted cursors are used, only the new blocks are read (${outbound2.map((p) => `${parseInt(p.fromBlock, 16)}-${parseInt(p.toBlock, 16)}`).join(",")})`);
     ok(LB.getLeaderboardWalletEvidence()[LOOP]?.selfFundedCalls === 5 && LB.getLeaderboardWalletEvidence()[LOOP]?.grossCallsSettled === 5, "...and the pools remembered from the first process (funded before the first window) net the new payments");
     ok(outbound2.every((p) => rpcCalls.includes(p)) && !JSON.stringify(outbound2).includes("rpc-fallback"), "the funding read uses the primary RPC only");
+    // A primary that limits the block range of eth_getLogs, through the real
+    // scan: the history read stops at once, the scan's counts and log line
+    // name it, and the wallets count as they are (not netted, not zero).
+    LB.stopLeaderboardRefresh();
+    rangeLimitedTargeted = 2_000;
+    rpcCalls.length = 0;
+    const lines = [];
+    const limited = await runLeaderboard({ ...opts, now: NOW, onProgress: (m) => lines.push(m) });
+    const f = limited.routerFundingScan || {};
+    ok(f.readStopped === "range-limited" && f.historyCalls === 1 && f.partial === true && limited.walletEvidence[LOOP]?.fundingRead === false && limited.walletEvidence[LOOP]?.callsSettled === limited.walletEvidence[LOOP]?.grossCallsSettled && limited.walletEvidence[LOOP]?.grossCallsSettled > 0,
+      `scan against a range-limited primary: one history call, then stopped (readStopped ${f.readStopped}, ${f.historyCalls} call); seller-a counted as it is`);
+    ok(lines.some((l) => /stopped: range-limited/.test(l) && /FUNDING_HISTORY_CHUNK_BLOCKS/.test(l)) && LB.fundingReadNotes(f).includes("range-limited"), "...and the log line says why and which setting fits a history under the limit");
+    rangeLimitedTargeted = 0;
   } finally {
     LB.stopLeaderboardRefresh();
     srv.close();
@@ -755,6 +854,8 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   ok(/rpcCall\(primary, method, params, \{ passes: 1 \}\)/.test(run) && /\.filter\(\(s\) => isScannableWallet\(s\.wallet, chain\.token\)\)/.test(run), "the funding read uses the primary RPC once per call; non-wallet payTos are dropped from the scan");
   ok(/\.sort\(\(a, b\) => clears\(b\) - clears\(a\) \|\| \(b\.callsSettled \|\| 0\) - \(a\.callsSettled \|\| 0\)\)/.test(run) && /await readPayerHistory\(\{ rpc: fundingRpc,[^\n]*maxCalls: Math\.max\(0, maxCalls - facts\.calls\)/.test(run) && /await readFundingGaps\(\{ rpc: fundingRpc,[^\n]*maxCalls: Math\.max\(0, maxCalls - facts\.calls - history\.stats\.calls\)/.test(run), "wallets that clear the floor on gross are read first, and each later read spends only what the earlier ones left of the one budget");
   ok(/await loadSellerFundingState\(\)/.test(lbSrc) && /await persistSellerFundingState\(fundingState\)/.test(lbSrc), "every refresh loads the persisted state and writes it back");
+  ok(/const ctl = newFundingReadControl\(\);/.test(run) && /const share = \{ ctl, scanMaxCalls: maxCalls, now: nowMs/.test(run) && /\n\s+ctl,\n\s+onProgress,\n\s+\}\);/.test(run) && /await readPayerHistory\(\{[^\n]*\.\.\.share, onProgress \}\)/.test(run) && /await readFundingGaps\(\{[^\n]*\.\.\.share, onProgress \}\)/.test(run),
+    "one read control per scan, shared by the outbound, history and gap reads (timeouts, the stop, and each wallet's share are the scan's)");
 }
 
 // --- 12. The operator lever on a booted server ----------------------------------------
