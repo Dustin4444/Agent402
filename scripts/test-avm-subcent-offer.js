@@ -137,6 +137,24 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: r0 + 60 * 60_000 });
     g.noteSponsorshipStatus(OTHER, exhaustedRow, { now: r0 + 61 * 60_000 });
     ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: r0 + 62 * 60_000 }) === "headroom" && !g.isSubcentPaused(OTHER, r0 + 62 * 60_000), "a pause the status itself confirmed clears on the status's own headroom");
+    // The hold keeps a pause in force; it never brings one back. A refusal
+    // whose pause already failed open (stale behind unreadable reads) is not
+    // revived by a headroom read inside the hold's 30 minutes.
+    const r1 = r0 + 3 * 60 * 60_000;
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: r1 });
+    for (let t = r1 + 60_000; t <= r1 + 11 * 60_000; t += 60_000) g.noteSponsorshipStatus(OTHER, null, { now: t });
+    ok(!g.isSubcentPaused(OTHER, r1 + 11 * 60_000), "(precondition: the refusal's pause failed open behind unreadable reads)");
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: r1 + 12 * 60_000, readStartedAt: r1 + 12 * 60_000 - 500 }) === "headroom" && !g.isSubcentPaused(OTHER, r1 + 12 * 60_000 + 1), "a headroom read inside the hold does not revive a pause that already failed open");
+    // The month turns under a hold: a refusal at 23:50 UTC on the 30th, held
+    // by headroom reads, is over at midnight - the allowance reset on the 1st
+    // whatever the hold's own clock says, and a held read after midnight
+    // neither keeps nor revives it.
+    const lateSep = Date.UTC(2026, 8, 30, 23, 50);
+    g.noteAvmSettleRefusal({ network: ALGO, payTo: OTHER, reason: "subcent_quota_exceeded", now: lateSep });
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: lateSep + 5 * 60_000, readStartedAt: lateSep + 5 * 60_000 - 500 }) === "held" && g.isSubcentPaused(OTHER, lateSep + 5 * 60_000 + 1), "(precondition: held at 23:55 on the 30th)");
+    const oct1 = Date.UTC(2026, 9, 1, 0, 0, 30);
+    ok(!g.isSubcentPaused(OTHER, oct1), "at 00:00:30 on the 1st the held pause is over (a new UTC month)");
+    ok(g.noteSponsorshipStatus(OTHER, headroomRow, { now: oct1 + 30_000, readStartedAt: oct1 + 29_000 }) === "headroom" && !g.isSubcentPaused(OTHER, oct1 + 30_001), "...and a headroom read after midnight clears it rather than holding it into October");
     g._resetAvmSponsorshipForTest({ logger: (m) => logs.push(m) });
   }
   // A refusal's pause names the hold on /api/rails.
@@ -198,6 +216,13 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     ok(g.sponsorshipRowMonth(exhaustedRow, oct1At) === "undated" && g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: null }, oct1At) === "undated" && g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: "" }, oct1At) === "undated", "a row with NO updatedTs (absent, null, empty) is undated");
     ok(g.isSponsorshipRowEvidence(exhaustedRow, oct1At), "...and an undated row is taken at its word - the documented rule for a document without the field");
     ok(g.sponsorshipRowMonth(sepRow, oct1At) === "earlier-month" && !g.isSponsorshipRowEvidence(sepRow, oct1At) && g.sponsorshipRowMonth(sepRow, Date.UTC(2026, 8, 29)) === "this-month" && g.isSponsorshipRowEvidence(sepRow, Date.UTC(2026, 8, 29)), "a dated row is this month's evidence in its month and not after it");
+    // A time more than a day AHEAD of ours cannot name this month either: a
+    // sentinel, an odd encoding or a skewed clock would otherwise keep a
+    // stale count "current" into every month that follows.
+    for (const v of [Date.UTC(9999, 11, 31), "3000-01-01T00:00:00Z", 1e13, 1.79e11]) {
+      ok(g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: v }, oct1At) === "unreadable" && !g.isSponsorshipRowEvidence({ ...exhaustedRow, updatedTs: v }, oct1At), `updatedTs ${JSON.stringify(v)} (far future) is not evidence`);
+    }
+    ok(g.sponsorshipRowMonth({ ...exhaustedRow, updatedTs: oct1At + 3_600_000 }, oct1At) === "this-month", "an hour ahead (clock skew) still reads as this month");
     {
       const logs3 = [];
       g._resetAvmSponsorshipForTest({ logger: (m) => logs3.push(m) });

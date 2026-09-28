@@ -145,13 +145,14 @@ ok(outcomeOf({ status: 429, body: BREAKER_BODY, elapsedMs: 50 }) === "breaker", 
     ok(b1.budget === 150 && b1.remaining === 1000 && /earlier month/.test(b1.source), `a September row read in October is budgeted as reset (got ${JSON.stringify(b1)})`);
     ok(subcentBudget({ status: sepRow, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) }).budget === 0, "...and is still exhausted in September");
     ok(subcentBudget({ status: { ...sepRow, updatedTs: Date.UTC(2026, 9, 5, 6) }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row the facilitator rewrote this month is taken at its word");
-    // A PRESENT updatedTs that is not a readable time (0, negative, small)
-    // cannot name its month: budgeted as reset like an earlier month (fail
-    // open - the first sub-cent buy tells the truth), never by the accident
-    // of Date.parse reading "0" as January 2000.
-    for (const v of [0, -5, "0", 7]) {
-      const b = subcentBudget({ status: { ...sepRow, updatedTs: v }, max: 150, reserve: 300, now: Date.UTC(2026, 8, 28, 6, 41) });
-      ok(b.budget === 150 && /not a readable time/.test(b.source), `updatedTs ${JSON.stringify(v)}: not evidence, budgeted as reset (got ${JSON.stringify(b)})`);
+    // A PRESENT updatedTs that is not a readable time (0, negative, small,
+    // text, far in the future) cannot name its month. The budget spends what
+    // buyers would be left, so its usedMonth is taken at its word and the
+    // reserve holds - never read as reset, and never by the accident of
+    // Date.parse reading "0" as January 2000.
+    for (const v of [0, -5, "0", 7, "soon", Date.UTC(9999, 11, 31), 1.79e11]) {
+      const b = subcentBudget({ status: { ...sepRow, usedMonth: 900, updatedTs: v }, max: 150, reserve: 300, now: Date.UTC(2026, 9, 5, 6, 41) });
+      ok(b.budget === 0 && b.remaining === 100 && /not a readable time/.test(b.source), `updatedTs ${JSON.stringify(v)}: not evidence, usedMonth taken at its word (got ${JSON.stringify(b)})`);
     }
     ok(subcentBudget({ status: { quota: 1000, usedMonth: 1013, suBalance: 0 }, max: 150, reserve: 300, now: oct5 }).budget === 0, "a row with NO updatedTs is taken at its word (the documented rule)");
   }

@@ -115,15 +115,17 @@ export function subcentBudget({ status, max, reserve, now = Date.now() }) {
   // if the facilitator has NOT reset, the first sub-cent buy is refused and
   // that is a rail failure the run reports, instead of a zero budget that
   // excuses it every week. A row whose updatedTs is present but not a
-  // readable time cannot name its month either: the same (fail open), by the
-  // server's one definition.
+  // readable time cannot name its month, and here the safer reading differs
+  // from the gate's: the gate fails open for buyers, but the budget spends
+  // what buyers would be left, so an unreadable row's usedMonth is taken at
+  // its word and the reserve kept for buyers holds.
   const month = sponsorshipRowMonth(status, now);
-  const notThisMonth = month === "earlier-month" || month === "unreadable";
+  const notThisMonth = month === "earlier-month";
   const quota = Number(status.quota), used = notThisMonth ? 0 : (Number(status.usedMonth) || 0), su = Number(status.suBalance) || 0;
   const remaining = Math.max(0, quota - used) + Math.max(0, su);
   const spendable = Math.max(0, remaining - Math.max(0, Number(reserve) || 0));
   const source = month === "earlier-month" ? "live (row from an earlier month, counted as reset)"
-    : month === "unreadable" ? "live (row's updatedTs is not a readable time, counted as reset)" : "live";
+    : month === "unreadable" ? "live (row's updatedTs is not a readable time, usedMonth taken at its word)" : "live";
   return { budget: Math.min(cap, spendable), source, remaining };
 }
 

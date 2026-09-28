@@ -133,11 +133,13 @@ export function sponsorshipRowUpdatedAt(row) {
 
 /**
  * Pure: whether a /sponsorship/status row can speak for the UTC month of `now`.
- *   "this-month"    updatedTs reads as a time in this month (or later);
+ *   "this-month"    updatedTs reads as a time in this month (up to a day
+ *                   ahead of ours, for clock skew);
  *   "earlier-month" it reads as a time before this month began: last month's
  *                   count, NOT evidence about this one;
  *   "unreadable"    updatedTs is PRESENT but not a plausible time (0, a
- *                   negative or small number, text that is not a date): it
+ *                   negative or small number, text that is not a date, a
+ *                   time more than a day in the future): it
  *                   cannot name its month, so it is NOT evidence either, and
  *                   the gate fails open on it (only a refusal pauses);
  *   "undated"       the row carries NO updatedTs at all (absent, null or
@@ -151,7 +153,10 @@ export function sponsorshipRowUpdatedAt(row) {
 export function sponsorshipRowMonth(row, now = Date.now()) {
   if (absentTs(row?.updatedTs)) return "undated";
   const ts = sponsorshipRowUpdatedAt(row);
-  if (ts === null) return "unreadable";
+  // A time more than a day ahead of ours is a sentinel, an odd encoding or a
+  // skewed clock, not this month: it would keep a stale count "current" into
+  // every month that follows.
+  if (ts === null || ts > now + 86_400_000) return "unreadable";
   return utcMonthOf(ts) < utcMonthOf(now) ? "earlier-month" : "this-month";
 }
 
@@ -259,7 +264,9 @@ export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStarte
       reconcile(payTo, now);
       return "predates-refusal";
     }
-    if (now - s.evidenceAt < REFUSAL_HOLD_MS) {
+    // Only a pause still in force is held: one that already failed open
+    // (stale) or ended with the month is not brought back by a headroom read.
+    if (now - s.evidenceAt < REFUSAL_HOLD_MS && isSubcentPaused(payTo, now)) {
       s.heldAt = now;
       if (!s.heldLogged) log(`[avm-subcent] the facilitator's status reads headroom for payTo ${mask(payTo)} but a sub-cent settle was refused ${Math.round((now - s.evidenceAt) / 1000)} s ago - keeping sub-cent Algorand withdrawn until ${Math.round(REFUSAL_HOLD_MS / 60_000)} min after that refusal, so a status that disagrees with its own settles cannot reopen the rail on every read`);
       s.heldLogged = true;
