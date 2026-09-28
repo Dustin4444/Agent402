@@ -30,8 +30,9 @@ const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a.trim(
 const MAX_ENTRIES = 10_000;
 const NOTE_MAX = 200;
 
-/** Parse SOR_MULTI_TENANT_PAYTOS. Returns { wallets: Set, rejected: string[] }. */
-export function parseSharedPayTosEnv(value, { log = null } = {}) {
+/** Parse SOR_MULTI_TENANT_PAYTOS (or another comma-separated wallet list named
+ *  by `envName`). Returns { wallets: Set, rejected: string[] }. */
+export function parseSharedPayTosEnv(value, { log = null, label = "shared-paytos", envName = "SOR_MULTI_TENANT_PAYTOS" } = {}) {
   const wallets = new Set();
   const rejected = [];
   for (const part of String(value || "").split(",")) {
@@ -41,15 +42,18 @@ export function parseSharedPayTosEnv(value, { log = null } = {}) {
     if (w) wallets.add(w);
     else rejected.push(JSON.stringify(t.slice(0, 80)));
   }
-  if (rejected.length && typeof log === "function") log(`[shared-paytos] ignored ${rejected.length} malformed SOR_MULTI_TENANT_PAYTOS entr${rejected.length === 1 ? "y" : "ies"} (not a 0x address): ${rejected.join(", ")}`);
+  if (rejected.length && typeof log === "function") log(`[${label}] ignored ${rejected.length} malformed ${envName} entr${rejected.length === 1 ? "y" : "ies"} (not a 0x address): ${rejected.join(", ")}`);
   return { wallets, rejected };
 }
 
 /**
  * The store. `has(wallet)` is the one question the evidence builder asks.
  * `version` changes on every accepted change, so a memoized reader can tell.
+ * The same operator-listed wallet store also holds the wallets whose
+ * self-funded verdict the operator has cleared (src/leaderboard.js
+ * configureSellerFunding): `label` and `envName` name it in its messages.
  */
-export function createSharedPayToStore({ file = null, envWallets = new Set(), now = Date.now, log = null } = {}) {
+export function createSharedPayToStore({ file = null, envWallets = new Set(), now = Date.now, log = null, label = "shared-paytos", envName = "SOR_MULTI_TENANT_PAYTOS" } = {}) {
   const env = new Set([...(envWallets || [])].map(evmKey).filter(Boolean));
   const runtime = new Map(); // wallet -> { addedAt, note }
   let version = 0;
@@ -73,7 +77,7 @@ export function createSharedPayToStore({ file = null, envWallets = new Set(), no
     } catch (e) {
       // An unreadable file must not silently un-list wallets the operator
       // listed: say so loudly. The env floor still applies.
-      say(`[shared-paytos] could not parse ${file}: ${String(e?.message || e).slice(0, 120)}; runtime listings are not applied until it is fixed`);
+      say(`[${label}] could not parse ${file}: ${String(e?.message || e).slice(0, 120)}; runtime listings are not applied until it is fixed`);
     }
   }
   const ensure = () => { if (!loaded) load(); };
@@ -83,7 +87,7 @@ export function createSharedPayToStore({ file = null, envWallets = new Set(), no
     const body = JSON.stringify({ version: 1, wallets: Object.fromEntries(runtime) });
     const tmp = `${file}.${process.pid}.tmp`;
     try { writeFileSync(tmp, body); renameSync(tmp, file); return true; } catch (e) {
-      say(`[shared-paytos] could not write ${file}: ${String(e?.message || e).slice(0, 120)}`);
+      say(`[${label}] could not write ${file}: ${String(e?.message || e).slice(0, 120)}`);
       return false;
     }
   }
@@ -116,7 +120,7 @@ export function createSharedPayToStore({ file = null, envWallets = new Set(), no
       ensure();
       const w = evmKey(wallet);
       if (!w) throw bad("wallet must be a 0x address (40 hex characters)");
-      if (env.has(w)) throw bad("this wallet is listed by SOR_MULTI_TENANT_PAYTOS; remove it there (a redeploy), not at runtime", 409);
+      if (env.has(w)) throw bad(`this wallet is listed by ${envName}; remove it there (a redeploy), not at runtime`, 409);
       if (!runtime.has(w)) return { wallet: w, listed: false, changed: false };
       const prev = runtime.get(w);
       runtime.delete(w);

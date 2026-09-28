@@ -285,7 +285,7 @@ import { tempoDataKey } from "./tempo-transfers.js";
 import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
-import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION } from "./leaderboard.js";
+import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -1072,12 +1072,12 @@ const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
 // breadth.
 //
 // Deliberately LOW (3). This defeats the single-wallet loop, which is the cheap
-// attack. A fleet of wallets the seller funds DIRECTLY (its own payTo, or a
-// sibling wallet of the same host, sending USDC to each buyer before it pays)
-// is caught one hop deep since 2026-09-28 (src/leaderboard.js
-// applySellerFunding). A fleet funded through an intermediary, an exchange
-// withdrawal, or on another chain is not; claiming otherwise would be the
-// overclaim this codebase keeps having to walk back.
+// attack. A fleet of wallets the seller funds DIRECTLY from the payTo it is
+// paid at (USDC sent to each buyer before it pays) is netted out one hop deep
+// since 2026-09-28, up to the amount it sent (src/seller-funding.js). A fleet
+// funded from another of the seller's wallets, through an intermediary, an
+// exchange withdrawal, or on another chain is not; claiming otherwise would be
+// the overclaim this codebase keeps having to walk back.
 //
 // Enforced ONLY where payer data exists. An origin proven by a source that
 // cannot report distinct payers is unknown, not failing, and keeps the old
@@ -1112,10 +1112,10 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 //     by the payTo those resources declare;
 //   - the chain join (provenByChain, the busiest Base merchants we observed
 //     settling), kept against the origin's own advertised address.
-// A payment from a payer the seller funded first is not evidence: the scan nets
-// those out per wallet, and a wallet whose evidence is MOSTLY self-funded has
-// its Bazaar and chain-join figures disregarded (src/leaderboard.js
-// applySellerFunding, src/evidence-binding.js).
+// A payment made with USDC its payTo had sent the payer is not evidence: the
+// scan nets those out per wallet, and a wallet whose received dollars are
+// MOSTLY self-funded has its Bazaar and chain-join figures disregarded
+// (src/seller-funding.js, src/evidence-binding.js).
 // The committed seed is not evidence (see SOR_SEED_ORIGINS above).
 // `settled` and `payers` are projections of the binding: the best single
 // wallet's figures, never a MAX of one wallet's calls beside another wallet's
@@ -1149,6 +1149,25 @@ function sharedPayToStore() {
   }
   return sharedPayToStoreInstance;
 }
+// Wallets whose self-funded verdict the OPERATOR has cleared (the rule's own
+// lever, src/leaderboard.js configureSellerFunding): a cleared wallet's
+// evidence reads gross and it is never treated as circular while listed. For a
+// wallet whose outbound transfers to its buyers are real business (rewards,
+// payouts to partners who also buy). SOR_SELF_FUNDING_CLEARED is the boot
+// floor; POST /__operator/seller-funding clears or restores one at runtime.
+let selfFundingClearedInstance = null;
+function selfFundingClearedStore() {
+  if (!selfFundingClearedInstance) {
+    const label = "self-funding-cleared", envName = "SOR_SELF_FUNDING_CLEARED";
+    const env = parseSharedPayTosEnv(process.env.SOR_SELF_FUNDING_CLEARED, { log: (m) => console.warn(m), label, envName });
+    selfFundingClearedInstance = createSharedPayToStore({ file: process.env.SOR_SELF_FUNDING_CLEARED_FILE || "/data/sor-self-funding-cleared.json", envWallets: env.wallets, log: (m) => console.warn(m), label, envName });
+    selfFundingClearedInstance.load();
+  }
+  return selfFundingClearedInstance;
+}
+// The shared settlement contracts' outbound is never read (they credit nobody,
+// and they pay out on every payment they forward).
+configureSellerFunding({ cleared: selfFundingClearedStore(), skip: (w) => sharedPayToStore().has(w) });
 function buildChainProven() {
   const econ = economySnapshotCached();
   return econ?.topMerchants?.length ? provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants }) : new Map();
@@ -4920,6 +4939,42 @@ app.post("/__operator/shared-paytos", express.json(), (req, res) => {
   }
   if (r.changed) dispatchEvidenceCache = null;
   res.set("Cache-Control", "no-store").json({ ok: true, ...r });
+});
+// The SELF-FUNDED rule's operator view and lever (src/seller-funding.js): the
+// last funding read's counts, the wallets currently judged circular, and the
+// operator's clearances. POST {"action":"clear","wallet"} makes a wallet's
+// evidence read gross and never circular while listed (the measurement goes
+// on); {"action":"restore"} undoes it. Persisted on the volume, applied from
+// the next evidence read. Counts and verdicts only: no payer is ever listed.
+app.get(["/__operator/seller-funding", "/__operator/seller-funding.json"], (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const store = selfFundingClearedStore();
+  const wallet = String(req.query?.wallet || "").trim().toLowerCase();
+  if (wallet) {
+    if (!/^0x[0-9a-f]{40}$/.test(wallet)) return res.status(400).json({ error: "wallet must be a 0x address" });
+    const creditedTo = [], selfFundedAt = [];
+    for (const [origin, e] of dispatchEvidence().binding) {
+      if (e.byWallet?.has(wallet)) creditedTo.push({ origin, settled: e.byWallet.get(wallet).settled, payers: e.byWallet.get(wallet).payers ?? null });
+      if (e.selfFunded?.byWallet?.has(wallet)) selfFundedAt.push({ origin, settled: e.selfFunded.byWallet.get(wallet).settled, payers: e.selfFunded.byWallet.get(wallet).payers ?? null });
+    }
+    return res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus({ wallet }), entry: store.list().find((x) => x.wallet === wallet) || null, creditedTo, selfFundedAt });
+  }
+  res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus(), cleared: store.list(), note: 'GET ?wallet=0x... for one wallet; POST {"action":"clear"|"restore","wallet":"0x...","note":"..."} to change it' });
+});
+app.post("/__operator/seller-funding", express.json(), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const { action, wallet, note } = req.body || {};
+  const store = selfFundingClearedStore();
+  let r;
+  try {
+    if (action === "clear") r = store.add(wallet, { note: typeof note === "string" ? note : "" });
+    else if (action === "restore") r = store.remove(wallet);
+    else return res.status(400).json({ error: 'pass {"action":"clear"|"restore","wallet":"0x...","note":"optional"}' });
+  } catch (e) {
+    return res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+  if (r.changed) dispatchEvidenceCache = null;
+  res.set("Cache-Control", "no-store").json({ ok: true, wallet: r.wallet, cleared: r.listed, source: r.source ?? null, changed: r.changed });
 });
 // Remove ONE seller origin from the index and the router, permanently (until
 // restored). Exact origin only - no name matching, no wildcards - so a typo

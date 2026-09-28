@@ -1097,10 +1097,10 @@ export function bazaarQualityFor(origin) {
 /**
  * The Bazaar payer count a ranking tie-break may read for one origin
  * (2026-09-28). The Bazaar counts every settled payment, including the ones a
- * seller funded itself; at a wallet whose evidence was mostly self-funded
- * (src/leaderboard.js) those counts are the same self-payments, so the slice
- * measured at that wallet is left out. Null when nothing measured remains:
- * unmeasured, never zero.
+ * seller funded itself; at a wallet whose received dollars were mostly
+ * self-funded (src/seller-funding.js) those counts are the same self-payments,
+ * so the slice measured at that wallet is left out. Null when nothing measured
+ * remains: unmeasured, never zero.
  */
 export function rankingPayersOf(q, circular = null) {
   if (!q || typeof q !== "object") return null;

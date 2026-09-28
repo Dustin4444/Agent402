@@ -14,14 +14,13 @@
 // floor with no binding and no payer figure at all (2026-09-28). The
 // leaderboard warm-starts from the volume, so no measured history is lost.
 // SELF-FUNDED payments are not evidence (2026-09-28): a payment into wallet W
-// whose payer received USDC from W (or a sibling wallet of the same seller)
-// before paying is the seller's own money coming home. The leaderboard's
-// per-wallet figures arrive already netted of those (src/leaderboard.js
-// applySellerFunding); the gross figures are kept as `selfFunded` so a label
-// can say why. When MOST of a wallet's evidence was self-funded (a "circular"
-// wallet), its Bazaar and chain-join figures - which count the same payments
-// and cannot be netted - are disregarded too; the netted leaderboard figures,
-// the genuine part, still count.
+// made with USDC that W had sent its payer is the seller's own money coming
+// home. The leaderboard's per-wallet figures arrive already netted of those
+// (src/seller-funding.js); the gross figures are kept as `selfFunded` so a
+// label can say why. When MOST of the dollars a wallet received were
+// self-funded (a "circular" wallet), its Bazaar and chain-join figures - which
+// count the same payments and cannot be netted - are disregarded too; the
+// netted leaderboard figures, the genuine part, still count.
 // A wallet the operator LISTS as shared (a split or settlement contract many
 // sellers are paid through, src/shared-paytos.js) credits nobody with its
 // leaderboard or chain-join history: those figures count payments forwarded

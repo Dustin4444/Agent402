@@ -254,9 +254,9 @@ export function composeSellerDossier(a) {
       withheldAtSharedWallets: evidenceBinding?.withheld?.byWallet instanceof Map
         ? [...evidenceBinding.withheld.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
         : [],
-      // Settlement NOT counted because its payer received USDC from the wallet
-      // (or another wallet of the same seller) before paying: the seller's own
-      // money coming home. Gross figures, per wallet; counts only, no payers.
+      // Settlement NOT counted because it was paid with USDC the wallet had
+      // sent its payer: the seller's own money coming home. Gross figures, per
+      // wallet; counts only, no payers.
       selfFundedAtWallets: evidenceBinding?.selfFunded?.byWallet instanceof Map
         ? [...evidenceBinding.selfFunded.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
         : [],
@@ -269,7 +269,7 @@ export function composeSellerDossier(a) {
   if (wallets.base.sharedWithOrigins.length) flags.push(`the advertised Base wallet is also advertised by ${wallets.base.sharedWithOrigins.length} other origin(s); chain evidence for it is withheld from all of them`);
   if (baseDetail === "evidence_payto_mismatch") flags.push("the settlement evidence that clears the floor for this origin was measured at a wallet its live 402 does not pay; the router will not spend on it");
   if (baseDetail === "evidence_payto_unverified") flags.push("the router could not read a live 402 payTo to bind the settlement evidence to");
-  if (wallets.base.selfFundedAtWallets.length) flags.push("some settlement at this seller's wallet came from payers that wallet (or another wallet of the same seller) had funded before they paid; those payments are not counted as evidence, and where they are most of it, third-party counts of the same wallet are not counted either");
+  if (wallets.base.selfFundedAtWallets.length) flags.push("some settlement at this seller's wallet was paid with USDC that wallet had sent its payers earlier; those payments are not counted as evidence, and where they are most of the dollars it received, third-party counts of the same wallet are not counted either");
   if (baseDetail === "evidence_payto_shared" || wallets.base.withheldAtSharedWallets.length) flags.push("settlement history at a wallet this host lists as a settlement contract shared by many sellers is credited to none of them; only settlement measured on this origin's own URLs counts for it");
 
   // Concentration reads as a sentence here, like every other dossier flag: a
