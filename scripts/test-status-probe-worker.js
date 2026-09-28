@@ -267,9 +267,12 @@ console.log("status-probe worker — observation mapping");
 
 {
   // The hard cap. A digest that never yields a zero bit forces the worst case.
+  // (Past 4x the cap it gives in and returns an all-zero digest, so a solver
+  // with no cap FAILS here quickly instead of spinning until the CI timeout.)
   stub();
   let digests = 0;
-  Object.defineProperty(crypto.subtle, "digest", { value: async () => { digests++; return new Uint8Array(32).fill(0xff).buffer; }, configurable: true });
+  const giveIn = SOLVE_CAP_FACTOR * 2 ** 4 * 4;
+  Object.defineProperty(crypto.subtle, "digest", { value: async () => { digests++; return new Uint8Array(32).fill(digests > giveIn ? 0 : 0xff).buffer; }, configurable: true });
   const r = await checkPaidCall(PROD, TOKEN);
   delete crypto.subtle.digest;
   const cap = SOLVE_CAP_FACTOR * 2 ** 4;
