@@ -1427,5 +1427,21 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
 }
 
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+// The known-payer set is bounded across wallets, not only per wallet: the
+// idlest go first, and a payer with a pool or paying this scan is kept.
+{
+  const known = (pairs) => new Map(pairs);
+  const mkWs = (entries, pairs = new Map()) => ({ known: known(entries), pairs, hp: [] });
+  const a = "0x" + "a1".repeat(20), b = "0x" + "b2".repeat(20);
+  const pa = (i) => "0x" + i.toString(16).padStart(40, "0");
+  const st = { wallets: new Map([
+    [a, mkWs([[pa(1), [10, -1, -1, 0]], [pa(2), [50, -1, -1, 0]], [pa(3), [5, -1, -1, 0]]], new Map([[pa(3), { recs: [], pend: [], pool: 1, credit: 0 }]]))],
+    [b, mkWs([[pa(4), [20, -1, -1, 0]], [pa(5), [60, -1, -1, 0]], [pa(6), [1, -1, -1, 0]]])],
+  ]) };
+  processSellerFunding(st, new Map(), { maxKnownTotal: 3 });
+  const left = [...st.wallets.values()].flatMap((ws) => [...ws.known.keys()]).sort();
+  ok(left.length === 3 && left.includes(pa(3)) && left.includes(pa(2)) && left.includes(pa(5)), `past the total cap the idlest known payers across wallets are forgotten, a pooled one kept (${left.map((x) => parseInt(x, 16)).join(",")})`);
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

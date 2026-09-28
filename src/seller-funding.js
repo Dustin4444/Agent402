@@ -174,6 +174,9 @@ export const FUNDING_DEFAULTS = {
   // Known payers per wallet: past it, the idlest ones with no pool are
   // forgotten first (they are read again if they pay again).
   maxKnownPerWallet: 100_000,
+  // ...and across every wallet: listings can name any busy wallet, so the
+  // total is bounded too (the idlest go first, across wallets).
+  maxKnownTotal: 600_000,
   // Funded payments remembered per wallet (the window's netted payments).
   maxRecordsPerWallet: 100_000,
   // How long a wallet stays "circular" for the Bazaar's sake after the last
@@ -1514,8 +1517,9 @@ const payerKeysOf = (row) => new Set([...(row?.perPayer?.keys?.() || [])].map(lo
  * pending, and the gap before the window when its pools start before it
  * (`gaps`). Otherwise it is left behind, untouched.
  */
-export function processSellerFunding(state, byWallet, { throughFor = () => Infinity, windowStartBlock = 0, gaps = new Map(), histories = new Map(), classify = () => 1, coveredShareToNet = FUNDING_DEFAULTS.coveredShareToNet, bucketBlocks = FUNDING_DEFAULTS.bucketBlocks, maxRecordsPerWallet = FUNDING_DEFAULTS.maxRecordsPerWallet, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, maxPairsTotal = FUNDING_DEFAULTS.maxPairsTotal, maxKnownPerWallet = FUNDING_DEFAULTS.maxKnownPerWallet } = {}) {
+export function processSellerFunding(state, byWallet, { throughFor = () => Infinity, windowStartBlock = 0, gaps = new Map(), histories = new Map(), classify = () => 1, coveredShareToNet = FUNDING_DEFAULTS.coveredShareToNet, bucketBlocks = FUNDING_DEFAULTS.bucketBlocks, maxRecordsPerWallet = FUNDING_DEFAULTS.maxRecordsPerWallet, maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, maxPairsTotal = FUNDING_DEFAULTS.maxPairsTotal, maxKnownPerWallet = FUNDING_DEFAULTS.maxKnownPerWallet, maxKnownTotal = FUNDING_DEFAULTS.maxKnownTotal } = {}) {
   const rows = new Map();
+  const payingNow = new Map();
   for (const row of byWallet.values()) rows.set(lower(row.wallet), row);
   const total = { n: fundingPairCount(state), max: maxPairsTotal };
   for (const [w, ws] of state.wallets) {
@@ -1527,6 +1531,7 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
       const need = gapNeeded(ws, windowStartBlock);
       const gap = need ? gaps.get(w) : null;
       const current = payerKeysOf(row);
+      payingNow.set(w, current);
       const freshPayers = [...current].filter((p) => p !== w && !ws.known.has(p));
       const hist = histories.get(w) || null;
       const creditPending = [...ws.pairs].filter(([, pair]) => !pair.h && pair.pend.some(([pos]) => pos <= limit)).map(([p]) => p);
@@ -1559,7 +1564,22 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
     }
     trimWallet(ws, windowStartBlock, maxRecordsPerWallet);
   }
+  evictKnownTotal(state, payingNow, maxKnownTotal);
   return state;
+}
+// Past the total cap, forget the idlest known payers across every wallet, with
+// the same exemptions as the per-wallet cap (a pool, or paying this scan).
+function evictKnownTotal(state, payingNow, maxKnownTotal) {
+  let n = 0;
+  for (const ws of state.wallets.values()) n += ws.known.size;
+  if (n <= maxKnownTotal) return;
+  const idle = [];
+  for (const [w, ws] of state.wallets) {
+    const current = payingNow.get(w);
+    for (const [p, k] of ws.known) if (!ws.pairs.has(p) && !current?.has(p)) idle.push([Math.max(k[0], k[1], k[2]), ws, p]);
+  }
+  idle.sort((x, y) => x[0] - y[0]);
+  for (const [, ws, p] of idle.slice(0, n - maxKnownTotal)) ws.known.delete(p);
 }
 function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(), maxPairsPerWallet = FUNDING_DEFAULTS.maxPairsPerWallet, total = { n: 0, max: Infinity }, gapIns = null, classify = () => 1, coveredShareToNet = FUNDING_DEFAULTS.coveredShareToNet, bucketBlocks = FUNDING_DEFAULTS.bucketBlocks } = {}) {
   const from = ws.through;
