@@ -466,13 +466,13 @@ import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompac
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
+import { revenueSnapshot, withFreshRecent, revenuePage, railThroughput, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall, getJsonAcross, ALGORAND_INDEXER_BASES, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { recordSellerVerification, sellerVerificationStatus } from "./seller-verification.js";
-import { externalPaymentEventsFor, startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
+import { externalPaymentEventsFor, startRevenueLedger, ledgerRecent, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyersWeekly, ledgerBuyersMonthly, ledgerBuyerConcentration, ledgerBuyerRetention, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached, warmEconomySnapshot } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate, sharedPayToClaims } from "./settlement-proof.js";
 import { buildEvidenceBinding, baseLiveGate } from "./evidence-binding.js";
@@ -3272,7 +3272,9 @@ if (process.env.X402_SYNC_ON_START !== "false" && GATEWAY_TOOLS_ENABLED.some((t)
 }
 app.get("/api/revenue", async (_req, res) => {
   try {
-    const snap = await revenueSnapshot(revenueWallets());
+    // Recent rows are re-read from the ledger per request (withFreshRecent);
+    // only the balances ride the hourly background snapshot.
+    const snap = withFreshRecent(await revenueSnapshot(revenueWallets()), ledgerRecent);
     const ledger = memoSurface("revenue:allTime", 60_000, () => ({ allTime: ledgerSummary(revenueWallets()), sales: salesSummary() }));
     res.set("Cache-Control", "public, max-age=30").json({ ...snap, ...ledger });
   } catch (e) {
@@ -3381,7 +3383,9 @@ app.get("/api/revenue/mpp", (req, res) => {
 });
 app.get("/revenue", async (_req, res) => {
   try {
-    const snap = await revenueSnapshot(revenueWallets());
+    // Recent rows are re-read from the ledger per request (withFreshRecent);
+    // only the balances ride the hourly background snapshot.
+    const snap = withFreshRecent(await revenueSnapshot(revenueWallets()), ledgerRecent);
     // `standing` is what the page is MEASURING, read from the index totals rather
     // than typed into the copy: a framing paragraph that goes stale is worse
     // than none, because it is the sentence asking to be trusted.
@@ -6206,7 +6210,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
       const snapshot = getIndexSnapshot();
       const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
       const [revSnap, activity] = await Promise.all([
-        revenueSnapshot(revenueWallets()),
+        revenueSnapshot(revenueWallets()).then((snap) => withFreshRecent(snap, ledgerRecent)),
         scanWallet ? getActivityForChain(chainKey, scanWallet, { maxWaitMs: PAGE_ACTIVITY_WAIT_MS }) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
