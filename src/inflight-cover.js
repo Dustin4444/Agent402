@@ -19,6 +19,12 @@
 //   - The first run in flight needs no read: verify already proved the
 //     balance covers it. A later one reads balanceOf once, cached for a few
 //     seconds and shared by concurrent callers, so a burst costs one read.
+//   - That proof holds only until a run of the same wallet leaves the
+//     ledger: the departed run's settlement may have come out of the balance
+//     this payment was verified against. A run judged across such a departure
+//     is judged on a balance read taken after it, whether or not the ledger
+//     is empty by then; a read already under way when a run leaves is neither
+//     used for the decision nor cached.
 //   - An unreadable balance (RPC down, the read lane full) admits up to
 //     INFLIGHT_COVER_UNREAD_MAX runs in flight (default 4) and refuses beyond.
 //   - A run leaves the ledger when its response ends, however it ends
@@ -27,7 +33,10 @@
 //     its payment may already be taken on chain, so a balance read then can
 //     reflect it while the ledger still counts it. A run the balance would
 //     not cover while another is settling waits for that one to leave the
-//     ledger (at most SETTLE_WAIT_MS) and is judged again.
+//     ledger (at most SETTLE_WAIT_MS) and is judged again on a fresh read,
+//     against every run in flight at that moment. Runs woken together share
+//     that read and are admitted one at a time, each counting the ones before
+//     it, so they are covered together too.
 // INFLIGHT_COVER=off disables the check.
 
 import { paymentHeaderOf } from "./payer.js";
@@ -49,7 +58,8 @@ const UINT = /^\d{1,78}$/;
 const ledger = new Map(); // coverKey -> { count, atomic: bigint, settling }
 const waiters = new Map(); // coverKey -> Set<() => void>, woken when a run leaves
 const balances = new Map(); // coverKey -> { atomic: bigint, at }
-const pendingReads = new Map(); // coverKey -> Promise<bigint|null>
+const pendingReads = new Map(); // coverKey -> { p: Promise<bigint|null> }
+const judging = new Map(); // coverKey -> Set<{ left }>, runs being judged; release() counts in `left`
 let readsInFlight = 0;
 const stats = { admitted: 0, admittedByRead: 0, admittedUnread: 0, refused: 0, refusedUnread: 0, settleWaits: 0 };
 
@@ -113,19 +123,24 @@ export function _setBalanceReaderForTest(fn) { reader = typeof fn === "function"
 async function balanceFor(coverKey, terms, now) {
   const hit = balances.get(coverKey);
   if (hit && now - hit.at < CACHE_MS) return hit.atomic;
-  if (pendingReads.has(coverKey)) return pendingReads.get(coverKey);
+  if (pendingReads.has(coverKey)) return pendingReads.get(coverKey).p;
   if (readsInFlight >= MAX_READS_IN_FLIGHT) return null; // never queue: a full lane reads as unknown
   readsInFlight++;
-  const p = (async () => {
+  const entry = { p: null };
+  entry.p = (async () => {
     try {
       const atomic = await reader(terms);
-      if (typeof atomic === "bigint" && atomic >= 0n) { balances.set(coverKey, { atomic, at: Date.now() }); return atomic; }
-      return null;
+      if (typeof atomic !== "bigint" || atomic < 0n) return null;
+      // A run that left while this read was under way detached it (release()
+      // drops the pending entry): it may predate that run's settlement, so it
+      // is not kept for anyone who asks after the departure.
+      if (pendingReads.get(coverKey) === entry) balances.set(coverKey, { atomic, at: Date.now() });
+      return atomic;
     } catch { return null; }
-    finally { readsInFlight--; pendingReads.delete(coverKey); }
+    finally { readsInFlight--; if (pendingReads.get(coverKey) === entry) pendingReads.delete(coverKey); }
   })();
-  pendingReads.set(coverKey, p);
-  return p;
+  pendingReads.set(coverKey, entry);
+  return entry.p;
 }
 
 /** Resolves when a run leaves `coverKey`'s ledger, or after `ms`. */
@@ -158,38 +173,56 @@ export async function admitCoveredRun(req, { now = Date.now(), settleWaitMs = SE
   if (!terms) return null;
   const coverKey = `${terms.network}|${terms.asset || "-"}|${terms.payer}`;
   const waitUntil = Date.now() + settleWaitMs;
-  let at = now;
-  for (;;) {
-    const held = ledger.get(coverKey);
-    if (!held || held.count <= 0) break;
-    const balance = await balanceFor(coverKey, terms, at);
-    // Re-read the ledger AFTER the await: other runs may have been admitted
-    // meanwhile, and the check and the admission must see the same numbers.
-    const cur = ledger.get(coverKey) || { count: 0, atomic: 0n, settling: 0 };
-    if (cur.count <= 0) break;
-    const need = cur.atomic + terms.atomic;
-    const unread = balance === null;
-    const covered = unread ? cur.count < unreadMax() : balance >= need;
-    if (covered) {
-      if (unread) stats.admittedUnread++; else stats.admittedByRead++;
-      break;
+  // `left` counts this wallet's runs that leave the ledger while this one is
+  // judged (release() bumps it). Once one has, verify's proof no longer holds
+  // and the no-read admission is off: this run is judged on a read.
+  const me = { left: 0 };
+  const judges = judging.get(coverKey) || new Set();
+  judging.set(coverKey, judges);
+  judges.add(me);
+  try {
+    let at = now;
+    for (;;) {
+      const held = ledger.get(coverKey);
+      if (me.left === 0 && (!held || held.count <= 0)) break;
+      const leftBefore = me.left;
+      const balance = await balanceFor(coverKey, terms, at);
+      // A run left while the balance was being read: the read may predate its
+      // settlement. Judge again on a read taken after the departure.
+      if (me.left !== leftBefore) { at = Date.now(); continue; }
+      // Re-read the ledger AFTER the await: other runs may have been admitted
+      // meanwhile, and the check and the admission (synchronous, below) must
+      // see the same numbers.
+      const cur = ledger.get(coverKey) || { count: 0, atomic: 0n, settling: 0 };
+      const need = cur.atomic + terms.atomic;
+      const unread = balance === null;
+      const covered = unread ? cur.count < unreadMax() : balance >= need;
+      if (covered) {
+        if (unread) stats.admittedUnread++; else stats.admittedByRead++;
+        break;
+      }
+      // A settling run may already be paid for on chain while it still counts
+      // here: wait for it to leave, then judge again against a fresh read.
+      if (!unread && cur.settling > 0 && Date.now() < waitUntil) {
+        stats.settleWaits++;
+        await nextRelease(coverKey, waitUntil - Date.now());
+        at = Date.now();
+        continue;
+      }
+      stats.refused++;
+      if (unread) stats.refusedUnread++;
+      const e = new Error(unread
+        ? `This wallet already has ${cur.count} paid runs in progress here, and its balance could not be read to confirm it also covers this one. Retry when one of them finishes. You have not been charged.`
+        : cur.count <= 0
+          ? `This wallet's balance no longer covers this run: another paid run from this wallet settled after this payment was checked, and the balance left does not cover this one too. Add funds and retry. You have not been charged.`
+          : `This wallet already has ${cur.count} paid runs in progress here, and its balance does not cover this one as well. Each payment is checked on its own, but settling them all needs the sum. Retry when one of them finishes, or add funds. You have not been charged.`);
+      e.statusCode = 429;
+      e.retryAfter = 30;
+      throw e;
     }
-    // A settling run may already be paid for on chain while it still counts
-    // here: wait for it to leave, then judge again against a fresh read.
-    if (!unread && cur.settling > 0 && Date.now() < waitUntil) {
-      stats.settleWaits++;
-      await nextRelease(coverKey, waitUntil - Date.now());
-      at = Date.now();
-      continue;
-    }
-    stats.refused++;
-    if (unread) stats.refusedUnread++;
-    const e = new Error(unread
-      ? `This wallet already has ${cur.count} paid runs in progress here, and its balance could not be read to confirm it also covers this one. Retry when one of them finishes. You have not been charged.`
-      : `This wallet already has ${cur.count} paid runs in progress here, and its balance does not cover this one as well. Each payment is checked on its own, but settling them all needs the sum. Retry when one of them finishes, or add funds. You have not been charged.`);
-    e.statusCode = 429;
-    e.retryAfter = 30;
-    throw e;
+  } finally {
+    judges.delete(me);
+    if (!judges.size && judging.get(coverKey) === judges) judging.delete(coverKey);
   }
   const entry = ledger.get(coverKey) || { count: 0, atomic: 0n, settling: 0 };
   entry.count += 1;
@@ -208,8 +241,12 @@ export async function admitCoveredRun(req, { now = Date.now(), settleWaitMs = SE
       if (e.count <= 0) ledger.delete(coverKey);
     }
     // The balance has likely moved (this run settled, or failed to): the next
-    // concurrent check reads it again.
+    // concurrent check reads it again, a read already under way is detached
+    // from the cache, and every run being judged is told a run has left.
     balances.delete(coverKey);
+    pendingReads.delete(coverKey);
+    const judges = judging.get(coverKey);
+    if (judges) for (const j of judges) j.left += 1;
     const set = waiters.get(coverKey);
     if (set) for (const wake of [...set]) wake();
   };
@@ -231,7 +268,7 @@ export function inflightCoverStatus() {
 
 /** Test-only. */
 export function _resetInflightCoverForTest() {
-  ledger.clear(); balances.clear(); pendingReads.clear(); readsInFlight = 0; reader = readTokenBalance;
+  ledger.clear(); balances.clear(); pendingReads.clear(); judging.clear(); readsInFlight = 0; reader = readTokenBalance;
   for (const set of waiters.values()) for (const wake of [...set]) wake();
   waiters.clear();
   for (const k of Object.keys(stats)) stats[k] = 0;

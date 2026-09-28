@@ -20,7 +20,8 @@
 //      from any one buyer.
 //   4. On the expensive routes a wallet's concurrent runs must be covered by
 //      its balance together, or the extra run is refused before it starts
-//      (src/inflight-cover.js).
+//      (src/inflight-cover.js). A run judged after another of the wallet's
+//      runs has left is judged on a balance read taken after that departure.
 // Part 1 is offline. Part 2 boots the REAL paid server against a stub
 // facilitator that applies the reference 6 s validBefore rule at settle, and a
 // stub OpenRouter (scripts/lib/openrouter-stub-preload.js; the preload refuses
@@ -254,6 +255,67 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const s2 = await s2p.catch((e) => e);
   ok(typeof s2 === "function" && Date.now() - t0s >= 100 && inflightCoverStatus().settleWaits === 1, `a wallet funded for two starts its second run while the first settles: it waits for the first to leave, then runs (${typeof s2 === "function" ? "admitted" : s2?.statusCode})`);
   s2();
+  // A run judged across another run's departure is judged on a fresh read,
+  // even when the ledger is then empty: the departed run's settlement may have
+  // come out of the balance this payment was verified against. A wallet funded
+  // for ONE run starts a second while the first settles; the first's payment
+  // lands and it leaves: the second is refused, before it starts.
+  let bal1 = 600_000n;
+  _setBalanceReaderForTest(async () => bal1);
+  const O = "0x" + "0e".repeat(20);
+  const o1 = await admitCoveredRun(reqFor(hdr(O)));
+  o1.settling();
+  const o2p = admitCoveredRun(reqFor(hdr(O)));
+  setTimeout(() => { bal1 = 0n; o1(); }, 150);
+  const o2 = await o2p.catch((e) => e);
+  ok(o2?.statusCode === 429 && /no longer covers/.test(o2.message) && /not been charged/.test(o2.message) && inflightCoverStatus().runsInFlight === 0, `a wallet funded for one starts a second run while the first settles: once the first has been paid for and leaves, the second is refused on a fresh read (${typeof o2 === "function" ? "admitted" : o2?.statusCode})`);
+  // A read that was already under way when a run left may predate that run's
+  // settlement: it is neither used for the decision nor kept in the cache.
+  bal1 = 600_000n;
+  _setBalanceReaderForTest(async () => { const v = bal1; await sleep(100); return v; });
+  const Q = "0x" + "1f".repeat(20);
+  const q1 = await admitCoveredRun(reqFor(hdr(Q)));
+  q1.settling();
+  const q2p = admitCoveredRun(reqFor(hdr(Q)));
+  setTimeout(() => { bal1 = 0n; q1(); }, 30);
+  const q2 = await q2p.catch((e) => e);
+  ok(q2?.statusCode === 429 && inflightCoverStatus().runsInFlight === 0, `a balance read that began before a settling run left is read again after it: refused (${typeof q2 === "function" ? "admitted" : q2?.statusCode})`);
+  let bal3 = 1_200_000n;
+  _setBalanceReaderForTest(async () => { const v = bal3; await sleep(100); return v; });
+  const Q2 = "0x" + "2f".repeat(20);
+  const q3 = await admitCoveredRun(reqFor(hdr(Q2)));
+  q3.settling();
+  const q4p = admitCoveredRun(reqFor(hdr(Q2)));
+  setTimeout(() => { bal3 = 600_000n; q3(); }, 30);
+  const q4 = await q4p.catch((e) => e);
+  ok(typeof q4 === "function", `control: the same sequence from a wallet funded for two admits the second run (${typeof q4 === "function" ? "admitted" : q4?.statusCode})`);
+  q4();
+  // Several runs waiting on one settling run are judged one after another
+  // against the same fresh read, each counting the ones admitted before it:
+  // exactly as many run as the balance covers.
+  const waitersFor = async (from, balAfter) => {
+    let b = 600_000n, n = 0;
+    _setBalanceReaderForTest(async () => { n++; return b; });
+    const big = await admitCoveredRun(reqFor(hdr(from, "1200000")));
+    big.settling();
+    const ps = [admitCoveredRun(reqFor(hdr(from))), admitCoveredRun(reqFor(hdr(from)))];
+    await sleep(20);
+    const before = n;
+    setTimeout(() => { b = balAfter; big(); }, 50);
+    const out = await Promise.allSettled(ps);
+    return { out, readsAfter: n - before };
+  };
+  const none = await waitersFor("0x" + "5f".repeat(20), 0n);
+  ok(none.out.every((x) => x.status === "rejected" && x.reason?.statusCode === 429) && none.readsAfter === 1, `two runs waiting on one settling run that spends the whole balance: both refused, on one shared read (${none.out.map((x) => x.status)}, reads ${none.readsAfter})`);
+  const race = await waitersFor("0x" + "3f".repeat(20), 600_000n);
+  const raceIn = race.out.filter((x) => x.status === "fulfilled");
+  ok(raceIn.length === 1 && race.out.filter((x) => x.status === "rejected" && x.reason?.statusCode === 429).length === 1 && race.readsAfter === 1, `two runs waiting on one settling run, a balance for one more: one admitted, one refused, one shared read (admitted ${raceIn.length}, reads ${race.readsAfter})`);
+  raceIn.forEach((x) => x.value());
+  const both = await waitersFor("0x" + "4f".repeat(20), 1_200_000n);
+  ok(both.out.every((x) => x.status === "fulfilled"), `control: a balance for both after the settlement admits both waiting runs (${both.out.map((x) => x.status)})`);
+  both.out.forEach((x) => x.value());
+  ok(inflightCoverStatus().runsInFlight === 0, "the waiting runs leave the ledger when released");
+  _setBalanceReaderForTest(async () => bal2);
   // Controls: a run still WORKING is not waited for (the refusal is at once),
   // and a settling run that does not leave within the wait is refused.
   bal2 = 600_000n;
