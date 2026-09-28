@@ -308,9 +308,10 @@ export function provenPayToMatches({ provenPayTo, livePayTo, family = "evm" } = 
  *    the same as zero, and refusing there would punish a seller for a gap in
  *    OUR data.
  *
- * Honest about scope: this defeats the single-wallet loop, the cheap attack. It
- * does NOT defeat a funded fleet of wallets, which needs funding-graph analysis
- * this does not attempt.
+ * Honest about scope: this defeats the single-wallet loop, the cheap attack. A
+ * fleet the seller funds directly is netted out of the counts before they get
+ * here (src/leaderboard.js applySellerFunding, one hop); a fleet funded through
+ * an intermediary is not.
  */
 export function meetsRouterGate({ settled, payers, minSettled = 50, minPayers = 3 } = {}) {
   const n = Number(settled || 0);

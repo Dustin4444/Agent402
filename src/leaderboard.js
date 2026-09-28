@@ -380,6 +380,15 @@ export function mergeCrawledWallets(sellers, payToOrigins, chain = undefined) {
   return { merged: [...known.values()], added };
 }
 
+/** The operator group a wallet row belongs to: its canonical host, else the
+ *  wallet itself. ONE rule, shared by the board's grouping and the
+ *  seller-funding read (a sibling wallet of the same host funding a payer is
+ *  the same seller funding it). */
+export function groupKeyOf(w) {
+  const host = canonicalHost(w?.homepage) || canonicalHost(w?.origins?.[0]);
+  return host ? `host:${host}` : `wallet:${String(w?.wallet || "").toLowerCase()}`;
+}
+
 /**
  * Canonical host for grouping sellers. Two listings on the same operator-owned
  * website should be one row even if the operator publishes them under separate
@@ -511,12 +520,20 @@ export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCall
     // settlement the seller earned, so counting the call while dropping the
     // payer would leave callsSettled overstating what uniqueBuyers reports.
     if (t.payer && ours.has(String(t.payer).toLowerCase())) { row.selfPaidSkipped = (row.selfPaidSkipped || 0) + 1; continue; }
+    // A wallet paying itself is not a buyer (2026-09-28): skipped whole, the
+    // same way our own payments are.
+    if (t.payer && String(t.payer).toLowerCase() === String(t.wallet).toLowerCase()) { row.selfTransferSkipped = (row.selfTransferSkipped || 0) + 1; continue; }
     row.callsSettled += 1;
     row.totalUsd += t.usd;
     if (t.payer) {
       const p = row.perPayer.get(t.payer) || { calls: 0, usd: 0 };
       p.calls += 1;
       p.usd += t.usd;
+      // Where on the chain each payment sits (block, log index), kept only
+      // when the scan supplies it: applySellerFunding below asks whether the
+      // payer had received USDC from this seller BEFORE a payment. One number
+      // per payment, dropped with the accumulator once the scan finalizes.
+      if (Number.isFinite(t.pos)) (p.pos ||= []).push(t.pos);
       row.perPayer.set(t.payer, p);
     }
   }
@@ -645,8 +662,7 @@ export function payerBreadth(perPayer, callsSettled, sellersPerPayer) {
 export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
   const groups = new Map();
   for (const w of byWallet.values()) {
-    const host = canonicalHost(w.homepage) || canonicalHost(w.origins?.[0]);
-    const key = host ? `host:${host}` : `wallet:${w.wallet}`;
+    const key = groupKeyOf(w);
     if (!groups.has(key)) {
       groups.set(key, {
         name: w.name,
@@ -744,14 +760,230 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
   // input, not a public column, and getLeaderboardSnapshot() strips it from
   // every served snapshot. Non-enumerable, so a caller that serializes the
   // ranked array directly cannot leak it either.
+  //
+  // Net of SELLER-FUNDED payments when the scan read the seller's outbound
+  // transfers (applySellerFunding): callsSettled / uniqueBuyers are what the
+  // router may credit, the gross figures and the self-funded share ride beside
+  // them. The public row above stays gross.
   const walletEvidence = {};
   for (const w of byWallet.values()) {
     const k = typeof w.wallet === "string" ? w.wallet.toLowerCase() : null;
     if (!k) continue;
-    walletEvidence[k] = { callsSettled: w.callsSettled || 0, uniqueBuyers: w.perPayer ? w.perPayer.size : 0, origins: [...(w.origins || [])] };
+    const grossCalls = w.callsSettled || 0, grossBuyers = w.perPayer ? w.perPayer.size : 0;
+    const f = w.funding;
+    walletEvidence[k] = f
+      ? {
+          callsSettled: f.netCalls, uniqueBuyers: f.netPayers,
+          grossCallsSettled: grossCalls, grossUniqueBuyers: grossBuyers,
+          selfFundedCalls: f.fundedCalls, selfFundedPayers: f.fullyFundedPayers,
+          circular: f.circular, lastCircularAt: f.lastCircularAt, fundingRead: f.read,
+          origins: [...(w.origins || [])],
+        }
+      : { callsSettled: grossCalls, uniqueBuyers: grossBuyers, origins: [...(w.origins || [])] };
   }
   Object.defineProperty(ranked, "walletEvidence", { value: walletEvidence, enumerable: false, configurable: true });
   return ranked;
+}
+
+// --- seller-funded payers (2026-09-28) --------------------------------------
+//
+// A payment into wallet W is not settlement evidence for W when its payer had
+// received USDC from W (or from a sibling wallet of the same seller, i.e. the
+// same host group) BEFORE paying: the seller funded its own buyer, and the
+// "settlement" is the seller's money coming home. Measured before building
+// this: several sellers the router would pay drew most of their settled count
+// from wallets their own payTo had funded first, one of them 51 of its 52
+// payers; honest sellers' payers were not funded by them at all.
+//
+// The rule is ORDERED, per payment: funding that arrives AFTER a payment (a
+// refund) never makes that earlier payment circular. It is deliberately not an
+// amount match ("this outbound equals the payment it follows, so it is a
+// refund"): a loop that returns each payment as it lands matches that exactly.
+// Only NON-ZERO transfers count as funding: a zero-value transferFrom needs no
+// allowance, so anyone could otherwise log "funding" from a seller's wallet to
+// its honest buyers and demote it.
+//
+// Cost is bounded and read once per scan: the outbound transfers of every
+// wallet that received a counted payment (plus its group siblings), over the
+// scan window and a lookback before it, in the scan's wallet chunks and one
+// wide block range per chunk. A chunk the RPC refuses (a range limit, or a
+// response too large - a wallet that pays out a lot) is re-read TARGETED at
+// that chunk's own payers, then over narrower ranges, within `maxCalls`. A
+// wallet whose outbound could not be read in full is simply not netted this
+// scan: absence of evidence never refuses anyone.
+export const FUNDING_DEFAULTS = {
+  // Blocks before the scan window whose funding still counts (default: one more
+  // window). A buyer funded a day before the window opened is still funded.
+  lookbackBlocks: parseInt(process.env.FUNDING_LOOKBACK_BLOCKS || "0", 10) || null,
+  maxCalls: parseInt(process.env.LEADERBOARD_FUNDING_MAX_CALLS || "400", 10),
+  minRangeBlocks: 1000,
+  payerChunk: 200,
+  // Recipients remembered per funding wallet. A wallet that pays out to more
+  // distinct addresses than this is read up to the cap and flagged.
+  maxRecipientsPerSource: 50_000,
+  // How long a wallet stays "circular" for the Bazaar's sake after the last
+  // scan that found it so: the Bazaar counts a 30-day window, so its figures
+  // still carry the self-payments for that long.
+  circularWindowMs: 30 * 86_400_000,
+};
+const ZERO_ADDRESS = "0x" + "0".repeat(40);
+/** A payment's position on the chain, orderable: block, then log index. */
+export const posOf = (block, logIndex) => Number(block) * 1_000_000 + Number(logIndex);
+const addrFromTopic = (t) => (typeof t === "string" && t.length >= 42 ? ("0x" + t.slice(-40)).toLowerCase() : null);
+
+/**
+ * Read the non-zero outbound token transfers of `sources` over [fromBlock,
+ * toBlock]: source -> recipient -> the earliest position it paid that recipient.
+ *
+ * @param {object} o
+ * @param {(method, params) => Promise} o.rpc      one JSON-RPC call (throws on error)
+ * @param {string} o.token                         the token contract (USDC)
+ * @param {string[]} o.sources                     lowercase wallets whose outbound is read
+ * @param {Map<string, Set<string>>} o.payersBySource  payers relevant to each source (the targeted fallback)
+ * @returns {{ fundedBy: Map, read: Set, calls, partial, unread: Set, truncated: Set }}
+ */
+export async function readSellerFunding({ rpc, token, sources, payersBySource = new Map(), fromBlock, toBlock, chunkBlocks = 9000, walletChunk = 200, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, maxRecipientsPerSource = FUNDING_DEFAULTS.maxRecipientsPerSource, ignore = new Set(), onProgress = () => {} } = {}) {
+  const tok = String(token || "").toLowerCase();
+  const fundedBy = new Map();
+  const unread = new Set();
+  const truncated = new Set();
+  const list = [...new Set((sources || []).map((w) => String(w).toLowerCase()).filter((w) => /^0x[0-9a-f]{40}$/.test(w)))];
+  const queue = [];
+  for (let i = 0; i < list.length; i += walletChunk) queue.push({ froms: list.slice(i, i + walletChunk), tos: null, lo: fromBlock, hi: toBlock });
+  let calls = 0;
+  let maxRange = Infinity; // drops to chunkBlocks for the rest of the scan once a wide targeted read is refused
+  const record = (logs) => {
+    for (const l of Array.isArray(logs) ? logs : []) {
+      const from = addrFromTopic(l?.topics?.[1]);
+      const to = addrFromTopic(l?.topics?.[2]);
+      if (!from || !to) continue;
+      let value = 0n;
+      try { value = BigInt(l.data || "0x0"); } catch { continue; }
+      if (value <= 0n) continue; // zero-value logs are free to forge; never funding
+      if (to === from || to === ZERO_ADDRESS || to === tok || ignore.has(to)) continue;
+      const block = parseInt(l.blockNumber, 16), idx = parseInt(l.logIndex, 16);
+      if (!Number.isFinite(block) || !Number.isFinite(idx)) continue;
+      const pos = posOf(block, idx);
+      let m = fundedBy.get(from);
+      if (!m) { m = new Map(); fundedBy.set(from, m); }
+      const prev = m.get(to);
+      if (prev === undefined) {
+        if (m.size >= maxRecipientsPerSource) { truncated.add(from); continue; }
+        m.set(to, pos);
+      } else if (pos < prev) m.set(to, pos);
+    }
+  };
+  while (queue.length) {
+    const job = queue.shift();
+    if (job.hi - job.lo + 1 > maxRange) {
+      for (let lo = job.lo; lo <= job.hi; lo += maxRange) queue.push({ ...job, lo, hi: Math.min(lo + maxRange - 1, job.hi) });
+      continue;
+    }
+    if (calls >= maxCalls) { for (const w of job.froms) unread.add(w); continue; }
+    calls++;
+    try {
+      const logs = await rpc("eth_getLogs", [{
+        fromBlock: "0x" + Math.max(0, job.lo).toString(16),
+        toBlock: "0x" + job.hi.toString(16),
+        address: tok,
+        topics: [TRANSFER, job.froms.map(pad), job.tos ? job.tos.map(pad) : null],
+      }]);
+      record(logs);
+    } catch (e) {
+      if (!job.tos) {
+        // Untargeted refused: read only what can matter, the transfers from
+        // these wallets TO their own payers.
+        const tos = [...new Set(job.froms.flatMap((w) => [...(payersBySource.get(w) || [])]))];
+        for (let i = 0; i < tos.length; i += payerChunk) queue.push({ froms: job.froms, tos: tos.slice(i, i + payerChunk), lo: job.lo, hi: job.hi });
+        continue;
+      }
+      if (job.hi - job.lo + 1 > chunkBlocks && maxRange > chunkBlocks) { maxRange = chunkBlocks; queue.push(job); continue; }
+      if (job.hi - job.lo + 1 > minRangeBlocks) {
+        const mid = job.lo + Math.floor((job.hi - job.lo) / 2);
+        queue.push({ ...job, hi: mid }, { ...job, lo: mid + 1 });
+        continue;
+      }
+      for (const w of job.froms) unread.add(w);
+      onProgress(`      funding read gave up on blocks ${job.lo}-${job.hi}: ${redactSecrets(String(e?.message || e)).slice(0, 120)}`);
+    }
+  }
+  const read = new Set(list.filter((w) => !unread.has(w)));
+  return { fundedBy, read, unread, truncated, calls, partial: unread.size > 0 };
+}
+
+/**
+ * Net each wallet's payments of the ones its seller funded first. Mutates each
+ * row, adding `funding` = { netCalls, netPayers, fundedCalls, fundedUsd,
+ * fullyFundedPayers, circular, lastCircularAt, read }. A row whose group's
+ * outbound was not read keeps its gross figures (read: false).
+ *
+ * `circular` = most of the wallet's settled evidence is self-funded: funded
+ * calls over half of its calls, or payers paying only with the seller's money
+ * over half of its payers. `lastCircularAt` carries a previous scan's verdict
+ * for `circularWindowMs` (the Bazaar's 30 days still count those payments).
+ */
+export function applySellerFunding(byWallet, facts, { now = Date.now(), previous = null, circularWindowMs = FUNDING_DEFAULTS.circularWindowMs } = {}) {
+  const groups = new Map();
+  for (const w of byWallet.values()) {
+    const g = groupKeyOf(w);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(String(w.wallet).toLowerCase());
+  }
+  const nowIso = new Date(now).toISOString();
+  const prevAt = (k) => {
+    const at = previous && typeof previous === "object" ? previous[k]?.lastCircularAt : null;
+    const t = typeof at === "string" ? Date.parse(at) : NaN;
+    return Number.isFinite(t) && now - t < circularWindowMs ? at : null;
+  };
+  for (const w of byWallet.values()) {
+    const k = String(w.wallet).toLowerCase();
+    const siblings = groups.get(groupKeyOf(w)) || [k];
+    const read = !!facts && siblings.every((s) => facts.read?.has(s));
+    const earliest = (payer) => {
+      let f;
+      if (!facts) return f;
+      for (const s of siblings) {
+        const at = facts.fundedBy?.get(s)?.get(payer);
+        if (at !== undefined && (f === undefined || at < f)) f = at;
+      }
+      return f;
+    };
+    let fundedCalls = 0, fundedUsd = 0, fullyFunded = 0, netPayers = 0;
+    for (const [payer, v] of w.perPayer || []) {
+      const f = Array.isArray(v.pos) && v.pos.length ? earliest(String(payer).toLowerCase()) : undefined;
+      // Only payments strictly AFTER the first funding are the seller's money.
+      const funded = f === undefined ? 0 : v.pos.reduce((n, p) => n + (p > f ? 1 : 0), 0);
+      fundedCalls += funded;
+      if (funded && v.calls) fundedUsd += v.usd * (funded / v.calls);
+      if (funded >= v.calls) fullyFunded++; else netPayers++;
+    }
+    const grossCalls = w.callsSettled || 0, grossPayers = w.perPayer ? w.perPayer.size : 0;
+    const circular = grossCalls > 0 && (fundedCalls * 2 > grossCalls || fullyFunded * 2 > grossPayers);
+    w.funding = {
+      netCalls: grossCalls - fundedCalls,
+      netPayers,
+      fundedCalls,
+      fundedUsd: Number(fundedUsd.toFixed(6)),
+      fullyFundedPayers: fullyFunded,
+      circular,
+      lastCircularAt: circular ? nowIso : prevAt(k),
+      read,
+    };
+  }
+  return byWallet;
+}
+
+/** The wallets whose Bazaar and chain-join figures the router disregards:
+ *  circular in the last scan, or in any scan within `circularWindowMs`. */
+export function circularWalletsFrom(walletEvidence, { now = Date.now(), circularWindowMs = FUNDING_DEFAULTS.circularWindowMs } = {}) {
+  const out = new Set();
+  if (!walletEvidence || typeof walletEvidence !== "object") return out;
+  for (const [w, e] of Object.entries(walletEvidence)) {
+    if (e?.circular === true) { out.add(w.toLowerCase()); continue; }
+    const t = typeof e?.lastCircularAt === "string" ? Date.parse(e.lastCircularAt) : NaN;
+    if (Number.isFinite(t) && now - t < circularWindowMs) out.add(w.toLowerCase());
+  }
+  return out;
 }
 
 // --- network helpers --------------------------------------------------------
@@ -966,6 +1198,7 @@ export async function runLeaderboard(overrides = {}) {
             wallet: ("0x" + l.topics[2].slice(-40)).toLowerCase(),
             payer: payerFromLog(l),
             usd: Number(BigInt(l.data)) / 1e6,
+            pos: posOf(parseInt(l.blockNumber, 16), parseInt(l.logIndex, 16)),
           }));
           foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd, OUR_EVM_WALLETS, opts.priceMatchMaxUsd);
           transferCount += chunkTransfers.length;
@@ -982,11 +1215,59 @@ export async function runLeaderboard(overrides = {}) {
   const partial = failedChunks > 0;
   onProgress(`      ${transferCount} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
 
+  // 2b. Seller-funded payers (see readSellerFunding above): read the outbound
+  // transfers of every wallet that received a counted payment, then net each
+  // wallet's payments of the ones its seller funded first. Router input only;
+  // the public rows stay gross. Base only by default (the router's chain).
+  let fundingScan = null;
+  const fundingOn = (opts.fundingScan ?? chain.key === "base") && process.env.LEADERBOARD_FUNDING_SCAN !== "off";
+  if (fundingOn) {
+    try {
+      const groupsOf = new Map();
+      for (const w of byWallet.values()) {
+        const g = groupKeyOf(w);
+        if (!groupsOf.has(g)) groupsOf.set(g, { wallets: [], payers: new Set(), paid: false });
+        const e = groupsOf.get(g);
+        e.wallets.push(String(w.wallet).toLowerCase());
+        for (const p of (w.perPayer || new Map()).keys()) e.payers.add(String(p).toLowerCase());
+        if (w.perPayer && w.perPayer.size) e.paid = true;
+      }
+      const sources = [], payersBySource = new Map();
+      for (const e of groupsOf.values()) {
+        if (!e.paid) continue;
+        for (const w of e.wallets) { sources.push(w); payersBySource.set(w, e.payers); }
+      }
+      const lookback = Number.isFinite(opts.fundingLookbackBlocks) ? opts.fundingLookbackBlocks : (FUNDING_DEFAULTS.lookbackBlocks ?? opts.spanBlocks);
+      const facts = await readSellerFunding({
+        rpc: opts.fundingRpc || ((method, params) => rpcCall(opts.rpcs, method, params, { passes: 1 })),
+        token: chain.token, sources, payersBySource,
+        fromBlock: Math.max(0, start - lookback), toBlock: latest,
+        chunkBlocks: opts.chunkBlocks, walletChunk: opts.walletChunk,
+        maxCalls: Number.isFinite(opts.fundingMaxCalls) ? opts.fundingMaxCalls : FUNDING_DEFAULTS.maxCalls,
+        ignore: new Set([...(OUR_EVM_WALLETS || [])].map((w) => String(w).toLowerCase())),
+        onProgress,
+      });
+      applySellerFunding(byWallet, facts, { now: opts.now ?? Date.now(), previous: opts.previousWalletEvidence || null });
+      fundingScan = { calls: facts.calls, wallets: sources.length, walletsUnread: facts.unread.size, walletsTruncated: facts.truncated.size, partial: facts.partial };
+      onProgress(`      funding read: ${facts.calls} eth_getLogs call(s) over ${sources.length} wallet(s)${facts.partial ? ` (partial: ${facts.unread.size} unread)` : ""}`);
+    } catch (e) {
+      fundingScan = { error: redactSecrets(String(e?.message || e)).slice(0, 160), partial: true };
+      onProgress(`      funding read failed, nothing netted: ${fundingScan.error}`);
+    }
+  }
+
   // 3. Aggregate. byWallet has already absorbed every successfully-scanned
   // chunk's transfers — finalize only does the bounded (O(sellers)) grouping
   // + ranking pass, no transfer-sized array involved.
   onProgress(`[3/3] Aggregating leaderboard…`);
   const ranked = finalizeLeaderboard(byWallet, { maxCallUsd: opts.maxCallUsd });
+  // A wallet found circular within the window keeps that verdict while the
+  // Bazaar's 30 days still count its self-payments, even when this scan did
+  // not see it at all.
+  const walletEvidenceOut = { ...(ranked.walletEvidence || {}) };
+  for (const k of circularWalletsFrom(opts.previousWalletEvidence || null, { now: opts.now ?? Date.now() })) {
+    if (!walletEvidenceOut[k]) walletEvidenceOut[k] = { callsSettled: 0, uniqueBuyers: 0, circular: false, lastCircularAt: opts.previousWalletEvidence[k].lastCircularAt, carried: true, origins: opts.previousWalletEvidence[k].origins || [] };
+  }
   const windowLabel = windowLabelFromBlocks(opts.spanBlocks);
 
   return {
@@ -1002,7 +1283,8 @@ export async function runLeaderboard(overrides = {}) {
     leaderboard: ranked,
     // Router input, persisted with the snapshot so a warm start carries it;
     // removed from every served copy by getLeaderboardSnapshot().
-    walletEvidence: ranked.walletEvidence || {},
+    walletEvidence: walletEvidenceOut,
+    ...(fundingScan ? { routerFundingScan: fundingScan } : {}),
     // Honesty flags: a partial scan under-covers the window (missed ranges
     // mean some settlements aren't counted) — never render it as if it were
     // a complete scan. See ledger-leaderboard.js / x402-index.js for where
@@ -1128,7 +1410,10 @@ async function refreshOnce(opts) {
   cached.warming = true;
   cached.lastTriedAt = new Date().toISOString();
   try {
-    const snap = await runLeaderboard(opts);
+    // The previous scan's per-wallet evidence rides in, so a wallet found
+    // circular keeps that verdict for the Bazaar's window.
+    const snap = await runLeaderboard({ ...opts, previousWalletEvidence: cached.snapshot?.walletEvidence || null });
+    if (snap?.routerFundingScan) console.log(`[leaderboard] seller-funding read: ${snap.routerFundingScan.calls ?? 0} call(s) over ${snap.routerFundingScan.wallets ?? 0} wallet(s)${snap.routerFundingScan.partial ? " (partial)" : ""}`);
     cached.snapshot = snap;
     cached.lastError = null;
     // Best-effort daily digest to /data so week-over-week deltas (the
@@ -1206,7 +1491,7 @@ export function getLeaderboardSnapshot() {
     // walletEvidence is router input (getLeaderboardWalletEvidence below).
     // Every public path spreads this return value, so this is the one place it
     // has to be dropped.
-    const { walletEvidence: _routerOnly, ...served } = cached.snapshot;
+    const { walletEvidence: _routerOnly, routerFundingScan: _routerOnlyScan, ...served } = cached.snapshot;
     return {
       ...served,
       cache: {
@@ -1248,6 +1533,29 @@ export function getLeaderboardSnapshot() {
 export function getLeaderboardWalletEvidence() {
   const ev = cached.snapshot?.walletEvidence;
   return ev && typeof ev === "object" && !Array.isArray(ev) ? ev : {};
+}
+
+/** The last scan's seller-funding read (counts only): router/operator input. */
+export function getLeaderboardFundingScan() {
+  return cached.snapshot?.routerFundingScan || null;
+}
+
+// Circular wallets, memoized per evidence object for ten minutes (the verdict
+// only changes at a scan, but its 30-day window slides).
+let circularMemo = { ev: null, at: 0, set: new Set(), version: "" };
+/**
+ * { wallets: Set, version }: the Base wallets whose settled evidence was mostly
+ * self-funded in a scan inside the Bazaar's window. The router disregards
+ * their Bazaar and chain-join figures (src/evidence-binding.js) and their
+ * Bazaar payer count in ranking ties (x402-index routeQuery).
+ */
+export function getLeaderboardCircularWallets(now = Date.now()) {
+  const ev = cached.snapshot?.walletEvidence || null;
+  if (circularMemo.ev !== ev || now - circularMemo.at > 10 * 60_000) {
+    const set = circularWalletsFrom(ev, { now });
+    circularMemo = { ev, at: now, set, version: `${cached.snapshot?.asOf || "none"}:${set.size}` };
+  }
+  return { wallets: circularMemo.set, version: circularMemo.version };
 }
 
 /** Test hook: clear the cache. Not exported on the production path. */

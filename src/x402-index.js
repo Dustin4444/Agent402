@@ -48,7 +48,7 @@ import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
-import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
+import { rankBy, canonicalHost, getLeaderboardSnapshot, getLeaderboardCircularWallets } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
 import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations, deleteSellerRegistration } from "./stats.js";
 
@@ -1093,6 +1093,26 @@ const bazaarToolsByOrigin = new GuardedMap();
 const bazaarQualityByOrigin = new GuardedMap();
 export function bazaarQualityFor(origin) {
   return bazaarQualityByOrigin.get(String(origin || "").replace(/\/$/, "")) || null;
+}
+/**
+ * The Bazaar payer count a ranking tie-break may read for one origin
+ * (2026-09-28). The Bazaar counts every settled payment, including the ones a
+ * seller funded itself; at a wallet whose evidence was mostly self-funded
+ * (src/leaderboard.js) those counts are the same self-payments, so the slice
+ * measured at that wallet is left out. Null when nothing measured remains:
+ * unmeasured, never zero.
+ */
+export function rankingPayersOf(q, circular = null) {
+  if (!q || typeof q !== "object") return null;
+  const isCircular = (w) => !!(circular && typeof circular.has === "function" && circular.has(String(w).toLowerCase()));
+  if (!circular || !circular.size) return q.payers30d ?? null;
+  const split = q.byPayTo && typeof q.byPayTo === "object" ? Object.entries(q.byPayTo) : null;
+  if (split && split.length) {
+    let best = null;
+    for (const [w, v] of split) if (!isCircular(w)) best = Math.max(best ?? 0, Number(v?.payers) || 0);
+    return best;
+  }
+  return (Array.isArray(q.payTos) ? q.payTos : []).some(isCircular) ? null : (q.payers30d ?? null);
 }
 export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
 export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
@@ -6623,12 +6643,14 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
   // (a regex + map read) hundreds of thousands of times per query.
   const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
   const payersBySeller = new Map();
+  // Self-funded Bazaar counts never break a tie (rankingPayersOf above).
+  const circular = getLeaderboardCircularWallets();
   const payersOf = (seller) => {
     let p = payersBySeller.get(seller);
-    if (p === undefined) { p = bazaarQualityFor(seller)?.payers30d ?? null; payersBySeller.set(seller, p); }
+    if (p === undefined) { p = rankingPayersOf(bazaarQualityFor(seller), circular.wallets); payersBySeller.set(seller, p); }
     return p;
   };
-  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion]) : null;
+  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion, circular.version]) : null;
   const memoHit = !!scoredMemo && scoredMemo.key === memoKey && scoredMemo.local === localRef;
   const scored = memoHit ? scoredMemo.scored : [];
   // The four text-match rules, per row. Same rules and weights as before the

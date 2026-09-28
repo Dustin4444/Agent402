@@ -13,6 +13,15 @@
 // of origin NAMES with counts attributable to no wallet, so it could clear the
 // floor with no binding and no payer figure at all (2026-09-28). The
 // leaderboard warm-starts from the volume, so no measured history is lost.
+// SELF-FUNDED payments are not evidence (2026-09-28): a payment into wallet W
+// whose payer received USDC from W (or a sibling wallet of the same seller)
+// before paying is the seller's own money coming home. The leaderboard's
+// per-wallet figures arrive already netted of those (src/leaderboard.js
+// applySellerFunding); the gross figures are kept as `selfFunded` so a label
+// can say why. When MOST of a wallet's evidence was self-funded (a "circular"
+// wallet), its Bazaar and chain-join figures - which count the same payments
+// and cannot be netted - are disregarded too; the netted leaderboard figures,
+// the genuine part, still count.
 // A wallet the operator LISTS as shared (a split or settlement contract many
 // sellers are paid through, src/shared-paytos.js) credits nobody with its
 // leaderboard or chain-join history: those figures count payments forwarded
@@ -75,7 +84,11 @@ export function rowWalletFigures(row, walletEvidence = null) {
   const evOf = (w) => {
     if (!walletEvidence) return null;
     const e = walletEvidence instanceof Map ? walletEvidence.get(w) : walletEvidence[w];
-    return e && typeof e === "object" ? { settled: Number(e.callsSettled) || 0, payers: Number(e.uniqueBuyers) || 0 } : null;
+    if (!e || typeof e !== "object") return null;
+    // The scan nets seller-funded payments out of callsSettled/uniqueBuyers
+    // and keeps the gross figures beside them (src/leaderboard.js).
+    const gross = e.grossCallsSettled !== undefined ? { settled: Number(e.grossCallsSettled) || 0, payers: Number(e.grossUniqueBuyers) || 0 } : null;
+    return { settled: Number(e.callsSettled) || 0, payers: Number(e.uniqueBuyers) || 0, ...(gross ? { gross } : {}) };
   };
   const perWallet = wallets.map((w) => [w, evOf(w)]).filter(([, e]) => e);
   if (perWallet.length) return perWallet;
@@ -95,18 +108,23 @@ export function rowWalletFigures(row, walletEvidence = null) {
  *                             advertised address), for reporting
  *   withheld     { byWallet, payTos }  leaderboard / chain-join figures at wallets
  *                             the operator lists as shared: credited to nobody
+ *   selfFunded   { byWallet, payTos }  what was NOT credited because it was
+ *                             self-funded: a wallet's gross leaderboard figures
+ *                             where the scan netted some out, and the Bazaar /
+ *                             chain-join figures at a circular wallet
  * }
  *
- * `sharedWallets`: anything with has(wallet) (src/shared-paytos.js), or null.
+ * `sharedWallets`, `circularWallets`: anything with has(wallet), or null.
  */
-export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, sharedWallets = null, minSettled = 50, minPayers = 3 } = {}) {
+export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, sharedWallets = null, circularWallets = null, minSettled = 50, minPayers = 3 } = {}) {
   const m = new Map();
   const ent = (o) => {
     const k = norm(o);
-    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), ownSettled: 0, ownPayers: undefined });
+    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), selfByWallet: new Map(), ownSettled: 0, ownPayers: undefined });
     return m.get(k);
   };
   const isShared = (w) => !!(sharedWallets && typeof sharedWallets.has === "function" && sharedWallets.has(w));
+  const isCircular = (w) => !!(circularWallets && typeof circularWallets.has === "function" && circularWallets.has(w));
   for (const row of Array.isArray(leaderboardRows) ? leaderboardRows : []) {
     const origins = Array.isArray(row?.origins) ? row.origins : (row?.homepage ? [row.homepage] : []);
     const figures = rowWalletFigures(row, walletEvidence);
@@ -114,7 +132,11 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
     for (const o of origins) {
       if (!o) continue;
       const e = ent(o);
-      for (const [w, v] of figures) put(isShared(w) ? e.heldByWallet : e.byWallet, w, v.settled, v.payers);
+      for (const [w, v] of figures) {
+        if (isShared(w)) { put(e.heldByWallet, w, v.gross?.settled ?? v.settled, v.gross?.payers ?? v.payers); continue; }
+        put(e.byWallet, w, v.settled, v.payers);
+        if (v.gross && (v.gross.settled > v.settled || v.gross.payers > v.payers)) put(e.selfByWallet, w, v.gross.settled, v.gross.payers);
+      }
     }
   }
   for (const [o, q] of Array.isArray(bazaarQuality) ? bazaarQuality : []) {
@@ -122,6 +144,7 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
     for (const [w0, v] of bazaarByPayTo(q)) {
       const w = evmKey(w0);
       if (!w || !(Number(v?.calls) > 0)) continue;
+      if (isCircular(w)) { put(ent(o).selfByWallet, w, v.calls, v.payers); continue; }
       put(ent(o).byWallet, w, v.calls, v.payers);
     }
   }
@@ -131,6 +154,7 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
       if (!o || !ev || !w) continue;
       const e = ent(o);
       if (isShared(w)) { put(e.heldByWallet, w, ev.settled, ev.payers); continue; }
+      if (isCircular(w)) { put(e.selfByWallet, w, ev.settled, ev.payers); continue; }
       put(e.byWallet, w, ev.settled, ev.payers);
       e.ownSettled = Math.max(e.ownSettled, Number(ev.settled) || 0);
       if (ev.payers != null) e.ownPayers = Math.max(Number(e.ownPayers ?? 0), Number(ev.payers) || 0);
@@ -156,6 +180,7 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
       ownSettled: e.ownSettled,
       ownPayers: e.ownPayers,
       withheld: { byWallet: e.heldByWallet, payTos: new Set(e.heldByWallet.keys()) },
+      selfFunded: { byWallet: e.selfByWallet, payTos: new Set(e.selfByWallet.keys()) },
     });
   }
   return out;
