@@ -559,18 +559,58 @@ const page = (results, extra = {}) =>
 
     // the sibling branch: the stated GET does not answer, the declared POST
     // sibling does, so the payTo belongs on the row that survives. The POST row
-    // is priced and chain-verified from the origin's own document, so it is not
-    // a probe candidate itself - otherwise its own probe would write the payTo
-    // and this case could not observe the sibling write at all.
+    // is origin-priced with a fresh verified read, so the AUTOMATIC crawl does
+    // not probe it itself - otherwise its own probe would write the payTo and
+    // this case could not observe the sibling write at all. (A re-registration
+    // would re-ask it: see the next case.)
     globalThis.fetch = stub({ "POST /x402/full": [accept()] });
     const pair = [
       { seller: ORIGIN, route: "/x402/full", method: "GET", slug: "full-get", price: null, networks: [] },
       { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: 0.032, originDeclaredPrice: 0.032, networks: ["eip155:8453"], networksVerifiedAt: Date.now() },
     ];
-    await enrichLiveQuotes(pair, ORIGIN, { ignoreBudget: true });
+    await enrichLiveQuotes(pair, ORIGIN);
     const survivor = pair.find((r) => r.method === "POST");
     check(`the surviving sibling carries the payTo (got ${JSON.stringify(survivor?.payToByNetwork)}, rows ${pair.length})`,
       pair.length === 1 && survivor?.payToByNetwork?.["eip155:8453"] === PAYTO);
+
+    // A re-registration re-reads a CARRIED verified read on an origin-priced
+    // row. Carry-forward keeps such a row's chains, payTo, EIP-712 domain and
+    // verification stamp across probe-less rebuilds, so the automatic crawl
+    // leaves it alone until the weekly re-verify; the seller's lever for a
+    // change inside that week (a wrong USDC domain fixed, a payout wallet
+    // moved) is re-registering, which must ask the route's 402 again even
+    // though the origin's price needs no re-ask.
+    {
+      const ROUTE = "/x402/moved";
+      const OLD = "0x1111111111111111111111111111111111111111";
+      const readAt = Date.now() - 86_400_000;
+      let asked = 0;
+      const counting = stub({ [`GET ${ROUTE}`]: [accept()] });   // today's 402: PAYTO, "USD Coin"
+      globalThis.fetch = async (url, init) => { if (new URL(String(url)).pathname === ROUTE) asked++; return counting(url, init); };
+      const crawlN = [{
+        seller: ORIGIN, method: "GET", route: ROUTE, slug: "moved", price: 0.032, originDeclaredPrice: 0.032,
+        networks: ["eip155:8453"], networksVerifiedAt: readAt, liveProvenAt: readAt, quoteSource: "live-402", quoteObservedAt: readAt,
+        payToByNetwork: { "eip155:8453": OLD }, evmDomainByNetwork: { "eip155:8453": { asset: USDC_BASE, name: "USDC" } },
+      }];
+      const rebuild = () => [{ seller: ORIGIN, method: "GET", route: ROUTE, slug: "moved", price: 0.032, originDeclaredPrice: 0.032, quoteSource: "openapi" }];
+      let rows = carryForwardLearnedQuotes(rebuild(), { tools: crawlN });
+      rows = carryForwardLearnedQuotes(rebuild(), { tools: rows });
+      await enrichLiveQuotes(rows, ORIGIN);
+      check(`the automatic crawl leaves a freshly verified carried row to its weekly clock (asked ${asked})`,
+        asked === 0 && rows[0].payToByNetwork?.["eip155:8453"] === OLD);
+      await enrichLiveQuotes(rows, ORIGIN, { ignoreBudget: true });
+      const r = rows[0];
+      check(`a re-registration re-asks the carried verified row (asked ${asked})`, asked === 1);
+      check(`the re-read replaces the carried payTo with the one the 402 names now (got ${JSON.stringify(r.payToByNetwork)})`,
+        r.payToByNetwork?.["eip155:8453"] === PAYTO);
+      check(`the re-read replaces the carried EIP-712 domain (got ${JSON.stringify(r.evmDomainByNetwork?.["eip155:8453"])})`,
+        r.evmDomainByNetwork?.["eip155:8453"]?.name === "USD Coin");
+      check(`the re-read restarts the verification clock and the origin's price stands (verifiedAt ${r.networksVerifiedAt > readAt}, price ${r.price})`,
+        Number(r.networksVerifiedAt) > readAt && r.price === 0.032);
+      const next = carryForwardLearnedQuotes(rebuild(), { tools: carryForwardLearnedQuotes(rebuild(), { tools: rows }) })[0];
+      check(`two rebuilds later the NEW payTo and domain are the ones carried (got ${JSON.stringify({ p: next.payToByNetwork, d: next.evmDomainByNetwork?.["eip155:8453"]?.name })})`,
+        next.payToByNetwork?.["eip155:8453"] === PAYTO && next.evmDomainByNetwork?.["eip155:8453"]?.name === "USD Coin" && next.price === 0.032);
+    }
   } finally {
     globalThis.fetch = origFetch;
   }

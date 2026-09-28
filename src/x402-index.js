@@ -3475,7 +3475,17 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
         // (QUOTE_DRIFT_FACTOR) to stay polite; a seller who re-registers is
         // asking us to look now, and a 1.67x gap is still a wrong price.
         || (ignoreBudget && Number(t.price) > 0 && Number(t.originDeclaredPrice) > 0
-          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice)))
+          && priceToMicroUsd(t.price) !== priceToMicroUsd(t.originDeclaredPrice))
+        // ...and every route whose chains, payTo and EIP-712 domain came from
+        // a past live read. The price of an origin-priced row is the origin's
+        // own and needs no re-ask, but those three fields are the 402's, and
+        // carry-forward keeps a verified read across rebuilds, so the automatic
+        // crawl re-reads them only on the weekly networksNeedLiveVerify clock.
+        // A seller who fixed a wrong USDC domain (the fix we ask them to make,
+        // then re-register) or moved its payout wallet would otherwise keep the
+        // old observation for up to a week, with the router skipping them on it
+        // and the Base scan reading the old wallet.
+        || (ignoreBudget && Number(t.networksVerifiedAt) > 0 && Array.isArray(t.networks) && t.networks.length > 0))
       // (An undeclared route needs no clause of its own here: the staleness
       // tests above re-ask every priced row within the same 7 days that
       // needsLiveProof measures, off the same timestamps.)
