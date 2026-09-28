@@ -618,10 +618,10 @@ const page = (results, extra = {}) =>
     markRouteGone, goneMark,
   } = await import("../src/x402-index.js");
 
-  const PAYTO = "0x3aEDB825B264e82676A42B1a6d12EA253c0Ce852";
+  const PAYTO = "0x3333333333333333333333333333333333333333";
   const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   const SOL_NET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
-  const SOL_PAYTO = "J28Fii2VFnJcavvaeEfsKc628htk3mnrZKubD7WsGStW";
+  const SOL_PAYTO = "22222222222222222222222222222222222222222222";
   const accept = (over = {}) => ({ scheme: "exact", network: "eip155:8453", asset: USDC_BASE, payTo: PAYTO, amount: "32000", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" }, ...over });
 
   // 1. the reader keeps every accept's payTo, keyed by its network
@@ -940,7 +940,7 @@ const page = (results, extra = {}) =>
   const { normaliseManifestTools, normaliseOpenapiTools, openapiOperationPayment, mergeOpenapiIntoBazaar, bazaarItemToTool, priceToMicroUsd } = await import("../src/x402-index.js");
   const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   const USDC_E = "0x20C000000000000000000000b9537d11c60E8b50"; // Tempo, six decimals
-  const PAYTO = "0x2880EdfFF13100677Bf97A3CBdF3Bc34771C4E5E";
+  const PAYTO = "0x4444444444444444444444444444444444444444";
   const stack = (price) => normaliseManifestTools({
     x402Version: 2,
     payment: { protocol: "x402", scheme: "exact", network: "eip155:8453", asset: "USDC", asset_address: USDC_BASE, pay_to: PAYTO },
