@@ -81,6 +81,37 @@ _testResetForTest();
 const r5 = mkRes(402); mw({ headers: { "payment-signature": H1 } }, r5, () => {}); r5.json({ x402Version: 2 });
 ok(r5.out.hint === undefined, "no remembered failure for this credential -> no hint (never a guess)");
 
+// --- a SETTLEMENT refused on our billing quota names the rail, not the wallet -
+// The vendor writes the settle receipt as a PAYMENT-RESPONSE header and then
+// `res.status(402).json({})`; before 2026-09-28 that `{}` was all the buyer got.
+{
+  _testResetForTest();
+  const mkSettled = (receipt) => {
+    const r = mkRes(402);
+    r.getHeader = (k) => (/^payment-response$/i.test(k) && receipt ? Buffer.from(JSON.stringify(receipt)).toString("base64") : undefined);
+    return r;
+  };
+  const ALGO = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
+  const req = { headers: { "payment-signature": H1 } };
+  const q = mkSettled({ success: false, errorReason: "subcent_quota_exceeded", errorMessage: "subcent_quota_exceeded", network: ALGO, transaction: "" });
+  mw(req, q, () => {}); q.json({ altPayment: { protocol: "proof-of-work" } });
+  ok(q.out.reason === "facilitator-quota" && q.out.retry === "other-network" && q.out.network === ALGO, `a quota-refused settlement answers reason facilitator-quota, retry other-network, and the network (got ${JSON.stringify({ reason: q.out.reason, retry: q.out.retry })})`);
+  ok(/temporarily unavailable/i.test(q.out.error) && /Algorand facilitator/.test(q.out.hint) && /not because of your wallet/.test(q.out.hint) && /Nothing was charged/.test(q.out.hint) && /another network/.test(q.out.hint), `the words name the rail as unavailable, clear the wallet, say nothing was charged and point to the other networks (got: ${q.out.hint})`);
+  ok(q.out.altPayment?.protocol === "proof-of-work" && q.headers["Retry-After"] === undefined, "the rest of the body survives, and no Retry-After invites a retry on the same rail");
+  ok(req.__paymentRejectReason === "facilitator-quota", "the paywall rollup records the class");
+  const g = mkSettled({ success: false, errorReason: "free_tier_exhausted", network: "eip155:43114" });
+  mw({ headers: { "payment-signature": H1 } }, g, () => {}); g.json({});
+  ok(g.out.reason === "facilitator-quota" && g.out.network === "eip155:43114", "an EVM facilitator's free_tier_exhausted gets the same answer, naming its network id");
+  // Control: a buyer-side settle failure is NOT relabelled as ours.
+  const f = mkSettled({ success: false, errorReason: "insufficient_funds", network: ALGO });
+  mw({ headers: { "payment-signature": H1 } }, f, () => {}); f.json({});
+  ok(f.out.reason !== "facilitator-quota" && f.out.retry !== "other-network", "a genuine settle failure (insufficient_funds) is never answered as a facilitator quota");
+  const t = mkSettled({ success: false, errorReason: "transaction_failed", errorMessage: "rpc quota exceeded", network: "eip155:43114" });
+  mw({ headers: { "payment-signature": H1 } }, t, () => {}); t.json({});
+  ok(t.out.reason !== "facilitator-quota", "nor is a payment verdict (transaction_failed) whose message happens to mention a quota");
+  _testResetForTest();
+}
+
 // concurrency bound: the fifth simultaneous balance read answers unknown at once
 _testResetForTest();
 let release; const gate = new Promise((r) => { release = r; });

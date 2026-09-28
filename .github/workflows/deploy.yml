@@ -1607,6 +1607,8 @@ jobs:
           t node scripts/test-reliability-claims.js
           # Four false absolutes (a claim must stay true as the service widens)
           t node scripts/test-copy-absolutes.js
+          # Published SDK snippets never let the SDK send an environment credential to our host
+          t node scripts/test-sdk-snippet-credentials.js
           t node scripts/test-plugin-manifests.js
           # Docs that state a requirement match the engines that enforce it
           t node scripts/test-doc-claims.js
@@ -2560,6 +2562,8 @@ jobs:
           t node scripts/test-mpp-tempo-relay-errors.js
           # workflow_run references name a workflow that exists (GitHub matches on name:, a mismatch never fires - offline)
           t node scripts/test-workflow-run-refs.js
+          # Every workflow job names a versioned runner image, never a moving -latest label (offline)
+          t node scripts/test-workflow-runner-pins.js
           # Metered settlement pricing rule (upto only, never above the ceiling, missing cost is not free - offline)
           t node scripts/test-gateway-meter.js
           t node scripts/test-metered-quote-binding.js
@@ -3050,8 +3054,10 @@ jobs:
           E2B_API_KEY: ""
         run: npm ci
       - name: Deep security audit (payment gate + PoW replay/slug-bind/tamper + SSRF + attribution; boots paid-mode)
-        env:
-          POW_SECRET: ${{ secrets.POW_SECRET }}
+        # No POW_SECRET here, on purpose: the audit only talks to the server it
+        # boots, which mints and verifies its own challenges, so src/pow.js's
+        # random per-process secret is exactly right. The production signer has
+        # no business in this step.
         run: |
           # Boot a paid-mode server (x402 paywall ACTIVE) so the gate is real,
           # then run the deep audit against it. PoW/SSRF/attribution assertions
@@ -3059,7 +3065,7 @@ jobs:
           # when the base-sepolia facilitator syncs, and fails CLOSED otherwise
           # (the audit treats fail-closed as no-bypass, only a 200 is a hard fail).
           WALLET_ADDRESS=0x0000000000000000000000000000000000000001 NETWORK=base-sepolia \
-          POW_SECRET="${POW_SECRET:-ci-audit-secret}" POW_DIFFICULTY=12 POW_ALLOW_EPHEMERAL=true \
+          POW_DIFFICULTY=12 POW_ALLOW_EPHEMERAL=true \
           PORT=3778 node src/server.js > /tmp/audit-deep-srv.log 2>&1 &
           SRV_PID=$!
           for i in $(seq 1 30); do curl -s localhost:3778/api/pow >/dev/null && break; sleep 1; done
@@ -3897,6 +3903,8 @@ jobs:
           t node scripts/test-verify-hint-live.js
           # Settle-failure breaker on EVERY wallet-only tool (paid boot, stub facilitator verifies then refuses to settle)
           t node scripts/test-paid-settle-breaker.js
+          # Algorand leaves sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent; a quota refusal is never the buyer's (paid boot, stub facilitators + stub sponsorship status)
+          t node scripts/test-avm-subcent-offer.js
           # Router dispatch eligibility, labelled: one function for the resolver's Base gate and every public row (offline)
           t node scripts/test-dispatch-eligibility.js
           # USDC EIP-712 domain truth per chain: table pinned to payments.js + @x402/evm, wrong-name accepts refused (offline)

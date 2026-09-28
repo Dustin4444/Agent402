@@ -234,6 +234,12 @@ const SENDERS = { evm: true, stellar: true, algorand: true, solana: false };
   ok(/createHmac\(/.test(src), "the log tag is KEYED - an unsalted digest over an enumerable buyer set is confirmable, not private");
   ok(/createHash\(/.test(src) && /payer:\$\{/.test(src.replace(/\\/g, "")) === false || /tag\(/.test(src),
     "addresses are logged through a non-reversible tag");
+  // The asset/payTo source falls back to a one-cent route for any rail the
+  // sub-cent 402 does not offer right now (Algorand while the facilitator's
+  // sponsored sub-cent allowance is spent), so those debts do not hold for
+  // want of an asset id - and it only FILLS gaps, never overrides the first.
+  ok(/accepts402\("\/api\/solidity-scan", \{\}\)\) if \(!byNet\[a\.network\]\) byNet\[a\.network\] = a;/.test(src),
+    "a rail missing from the sub-cent 402 is read from the one-cent route, filling gaps only");
 }
 
 

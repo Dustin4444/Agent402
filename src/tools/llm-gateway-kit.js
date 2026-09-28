@@ -682,11 +682,11 @@ export function tierPriceLabel(price) {
 
 /** Ids a family prefix still admits but the upstream has scheduled for removal
  *  (OpenRouter expiration_date). They are refused by name, never priced: a
- *  family row does not describe them (deepseek-v3.2 listed endpoints far above
- *  the deepseek/ row) and a caller building on one would lose it days later.
- *  Delete an entry once the live guard reports the id gone upstream. */
+ *  family row need not describe them and a caller building on one would lose
+ *  it days later. Delete an entry once the live guard reports the id gone
+ *  upstream. An id whose expiration date is withdrawn upstream leaves this
+ *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
-  "deepseek/deepseek-v3.2": { until: "2026-09-28", use: "deepseek/deepseek-v4-flash" },
   "deepseek/deepseek-v3.2-exp": { until: "2026-09-28", use: "deepseek/deepseek-v4-flash" },
   "deepseek/deepseek-v3.1-terminus": { until: "2026-09-28", use: "deepseek/deepseek-chat-v3.1" },
   "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
@@ -909,6 +909,13 @@ export const MODEL_COST = [
   ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.95 }], // live endpoints 2026-09-18
   // deepseek-chat-v3.1: one regional endpoint lists prompt above the family row (live endpoints 2026-09-24).
   ["deepseek/deepseek-chat-v3.1", { prompt: 0.65, completion: 2.5 }],
+  // deepseek-v3.2: re-admitted once its upstream expiration date was withdrawn.
+  // Two endpoints list both units above the family row. Their prompt sits over
+  // the base tier's bound, so on base provider.max_price refuses them and the
+  // other endpoints route (the clamp still prices base at min(row, bound)); the
+  // metered tier sends this row as its bound and admits all of them. Live
+  // endpoints 2026-09-28.
+  ["deepseek/deepseek-v3.2", { prompt: 3, completion: 4.5 }],
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
@@ -921,6 +928,10 @@ export const MODEL_COST = [
   // does not fit the base tier's bound, so on base it still walks the chain;
   // the metered tier is its real home. Live endpoints 2026-09-24.
   ["qwen/qwen3.8-max-prime", { prompt: 4, completion: 12 }],
+  // qwen3.7-max: one endpoint lists both units above the family row and still
+  // inside the base tier's bound, so the family row under-priced it on the
+  // base and metered tiers alike (live endpoints 2026-09-27).
+  ["qwen/qwen3.7-max", { prompt: 2.5, completion: 7.5 }],
   ["qwen/", { prompt: 2, completion: 6.4 }], // live 2026-08-19
   ["poolside/", { prompt: 0.15, completion: 0.3 }],
   // Stealth listing: priced zero on the live catalog (verified 2026-08-22).

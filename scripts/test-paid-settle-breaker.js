@@ -35,6 +35,10 @@ facilitator = createServer((req, res) => {
     if (req.url === "/settle") {
       settles++;
       if (settleMode === "fail") return reply(200, { success: false, errorReason: "insufficient_funds", transaction: "", network: "eip155:8453", payer });
+      // A facilitator refusing on a billing quota of OURS, both shapes: the
+      // graceful 200 {success:false} and a thrown non-2xx settle response.
+      if (settleMode === "quota") return reply(200, { success: false, errorReason: "free_tier_exhausted", transaction: "", network: "eip155:8453", payer });
+      if (settleMode === "quota-thrown") return reply(403, { success: false, errorReason: "free_tier_exhausted", errorMessage: "free tier exhausted", transaction: "", network: "eip155:8453", payer });
       return reply(200, { success: true, transaction: "0x" + "cd".repeat(32), network: "eip155:8453", payer });
     }
     if (req.url === "/rpc") return reply(200, { jsonrpc: "2.0", id: 1, result: "0x0" });
@@ -81,6 +85,31 @@ const pay = async (t, payer) => fetch(`${B}${t.path}`, { method: t.method, heade
 
 try {
   for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch { /* booting */ } await sleep(500); }
+
+  // A FACILITATOR billing refusal on an EVM rail (free_tier_exhausted, both
+  // wire shapes). Nothing withdraws that offer from the next 402 - only the
+  // Algorand sub-cent gate does that, for its own refusal - so the per-wallet
+  // bound is what stops a served-never-charged loop, and it holds: MAX are
+  // served, the next is 429. What changed on 2026-09-28 is the WORDS: each 402
+  // names the rail, and the 429 names the facilitator's billing limit instead
+  // of telling the buyer to check a wallet that was never the problem.
+  {
+    const PAYER_Q = "0x00000000000000000000000000000000000000d4";
+    for (let i = 1; i <= MAX; i++) {
+      settleMode = i % 2 ? "quota" : "quota-thrown";
+      const before = settles;
+      const r = await pay(WALLET_ONLY, PAYER_Q);
+      const body = await r.json().catch(() => ({}));
+      ok(r.status === 402 && settles === before + 1, `quota refusal ${i} (${settleMode}): served, then refused at settle -> 402 (status ${r.status}, settles ${settles})`);
+      ok(body.reason === "facilitator-quota" && body.retry === "other-network" && /not because of your wallet/.test(body.hint || "") && !/failed to settle/.test(body.error || ""), `quota refusal ${i}: the 402 names the rail, not the wallet (got ${body.reason}: ${String(body.error).slice(0, 50)})`);
+    }
+    const before = settles;
+    const r = await pay(WALLET_ONLY, PAYER_Q);
+    const body = await r.json().catch(() => ({}));
+    ok(r.status === 429 && settles === before, `quota refusal ${MAX + 1}: refused 429 BEFORE the handler - an EVM billing refusal stays bounded per wallet (status ${r.status}, settles ${settles} == ${before})`);
+    ok(/billing limit on this server's own account/.test(body.error || "") && /not because of the wallet/.test(body.error || "") && !/USDC balance/.test(body.error || ""), `...and that 429 names the facilitator's billing limit, not the wallet's balance (got: ${String(body.error).slice(0, 110)})`);
+  }
+  settleMode = "fail";
 
   // MAX failed settlements from wallet A: each one ran the handler (settles advanced) and ended 402.
   for (let i = 1; i <= MAX; i++) {

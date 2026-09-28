@@ -192,15 +192,24 @@ export function planRefunds(rawRows, {
 
 /** Fetch our own live 402 and index the accepts by network - the asset source. */
 async function liveAcceptsByNetwork() {
-  const res = await fetch(`${TARGET}/api/hash`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "refund-run" }),
-  });
-  if (res.status !== 402) throw new Error(`expected a 402 from ${TARGET}/api/hash, got ${res.status}`);
-  const hdr = res.headers.get("payment-required");
-  if (!hdr) throw new Error("402 carried no payment-required header");
-  const body = JSON.parse(Buffer.from(hdr, "base64").toString("utf8"));
+  const accepts402 = async (path, body) => {
+    const res = await fetch(`${TARGET}${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (res.status !== 402) throw new Error(`expected a 402 from ${TARGET}${path}, got ${res.status}`);
+    const hdr = res.headers.get("payment-required");
+    if (!hdr) throw new Error("402 carried no payment-required header");
+    return JSON.parse(Buffer.from(hdr, "base64").toString("utf8")).accepts || [];
+  };
   const byNet = {};
-  for (const a of body.accepts || []) if (!byNet[a.network]) byNet[a.network] = a;
+  for (const a of await accepts402("/api/hash", { text: "refund-run" })) if (!byNet[a.network]) byNet[a.network] = a;
+  // A rail the sub-cent route does not offer right now (Algorand, while the
+  // facilitator's sponsored sub-cent allowance is spent - src/avm-sponsorship.js)
+  // is still read from a one-cent route, so its debts stay payable instead of
+  // holding for want of an asset id. Same treasury payTo, same asset.
+  try {
+    for (const a of await accepts402("/api/solidity-scan", {})) if (!byNet[a.network]) byNet[a.network] = a;
+  } catch { /* the sub-cent accepts above are the floor */ }
   return byNet;
 }
 

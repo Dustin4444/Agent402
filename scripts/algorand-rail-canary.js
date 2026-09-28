@@ -183,11 +183,27 @@ if (ONLY.length) tools = tools.filter((t) => ONLY.includes(t.slug));
 const SUBCENT_MAX = Math.max(0, Number(process.env.CANARY_SUBCENT_MAX ?? "150"));
 const SUBCENT_RESERVE = Math.max(0, Number(process.env.CANARY_SUBCENT_RESERVE ?? "300"));
 const FACILITATOR_URL = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").replace(/\/$/, "");
+// While the allowance is spent the SERVER withdraws Algorand from sub-cent
+// 402s (src/avm-sponsorship.js) and says so on /api/rails. A sub-cent tool
+// with no Algorand accept is then the server behaving as designed, not a rail
+// that silently stopped being offered - so the sweep asks, and remembers a yes
+// for the rest of the run.
+let subcentWithdrawnSeen = false;
+async function subcentWithdrawnNow() {
+  if (subcentWithdrawnSeen) return true;
+  try {
+    const rails = await (await fetch(`${TARGET}/api/rails`, { signal: AbortSignal.timeout(15000) })).json();
+    subcentWithdrawnSeen = (rails.restrictions || []).some((r) => r?.network === "algorand" && r?.status === "paused");
+  } catch { /* unreadable: nothing is excused */ }
+  return subcentWithdrawnSeen;
+}
 let subcentPlan = { budget: Infinity, source: "slugs-run", remaining: null };
 if (!ONLY.length) {
   let status = null, payTo = null;
   try {
-    const r = await fetch(`${TARGET}/api/uuid`, { signal: AbortSignal.timeout(15000) });
+    // The payTo is read from a ONE-CENT route: a sub-cent 402 carries no
+    // Algorand accept at all while the allowance is spent.
+    const r = await fetch(`${TARGET}/api/solidity-scan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15000) });
     const pr = JSON.parse(Buffer.from(r.headers.get("payment-required") || "", "base64").toString("utf8"));
     payTo = (pr.accepts || []).find((a) => String(a.network || "").startsWith(AVM_CAIP2_PREFIX))?.payTo || null;
     if (payTo) {
@@ -195,7 +211,9 @@ if (!ONLY.length) {
       status = (st.chains || []).find((c) => c.chain === "algorand") || null;
     }
   } catch (e) { console.warn(`sub-cent quota read failed (${String(e.message).slice(0, 80)}) - applying the fixed cap alone`); }
-  subcentPlan = subcentBudget({ status, max: SUBCENT_MAX, reserve: SUBCENT_RESERVE });
+  subcentPlan = (await subcentWithdrawnNow())
+    ? { budget: 0, source: "withdrawn by the server", remaining: 0 }
+    : subcentBudget({ status, max: SUBCENT_MAX, reserve: SUBCENT_RESERVE });
   const week = Math.floor(Date.now() / (7 * 24 * 3600 * 1000));
   tools = rotateSubcent(tools, { week, cap: subcentPlan.budget });
   const subTotal = tools.filter((t) => t.priceUsd < 0.01).length;
@@ -332,7 +350,14 @@ for (const t of tools) {
   }
 
   const expectedNoAvm = isIdentityBoundRoute(t) || isLongRunningSlug(t.slug);
-  if (!accepts.length) { report.noAvm.push({ key, slug: t.slug, expected: expectedNoAvm }); continue; }
+  if (!accepts.length) {
+    // THIRD reason, and a temporary one: a sub-cent route while the server has
+    // withdrawn Algorand for the facilitator's spent sub-cent allowance (it can
+    // start mid-sweep, on the first refused settle, so it is asked here).
+    const withdrawn = !expectedNoAvm && t.priceUsd < 0.01 && (await subcentWithdrawnNow());
+    report.noAvm.push({ key, slug: t.slug, expected: expectedNoAvm || withdrawn, ...(withdrawn ? { why: "sub-cent allowance spent" } : {}) });
+    continue;
+  }
 
   const usd = Number(accepts[0].amount ?? accepts[0].maxAmountRequired) / 1e6;
   if (report.spentUsd + usd > MAX_USD) {
@@ -497,7 +522,7 @@ const recovered = report.ok.filter((o) => o.throttledFirst).length;
 console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length} · third-party outages: ${report.upstreamFail.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
 if (report.blocked.length) console.log(`blocked by OUR OWN settle breaker (nothing measured, neither pass nor fail): ${report.blocked.length}`);
 if (report.aborted) console.log(`ABORTED: ${report.aborted.unmeasured} tools never tested (${report.aborted.why})`);
-console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound or long-running, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
+console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected: identity-bound, long-running, or sub-cent while the facilitator's sub-cent allowance is spent (${report.noAvm.filter((n) => n.why).length}); ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
 if (report.railFail.length) {

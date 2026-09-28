@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional
 
 import requests
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 DEFAULT_BASE = "https://agent402.tools"
 _TIMEOUT = 60
 
