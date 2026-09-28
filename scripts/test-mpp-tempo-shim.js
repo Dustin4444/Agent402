@@ -21,7 +21,9 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import express from "express";
 import { Challenge, Credential } from "mppx";
-import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, tempoEnabled, checkTempoCredentialBinding } from "../src/mpp-tempo.js";
+import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, tempoEnabled, checkTempoCredentialBinding, tempoSenderOf } from "../src/mpp-tempo.js";
+import { Transaction as TempoTransaction } from "viem/tempo";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { createReplayGuard } from "../src/replay-guard.js";
 
 let pass = 0;
@@ -37,6 +39,10 @@ const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mpp-secret";
 const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TEMPO_CURRENCY = "0x2000000000000000000000000000000000000000";
+// A real Tempo transaction signed by a throwaway key: the payload of every
+// pull credential below, so the gate's sender recovery is exercised.
+const PULL_SIGNER = privateKeyToAccount(generatePrivateKey());
+const SIGNED_TX = await PULL_SIGNER.signTransaction({ chainId: 4217, type: "tempo", calls: [{ to: TEMPO_CURRENCY, data: "0x" }], nonce: 0, gas: 100000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }, { serializer: TempoTransaction.serialize });
 
 // Minimal stub facilitator — only /supported is ever hit in this file (no
 // evm/x402 payment is sent), but the boot /supported guard needs SOMETHING
@@ -68,8 +74,18 @@ async function waitHealthy() {
   throw new Error("server never became healthy");
 }
 
+// A stub Tempo relay that counts every call: a credential the binding check
+// refuses must never reach it.
+const relayHits = [];
+const relayStub = createServer((req, res) => {
+  let b = ""; req.on("data", (c) => { b += c; });
+  req.on("end", () => { relayHits.push(req.url); res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: { code: "invalid_payment", message: "stub relay" } })); });
+});
+await new Promise((r) => relayStub.listen(0, "127.0.0.1", r));
+const RELAY_URL = `http://127.0.0.1:${relayStub.address().port}`;
+
 let proc = spawn("node", ["src/server.js"], {
-  env: { ...bootBaseEnv, TEMPO_API_KEY: "test-tempo-key", TEMPO_RECIPIENT_ADDRESS: TREASURY, TEMPO_CURRENCY },
+  env: { ...bootBaseEnv, TEMPO_API_KEY: "test-tempo-key", TEMPO_RECIPIENT_ADDRESS: TREASURY, TEMPO_CURRENCY, TEMPO_API_BASE_URL: RELAY_URL },
   stdio: "ignore",
 });
 try {
@@ -104,6 +120,25 @@ try {
   // Order: mppx pays the FIRST challenge it has a method for and never falls
   // back, so a buyer holding Tempo funds and a Base wallet pays over Tempo.
   ok(challenges[0]?.method === "tempo", `the tempo challenge leads the header (order: ${challenges.map((c) => c.method).join(",")})`);
+
+  // A long-running route (a report composite) is never payable over Tempo:
+  // its run outlives the credential. The appender mints no challenge for it,
+  // and challenges are not path-bound, so the GATE must refuse one minted for
+  // another route: here a $2.00 challenge (what a large metered quote reaches)
+  // HMAC-valid for this server, presented to POST /v1/research. It is refused
+  // at the binding check, before any relay call, as a method-unsupported
+  // problem. Control: the same credential on an ordinary route does reach the
+  // relay (so the zero below measures the refusal, not a dead stub).
+  const composite402 = await fetch(`${B}/v1/research`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "q" }) });
+  ok(composite402.status === 402 && !/method="tempo"/.test(composite402.headers.get("www-authenticate") || ""), "no tempo challenge is minted on a long-running route's 402");
+  const big = Challenge.from({ realm: `127.0.0.1:${PORT}`, method: "tempo", intent: "charge", expires: new Date(Date.now() + 60_000), request: { amount: "2000000", currency: TEMPO_CURRENCY, decimals: 6, recipient: TREASURY, methodDetails: { chainId: 4217 } }, secretKey: SECRET });
+  const bigCred = Credential.serialize({ challenge: big, payload: { signature: SIGNED_TX, type: "transaction" } });
+  const hits0 = relayHits.length;
+  const refused = await fetch(`${B}/v1/research`, { method: "POST", headers: { "content-type": "application/json", Authorization: bigCred }, body: JSON.stringify({ question: "what changed in x402 this month" }) });
+  const rb = await refused.json().catch(() => ({}));
+  ok(refused.status === 402 && relayHits.length === hits0 && /runs longer than a Tempo credential stays valid/.test(rb.detail || "") && rb.type === "https://paymentauth.org/problems/method-unsupported", `a $2.00 tempo challenge is refused on a composite before any relay call (status ${refused.status}, relay calls +${relayHits.length - hits0}, ${rb.type}: ${String(rb.detail).slice(0, 90)})`);
+  const control = await fetch(`${B}/api/uuid`, { headers: { Authorization: bigCred } });
+  ok(control.status === 402 && relayHits.length > hits0, `control: the same credential on an ordinary route reaches the relay (relay calls +${relayHits.length - hits0})`);
 } finally {
   proc.kill("SIGKILL");
 }
@@ -184,6 +219,10 @@ const paywallStub = (req, res, next) => (req.tempoSettling ? next() : res.status
  *  forgeries the binding check must refuse. Raw integer base-units amount
  *  string (50000 = $0.05 at 6 decimals) - a real mppx client throws on a
  *  decimal string (caught live 2026-08-17). */
+// A PULL credential by default (payload.type "transaction": a real Tempo
+// transaction signed by a throwaway key, so the sender recovery the gate does
+// is exercised); `push: true` builds a PUSH credential (the hash of a transfer
+// the buyer already sent).
 function buildTempoCredential(o = {}) {
   const challenge = Challenge.from({
     realm: o.realm ?? REALM,
@@ -193,7 +232,8 @@ function buildTempoCredential(o = {}) {
     request: { amount: o.amount ?? "50000", currency: o.currency ?? TEMPO_CURRENCY, decimals: 6, recipient: o.recipient ?? TREASURY, methodDetails: { chainId: o.chainId ?? 4217 } },
     secretKey: o.secretKey ?? GATE_SECRET,
   });
-  return Credential.serialize({ challenge, payload: { hash: `0x${"ab".repeat(32)}`, type: "hash" } });
+  const payload = o.payload ?? (o.push ? { hash: `0x${"ab".repeat(32)}`, type: "hash" } : { signature: o.signature ?? SIGNED_TX, type: "transaction" });
+  return Credential.serialize({ challenge, payload, ...(o.source ? { source: o.source } : {}) });
 }
 
 async function listen(app) {
@@ -652,34 +692,152 @@ async function withWarnings(fn) {
   server.close();
 }
 
-// Case Q: a client that disconnects while the handler runs is NOT broadcast
-// (src/hangup-settlement.js): the buyer could not have received anything, so
-// nothing is charged. The credential stays spent, so it cannot run the handler
-// again, and the hang-up hook sees an undelivered end with NO settlement on it
-// (server.js counts that as a cancelled charge, not a debt).
+// Case Q: a client that disconnects while the handler runs. The route here
+// mimics the dispatcher: it reserves a hang-up forgiveness ticket when the
+// handler starts (src/hangup-forgiveness.js). WITH a granted ticket the
+// credential is NOT broadcast (nothing charged, the credential stays spent,
+// the hook sees no settlement); WITHOUT one (the budget is spent) it IS
+// broadcast and the hook sees the settled charge server.js books as owed.
 {
-  const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
+  const { createHangupSettlementHook, clientGoneBeforeFirstByte } = await import("../src/hangup-settlement.js");
+  const { reserveHangupForgiveness, settleHangupTicket, _resetHangupForgiveness } = await import("../src/hangup-forgiveness.js");
+  _resetHangupForgiveness();
   let broadcasts = 0, handlerRuns = 0;
   const undelivered = [];
   const app = express();
   app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, tempoSettled: req.tempoSettled === true, status: res.statusCode, receipt: res.getHeader("Payment-Receipt") || null }) }));
-  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x0a", timestamp: new Date().toISOString() } }; } }));
+  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: `0x0a${broadcasts}`, timestamp: new Date().toISOString() } }; } }));
   app.use(paywallStub);
-  app.get("/paid", (req, res) => { handlerRuns++; setTimeout(() => res.json({ late: true }), 400); });
+  app.get("/paid", (req, res) => {
+    handlerRuns++;
+    // A ticket only when the test asks for one (x-grant); keyed like server.js.
+    if (req.headers["x-grant"] === "1") reserveHangupForgiveness(req, { keys: [req.mppTempoSender ? `tempo:${req.mppTempoSender}` : null, "ip:q"], priceUsd: 0.05 });
+    res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
+    setTimeout(() => res.json({ late: true }), 400);
+  });
   const { server, url } = await listen(app);
   const cred = buildTempoCredential();
   const { warned } = await withWarnings(async () => {
-    await fetch(`${url}/paid`, { headers: { Authorization: cred }, signal: AbortSignal.timeout(100) }).catch(() => null);
+    await fetch(`${url}/paid`, { headers: { Authorization: cred, "x-grant": "1" }, signal: AbortSignal.timeout(100) }).catch(() => null);
     await sleep(700);
   });
-  ok(broadcasts === 0, `case Q: the credential of a client that hung up mid-handler is NOT broadcast (broadcasts ${broadcasts})`);
+  ok(broadcasts === 0, `case Q: with a forgiveness ticket, the credential of a client that hung up mid-handler is NOT broadcast (broadcasts ${broadcasts})`);
   ok(undelivered.length === 1 && !undelivered[0].tempoSettled && undelivered[0].kind === "end" && undelivered[0].receipt === null && undelivered[0].status === 499, `case Q: the hang-up hook sees the undelivered end once, with no settlement on it (${JSON.stringify(undelivered)})`);
   ok(warned.some((w) => /\[mpp-tempo\] client gone before the handler's answer could be sent[^\n]*not broadcast, not charged/.test(w)), "case Q: the gate says it did not broadcast");
   const again = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
   ok(again.status === 402 && handlerRuns === 1 && broadcasts === 0, `case Q: the same credential is still spent and cannot run the handler again (status ${again.status}, handler runs ${handlerRuns})`);
+  // No ticket (budget spent): the hang-up is broadcast, and the hook sees the
+  // settled charge - the point where server.js books it as owed.
+  await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: AbortSignal.timeout(100) }).catch(() => null);
+  await sleep(700);
+  ok(broadcasts === 1 && undelivered.length === 2 && undelivered[1].tempoSettled && !!undelivered[1].receipt, `case Q: WITHOUT a ticket the hang-up is broadcast and the hook sees the settled charge (broadcasts ${broadcasts}, ${JSON.stringify(undelivered[1])})`);
   // Control: a client that stays connected is served, broadcast once, and nothing is flagged.
-  const served = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
-  ok(served.status === 200 && broadcasts === 1 && undelivered.length === 1, "case Q: a connected client is served and broadcast once; the hook stays quiet");
+  const served = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential(), "x-grant": "1" } });
+  ok(served.status === 200 && broadcasts === 2 && undelivered.length === 2, "case Q: a connected client is served and broadcast once; the hook stays quiet");
+  server.close();
+  _resetHangupForgiveness();
+}
+
+// Case S: a PUSH credential (payload.type "hash"). The buyer's transfer is on
+// chain before the request arrives, so the gate finalizes it BEFORE the
+// handler (the relay claims the hash) and marks the request settled: every
+// answer that is not delivered is then a settled charge the server books as
+// owed. Before this, a push hang-up or a push >= 400 was never finalized and
+// never booked, and the buyer was told nothing was charged.
+{
+  const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
+  const order = [];
+  let broadcasts = 0, failNext = null;
+  const undelivered = [];
+  const seenSettled = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res) => undelivered.push({ tempoSettled: req.tempoSettled === true, receipt: res.getHeader("Payment-Receipt") || null, status: res.statusCode }) }));
+  app.use(createTempoGate({
+    ...GATE, replayGuard: createReplayGuard(),
+    preValidate: (req) => (req.body?.text ? null : { status: 400, body: { error: "Missing required parameter: text" } }),
+    validate: async () => { order.push("validate"); return { ok: true, validation: {} }; },
+    broadcast: async () => { order.push("broadcast"); broadcasts++; if (failNext) { const f = failNext; failNext = null; return f; } return { ok: true, receipt: { method: "tempo", status: "success", reference: `0xpush${broadcasts}`, timestamp: new Date().toISOString() } }; },
+  }));
+  app.use(paywallStub);
+  app.post("/paid", (req, res) => {
+    order.push("handler");
+    seenSettled.push(req.tempoSettled === true);
+    if (!req.body?.text || req.body.text === "bad") return res.status(400).json({ error: "handler refused the input" });
+    if (req.body?.text === "slow") return setTimeout(() => res.json({ late: true }), 400);
+    res.json({ ok: 1 });
+  });
+  const { server, url } = await listen(app);
+  const post = (cred, text, extra = {}) => fetch(`${url}/paid`, { method: "POST", headers: { "content-type": "application/json", Authorization: cred }, body: JSON.stringify(text === undefined ? {} : { text }), ...extra });
+  const r1 = await post(buildTempoCredential({ push: true }), "x");
+  ok(r1.status === 200 && !!r1.headers.get("payment-receipt") && isDeepOrderOk(order, ["validate", "broadcast", "handler"]) && seenSettled[0] === true, `case S: a push credential is finalized BEFORE the handler, which sees the request settled (order ${order.join(",")})`);
+  order.length = 0;
+  const r2 = await post(buildTempoCredential({ push: true }), "bad");
+  ok(r2.status === 400 && !!r2.headers.get("payment-receipt") && order.join(",") === "validate,broadcast,handler", `case S: a push credential whose handler refuses keeps its receipt (the finish path books it as owed) (status ${r2.status})`);
+  order.length = 0;
+  const r3 = await post(buildTempoCredential({ push: true }), undefined);
+  ok(r3.status === 400 && order.join(",") === "validate,broadcast,handler", `case S: a push credential is NOT answered by the pre-validation "charged: false" 400 (its transfer is on chain); it is finalized and the handler's 400 carries the receipt (order ${order.join(",")})`);
+  order.length = 0;
+  await post(buildTempoCredential({ push: true }), "slow", { signal: AbortSignal.timeout(100) }).catch(() => null);
+  await sleep(700);
+  ok(undelivered.length === 1 && undelivered[0].tempoSettled && !!undelivered[0].receipt, `case S: a push buyer who hangs up is a settled charge the hook sees (booked as owed) (${JSON.stringify(undelivered)})`);
+  // The relay could not be reached to claim the hash: 503, the hash is NOT
+  // claimed, the handler does not run, and the SAME credential then works.
+  order.length = 0;
+  failNext = { ok: false, cls: "relay-unreachable", error: "relay down", reason: "relay down" };
+  const same = buildTempoCredential({ push: true });
+  const r4 = await post(same, "x");
+  const b4 = await r4.json();
+  ok(r4.status === 503 && !order.includes("handler") && b4.details?.transferClaimed === false && Number(r4.headers.get("retry-after")) > 0, `case S: relay unreachable at finalize -> 503, handler not run, transfer not claimed (${r4.status} ${JSON.stringify(b4.details)})`);
+  const r5 = await post(same, "x");
+  ok(r5.status === 200 && order.filter((x) => x === "handler").length === 1, `case S: ... and the same credential is then served (${r5.status})`);
+  // The hash was already claimed (a replay of a paid transfer): refused, no handler.
+  order.length = 0;
+  failNext = { ok: false, cls: "replay", error: "Transaction hash has already been used", reason: "Transaction hash has already been used" };
+  const r6 = await post(buildTempoCredential({ push: true }), "x");
+  ok(r6.status === 402 && !order.includes("handler"), `case S: a push hash the relay already claimed is refused before the handler (${r6.status})`);
+  server.close();
+}
+
+// Case T: the credential kinds and the recovered sender.
+{
+  ok(tempoSenderOf(buildTempoCredential()) === PULL_SIGNER.address.toLowerCase(), "case T: tempoSenderOf recovers the signer of a pull credential from its signed transaction");
+  ok(tempoSenderOf(buildTempoCredential({ push: true })) === null && tempoSenderOf(buildTempoCredential({ signature: "0x76deadbeef" })) === null && tempoSenderOf("Payment junk") === null, "case T: no sender for a push credential, an undecodable transaction or junk (never throws)");
+  // The `source` hint is client-supplied: a fresh one per request would be a
+  // fresh per-buyer key. The recovered sender does not move.
+  const spoofA = buildTempoCredential({ source: "did:pkh:eip155:4217:0x1111111111111111111111111111111111111111" });
+  const spoofB = buildTempoCredential({ source: "did:pkh:eip155:4217:0x2222222222222222222222222222222222222222" });
+  const bA = checkTempoCredentialBinding(spoofA, { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" });
+  const bB = checkTempoCredentialBinding(spoofB, { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" });
+  ok(bA.payerHint !== bB.payerHint && tempoSenderOf(spoofA) === tempoSenderOf(spoofB) && tempoSenderOf(spoofA) === PULL_SIGNER.address.toLowerCase(), "case T: two credentials naming different sources still recover the same sender");
+  const { gatewaySettleBreakerKey } = await import("../src/gateway-settle-breaker.js");
+  const reqA = { mppTempoPayer: bA.payerHint, mppTempoSender: tempoSenderOf(spoofA), ip: "1.2.3.4", headers: {}, header: () => undefined };
+  const reqB = { mppTempoPayer: bB.payerHint, mppTempoSender: tempoSenderOf(spoofB), ip: "1.2.3.4", headers: {}, header: () => undefined };
+  ok(gatewaySettleBreakerKey(reqA) === gatewaySettleBreakerKey(reqB) && gatewaySettleBreakerKey(reqA) === `tempo:${PULL_SIGNER.address.toLowerCase()}`, `case T: the settle breaker keys both on the recovered sender (the reviewers' repro gave three distinct keys) (${gatewaySettleBreakerKey(reqA)})`);
+  ok(gatewaySettleBreakerKey({ mppTempoPayer: bA.payerHint, ip: "1.2.3.4", headers: {}, header: () => undefined }) === "ip:1.2.3.4", "case T: a Tempo request with only the source hint keys on the client IP, never the hint");
+  // "proof" credentials move no money and are refused before any relay call.
+  const proof = buildTempoCredential({ payload: { signature: `0x${"cd".repeat(65)}`, type: "proof" } });
+  const bp = checkTempoCredentialBinding(proof, { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" });
+  ok(bp.ok === false && /payload type "proof" does not pay/.test(bp.reason || ""), `case T: a proof credential is refused at the binding check (${bp.reason})`);
+  ok(checkTempoCredentialBinding(buildTempoCredential(), { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" }).payloadType === "transaction" && checkTempoCredentialBinding(buildTempoCredential({ push: true }), { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" }).payloadType === "hash", "case T: the binding reports the credential kind");
+  let validateCalls = 0;
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => { validateCalls++; return { ok: true, validation: {} }; }, broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app.use(paywallStub);
+  app.get("/paid", (_req, res) => res.json({ served: true }));
+  const { server, url } = await listen(app);
+  const r = await fetch(`${url}/paid`, { headers: { Authorization: proof } });
+  const body = await r.json();
+  ok(r.status === 402 && validateCalls === 0 && body.type === "https://paymentauth.org/problems/malformed-credential", `case T: the gate refuses a proof credential before validate() (${r.status}, ${body.type})`);
+  // The gate stamps the recovered sender on an accepted pull request.
+  const app2 = express();
+  app2.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0x0t", timestamp: new Date().toISOString() } }) }));
+  app2.use(paywallStub);
+  app2.get("/paid", (req, res) => res.json({ sender: req.mppTempoSender ?? null, hint: req.mppTempoPayer ?? null }));
+  const s2 = await listen(app2);
+  const j = await (await fetch(`${s2.url}/paid`, { headers: { Authorization: spoofA } })).json();
+  ok(j.sender === PULL_SIGNER.address.toLowerCase() && j.hint === "0x1111111111111111111111111111111111111111", `case T: an accepted pull request carries the recovered sender beside the classification hint (${JSON.stringify(j)})`);
+  s2.server.close();
   server.close();
 }
 
@@ -728,6 +886,7 @@ async function withWarnings(fn) {
 }
 
 facilitator.close();
+relayStub.close();
 console.log(`\n${pass} passed, 0 failed`);
 
 // ---- tempo refusal demotes the tempo challenge for that client -------------

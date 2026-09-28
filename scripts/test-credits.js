@@ -63,7 +63,7 @@ ok(b.balanceUsd === 19.999 && b.spentUsd === 0.001 && b.calls === 1 && b.keyId =
 // the Express gate: authorize before, debit only on a 200, pass-through otherwise
 const priceFor = (method, path) => (path === "/api/whois" ? { priceUsd: 0.001, slug: "whois" } : path === "/v1/dossier" ? { priceUsd: 19, slug: "dossier" } : null);
 const gate = cr.gate(priceFor);
-function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headersSent = false; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.getHeader = (k) => r.headers[k]; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
+function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headersSent = false; r.end = () => r; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.getHeader = (k) => r.headers[k]; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
 let nexted = false; let res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 ok(nexted && res.headers["X-Credits-Balance"] === "19.998", "gate: a funded key on a priced route is authorized (next called, balance header shows the post-hold balance)");
@@ -73,31 +73,54 @@ nexted = false; res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 res.statusCode = 502; res.emit("finish");
 ok(nexted && cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0, "gate: a non-200 (upstream 502) is NOT debited (hold released)");
-// client abort BEFORE the first byte (socket closed, finish never fires):
-// nothing reached the buyer, so the hold is RELEASED - the same rule as every
-// other rail, none of which settles once the buyer is gone
-// (src/hangup-settlement.js). This used to settle the hold and book a refund
-// debt. Node's default statusCode is 200 before anything is written, which is
-// exactly why the close cannot be read as a served 200.
+// client abort BEFORE the first byte (socket closed, finish never fires). The
+// close alone decides nothing: the hold is decided when the abandoned response
+// ENDS, by the same rule every rail follows (src/hangup-settlement.js). With
+// no hang-up forgiveness ticket (the budget is spent, or the route reserved
+// none) the hold SETTLES, as before the rule - an abort must not be a free
+// expensive call (2026-08-28) - and is flagged so the hang-up hook books it as
+// owed. Node's default statusCode is 200 before anything is written, which is
+// exactly why the close itself cannot be read as a served 200.
 nexted = false; res = fakeRes();
-gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
-res.statusCode = 200; res.emit("close");
-ok(nexted && cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 2, `gate: a client abort before the first byte releases the hold (nothing reached the buyer) [nexted=${nexted} bal=${cr.balance(KEY).balanceUsd} held=${cr.balance(KEY).heldUsd} calls=${cr.balance(KEY).calls}]`);
-// ... and a handler that then fails (502) on the abandoned request is never
-// charged either: the close already decided, and finish never fires on a
-// destroyed socket (emitted here to prove the guard holds even if it did).
-nexted = false; res = fakeRes();
-gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
-res.emit("close"); res.statusCode = 502; res.emit("finish");
-ok(nexted && cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 2, `gate: a close followed by a handler 502 is not charged [bal=${cr.balance(KEY).balanceUsd} calls=${cr.balance(KEY).calls}]`);
-// client abort AFTER the first byte (a stream that began): the response was
-// partly delivered, so the hold settles once, at the held amount.
-nexted = false; res = fakeRes();
-gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
-res.headersSent = true; res.emit("close");
-ok(nexted && cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 3, `gate: a close after the first byte (partly delivered stream) debits once at the hold [bal=${cr.balance(KEY).balanceUsd} held=${cr.balance(KEY).heldUsd} calls=${cr.balance(KEY).calls}]`);
+const areq = { method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } };
+gate(areq, res, () => { nexted = true; });
 res.emit("close");
-ok(cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).calls === 3, "gate: a second close event never debits twice");
+ok(cr.balance(KEY).heldUsd === 0.001 && cr.balance(KEY).calls === 2, `gate: a close before the first byte alone decides nothing (the handler may still be running) [held=${cr.balance(KEY).heldUsd}]`);
+res.statusCode = 200; res.end();
+ok(nexted && cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 3 && areq.creditsChargedOnClose === 0.001, `gate: an abandoned run with NO forgiveness ticket settles the hold and flags it for the refund ledger [bal=${cr.balance(KEY).balanceUsd} held=${cr.balance(KEY).heldUsd} calls=${cr.balance(KEY).calls} onClose=${areq.creditsChargedOnClose}]`);
+res.emit("close"); res.end();
+ok(cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).calls === 3, "gate: a second close or end never debits twice");
+// ... a >= 400 on the abandoned request (the dispatcher refusing to start a
+// handler for a client already gone, or a handler that failed) is never charged.
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+res.emit("close"); res.statusCode = 499; res.end();
+ok(nexted && cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 3, `gate: an abandoned request that ends >= 400 is not charged [bal=${cr.balance(KEY).balanceUsd} calls=${cr.balance(KEY).calls}]`);
+// ... and a run holding a granted forgiveness ticket is not charged either.
+{
+  const { reserveHangupForgiveness, _resetHangupForgiveness } = await import("../src/hangup-forgiveness.js");
+  _resetHangupForgiveness();
+  nexted = false; res = fakeRes();
+  const treq = { method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } };
+  gate(treq, res, () => { nexted = true; });
+  reserveHangupForgiveness(treq, { keys: ["credits:x", "ip:203.0.113.1"], priceUsd: 0.001 });
+  treq.__a402ClientGoneAt = Date.now(); // what the hang-up hook marks on the close
+  res.emit("close"); res.statusCode = 200; res.end();
+  ok(nexted && cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).calls === 3 && treq.creditsChargedOnClose === undefined, `gate: an abandoned run holding a forgiveness ticket releases the hold [bal=${cr.balance(KEY).balanceUsd} calls=${cr.balance(KEY).calls}]`);
+  _resetHangupForgiveness();
+}
+// ... a hold nobody ends is released after CREDITS_ABANDONED_HOLD_MS.
+{
+  process.env.CREDITS_ABANDONED_HOLD_MS = "30";
+  res = fakeRes();
+  gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => {});
+  res.emit("close");
+  await new Promise((r) => setTimeout(r, 120));
+  ok(cr.balance(KEY).heldUsd === 0 && cr.balance(KEY).balanceUsd === 19.997, `gate: an abandoned hold that nothing ends is released after the bound [held=${cr.balance(KEY).heldUsd}]`);
+  res.statusCode = 200; res.end();
+  ok(cr.balance(KEY).balanceUsd === 19.997 && cr.balance(KEY).calls === 3, "gate: ... and a late end after that never debits");
+  delete process.env.CREDITS_ABANDONED_HOLD_MS;
+}
 // idempotent REPLAY of a call this key already paid for: the replay middleware
 // answers 200 with X-Idempotent-Replay: true and no handler runs, so the hold
 // is released and the balance is unchanged (a keyed retry never pays twice).

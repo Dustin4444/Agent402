@@ -63,16 +63,18 @@ let globalPausedUntil = 0;
 let globalTrips = 0;
 
 /** The identity a gateway call is counted under. Same derivation as the
- *  composite guard in server.js and route-execute's spend key: the signed EVM
- *  payer, else the Tempo payer the gate verified, else the credits key, else
- *  the client IP. Null only
- *  for an in-process caller with no request (route-execute dispatching a flat
- *  tier), which the global breaker still covers. */
+ *  composite guard in server.js: the signed EVM payer, else the Tempo sender
+ *  RECOVERED from the signed transaction (src/mpp-tempo.js sets
+ *  req.mppTempoSender; the credential's own `source` is client-supplied and a
+ *  caller could name a fresh one per request, so it is never a key), else the
+ *  credits key, else the client IP. Null only for an in-process caller with no
+ *  request (route-execute dispatching a flat tier), which the global breaker
+ *  still covers. */
 export function gatewaySettleBreakerKey(req) {
   if (!req || typeof req !== "object") return null;
   const payer = payerFromRequest(req);
   if (payer) return payer;
-  if (req.mppTempoPayer) return `tempo:${req.mppTempoPayer}`;
+  if (req.mppTempoSender) return `tempo:${req.mppTempoSender}`;
   if (req.creditsKeyId) return `credits:${req.creditsKeyId}`;
   const ip = typeof req.ip === "string" && req.ip.trim() ? req.ip.trim() : req.socket?.remoteAddress;
   return ip ? `ip:${String(ip).trim()}` : null;
@@ -130,21 +132,6 @@ export function recordGatewaySettleFailure(key, now = Date.now(), { global = tru
   if (arr.length >= MAX_FAILS) console.warn(`[gateway-breaker] ${arr.length} settle failures inside the window for one buyer - refusing its gateway calls until the window clears`);
 }
 
-/** A paid call whose buyer closed the connection before the answer was ready
- *  (src/hangup-settlement.js): the handler did the work and the payment was
- *  NOT settled. Counted against the key the consult armed, exactly like a
- *  settle failure, and never fed into the global pause - honest
- *  short-timeout clients hang up on long routes, and a global counter fed by
- *  a costless event would let anyone pause every buyer. Returns true when a
- *  key was armed and the strike counted. */
-export function recordGatewayClientGone(req, now = Date.now()) {
-  if (!req || typeof req !== "object" || !Object.hasOwn(req, "__gatewaySettleBreakerKey")) return false;
-  const key = req.__gatewaySettleBreakerKey;
-  if (!key) return false;
-  recordGatewaySettleFailure(key, now, { global: false });
-  return true;
-}
-
 /** A settled 200 clears the key at once - a good buyer is never impeded. */
 export function recordGatewaySettleSuccess(key) {
   if (key) { fails.delete(key); billingFails.delete(key); }
@@ -165,8 +152,6 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
   const res = req.res;
   if (!res || typeof res.once !== "function") return false;
   req.__gatewaySettleBreakerArmed = true;
-  // The hang-up recorder counts an abandoned call under the same key.
-  req.__gatewaySettleBreakerKey = key;
   res.once("finish", () => {
     try {
       const st = res.statusCode;
@@ -225,7 +210,7 @@ export function gatewaySettleBreakerCheck(req, { now = Date.now(), global = true
     // not send the buyer to a wallet balance that was never the problem.
     const e = new Error(b.billingFails >= b.fails
       ? `Recent payments from this wallet could not be settled (${b.fails} in the last ${mins} min: each verified and was served, then the paying network's facilitator refused to settle it under a billing limit on this server's own account - not because of the wallet); ${until} After that, pay on a network other than the one refused, from the route's current 402.`
-      : `Recent paid calls from this wallet failed to settle or were abandoned before their answer arrived (${b.fails} in the last ${mins} min: they verified and the call was served, and either the transfer did not go through or the connection closed first${b.billingFails ? `; ${b.billingFails} of them ${b.billingFails === 1 ? "was" : "were"} a facilitator billing refusal on this server's account, not the wallet's` : ""}); ${until} Check the wallet's USDC balance on the paying chain before retrying, and keep the connection open until the answer arrives.`);
+      : `Recent payments from this wallet failed to settle (${b.fails} in the last ${mins} min: they verified, the call was served, and the transfer did not go through${b.billingFails ? `; ${b.billingFails} of them ${b.billingFails === 1 ? "was" : "were"} a facilitator billing refusal on this server's account, not the wallet's` : ""}); ${until} Check the wallet's USDC balance on the paying chain before retrying.`);
     e.statusCode = 429;
     e.retryAfterMs = b.until - now;
     try { req?.res?.setHeader?.("Retry-After", String(secs)); } catch { /* headers are best-effort */ }

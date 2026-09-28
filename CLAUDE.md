@@ -135,10 +135,14 @@ succeeds. We never declare the opt-in upfront payment flow. Anything that caches
 bills on handler status before settlement is unsafe: key it off the FINAL response
 (`res.on("finish")` with `res.statusCode === 200`). The idempotency cache, credits debit and
 refund ledger all follow this rule. (`node_modules/@x402/express/dist/esm/index.mjs`.)
-A buyer whose connection closes before the first response byte is never settled: an
-onBeforeSettle hook aborts with `client_disconnected`, the Tempo broadcast and the Stripe
-capture make the same check first, and credits release the hold. Only a close during the
-settle call itself is charged, and `src/hangup-settlement.js` books it as owed.
+A buyer whose connection closes before the first response byte is not settled while the
+run holds a hang-up forgiveness ticket (`src/hangup-forgiveness.js`: reserved when the
+handler starts, priced at the charge, against a per-wallet, per-IP and service-wide budget
+that a paid success never resets): an onBeforeSettle hook aborts with
+`client_disconnected`, the Tempo broadcast and the Stripe capture make the same check first,
+and credits release the hold. Without a ticket, for a Tempo push credential (finalized
+before the handler) and for a close during the settle call itself, the charge goes through
+and `src/hangup-settlement.js` books it as owed. The budget never refuses service.
 
 ## Subsystem pointers
 - **Idempotency:** opt-in `Idempotency-Key` (and x402 `payment-identifier` as an alias), bound

@@ -116,12 +116,12 @@ const PAID_LOOPBACK_TIMEOUT_MS = Math.max(1_000, MCP_REQ_DEADLINE_MS - 2_500);
 // What a caller is told when a PAID call was cut off on this connector. When
 // the connector stops waiting it closes its loopback request, and a paid
 // request whose connection closes before the first response byte is not
-// settled on any rail (src/hangup-settlement.js): the dispatcher refuses to
-// start a handler that has not started, and a report composite's upstream
-// calls are cut off. The exception is a close that lands while the settle
-// call itself is in flight: that charge goes through and is recorded as owed
-// and refunded. The connector cannot tell which happened at the moment it
-// gives up, so "not charged" would not be a promise it can keep.
+// settled while it holds a hang-up forgiveness ticket
+// (src/hangup-settlement.js); a handler that had not started never runs.
+// Without a ticket (the budget is spent), or for a close that lands while
+// the settle call itself is in flight, the charge goes through and is
+// recorded as owed and refunded. The connector cannot tell which happened at
+// the moment it gives up, so "not charged" would not be a promise it can keep.
 export const PAID_CUTOFF_TEXT = "The call may still have completed and been charged. If it was, the charge is recorded as owed and refunded automatically. Do not retry blindly: a retry is a new paid call.";
 export const UNPAID_CUTOFF_TEXT = "No payment was presented, so nothing was charged.";
 /** The tool-result text for a call this connector stopped waiting on.

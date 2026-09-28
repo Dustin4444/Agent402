@@ -42,14 +42,15 @@ function fakeReq({ from = null, tempo = null, ip = "203.0.113.7", withRes = true
     header: (n) => (String(n).toLowerCase() === "payment-signature" ? hdr || undefined : undefined),
     headers: {}, ip,
   };
-  if (tempo) req.mppTempoPayer = tempo;
+  if (tempo) req.mppTempoSender = tempo;
   if (withRes) req.res = fakeRes();
   return req;
 }
 
 // --- key derivation: the composite guard's rule ------------------------------
 ok(b.gatewaySettleBreakerKey(fakeReq({ from: ADDR })) === ADDR.toLowerCase(), "signed EVM payer is the key, lowercased");
-ok(b.gatewaySettleBreakerKey(fakeReq({ tempo: "0xTempoPayer" })) === "tempo:0xTempoPayer", "a Tempo buyer keys on the tempo payer");
+ok(b.gatewaySettleBreakerKey(fakeReq({ tempo: "0xTempoPayer" })) === "tempo:0xTempoPayer", "a Tempo buyer keys on the sender recovered from its signed transaction");
+ok(b.gatewaySettleBreakerKey(Object.assign(fakeReq(), { mppTempoPayer: "0xclientsupplied" })) === "ip:203.0.113.7", "the credential's client-supplied source hint is never a key (a caller could name a fresh one per request): the IP is");
 ok(b.gatewaySettleBreakerKey(Object.assign(fakeReq(), { creditsKeyId: "ck_123" })) === "credits:ck_123", "a credits buyer keys on the credits key id, before the IP fallback");
 ok(b.gatewaySettleBreakerKey(fakeReq()) === "ip:203.0.113.7", "otherwise the client IP - nobody is unkeyed");
 ok(b.gatewaySettleBreakerKey(undefined) === null && b.gatewaySettleBreakerKey({}) === null, "no request (in-process caller) -> null key");
@@ -67,30 +68,6 @@ ok(b.gatewaySettleBreakerKey(undefined) === null && b.gatewaySettleBreakerKey({}
   ok(!b.gatewaySettleBreakerBlocked(K).blocked, "a settled 200 clears the key at once");
   b.recordGatewaySettleFailure(null);
   ok(!b.gatewaySettleBreakerBlocked(null).blocked, "a null key is never blocked per key (it still counts globally)");
-}
-
-// --- a buyer who left before the answer: a strike under the ARMED key --------
-// (src/hangup-settlement.js). Counted like a settle failure against the key the
-// consult armed, and NEVER fed into the global pause: honest short-timeout
-// clients hang up on long routes, and a costless event must not pause everyone.
-{
-  b._gatewaySettleBreakerReset();
-  const unarmed = fakeReq({ from: ADDR });
-  ok(b.recordGatewayClientGone(unarmed) === false && !b.gatewaySettleBreakerBlocked(ADDR.toLowerCase()).fails, "a request the consult never armed counts nothing (no key)");
-  ok(b.recordGatewayClientGone(null) === false && b.recordGatewayClientGone(Object.create({ __gatewaySettleBreakerKey: "0xproto" })) === false, "no request, or a key only on the prototype, counts nothing");
-  const req = fakeReq({ from: ADDR });
-  b.gatewaySettleBreakerCheck(req);
-  ok(req.__gatewaySettleBreakerKey === ADDR.toLowerCase(), "the consult stashes the key it armed on the request");
-  for (let i = 0; i < 3; i++) ok(b.recordGatewayClientGone(req) === true, `client-gone strike ${i + 1} counts under the armed key`);
-  const st = b.gatewaySettleBreakerBlocked(ADDR.toLowerCase());
-  ok(st.blocked && st.fails === 3, `three client-gone strikes block the wallet like three settle failures (${JSON.stringify(st)})`);
-  // Past GLOBAL_MAX (6) strikes spread across rotating keys: no global pause.
-  for (let i = 0; i < 12; i++) { const r = fakeReq({ from: `0x${(0xa0 + i).toString(16).padStart(40, "0")}` }); b.gatewaySettleBreakerCheck(r, { global: false }); b.recordGatewayClientGone(r); }
-  ok(!b.gatewaySettleBreakerGlobalPaused().paused && b.gatewaySettleBreakerStatus().globalFailsInWindow === 0, "12 client-gone strikes across rotating keys never feed the global pause");
-  let err = null;
-  try { b.gatewaySettleBreakerCheck(fakeReq({ from: ADDR })); } catch (e) { err = e; }
-  ok(err?.statusCode === 429 && /failed to settle/i.test(err.message) && /abandoned before their answer arrived/.test(err.message) && /Nothing was charged/.test(err.message) && /keep the connection open/.test(err.message), `the 429 names both causes and says nothing was charged (${String(err?.message).slice(0, 100)}...)`);
-  b._gatewaySettleBreakerReset();
 }
 
 // --- the handler refuses BEFORE any upstream call ------------------------------

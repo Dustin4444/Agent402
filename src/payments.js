@@ -27,7 +27,7 @@ import {
 import { declarePaymentIdentifierExtension, PAYMENT_IDENTIFIER } from "@x402/extensions/payment-identifier";
 import { normalizePayerAddress } from "./payer.js";
 import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
-import { clientGoneBeforeFirstByte, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
+import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
@@ -1510,10 +1510,11 @@ function registerWalletBlocklistHook(server) {
 }
 
 /**
- * A buyer whose connection closed before the first response byte is never
- * charged (src/hangup-settlement.js). @x402/express decides whether to settle
- * from res.statusCode alone and never asks whether the buyer is still there,
- * so this hook asks: an abort here makes @x402/core throw SettleError(400)
+ * A buyer whose connection closed before the first response byte is not
+ * charged while the request holds a granted forgiveness ticket
+ * (src/hangup-settlement.js, src/hangup-forgiveness.js). @x402/express decides
+ * whether to settle from res.statusCode alone and never asks whether the
+ * buyer is still there, so this hook asks: an abort here makes @x402/core throw SettleError(400)
  * BEFORE any facilitator call, which means onSettleFailure and the
  * PayAI/Solvador fallback never run and nothing can settle twice (the same
  * path the wallet blocklist rides). The vendor then answers 402 with a
@@ -1530,7 +1531,9 @@ function registerWalletBlocklistHook(server) {
 export function registerClientGoneSettleHook(server) {
   server.onBeforeSettle((ctx) => {
     const req = ctx?.transportContext?.request?.adapter?.req;
-    if (!req || !clientGoneBeforeFirstByte(req)) return;
+    // No ticket (budget spent, or a route that never reserved one): settle as
+    // usual; the hang-up hook books the undelivered charge as owed.
+    if (!req || !chargeCancelledForClientGone(req)) return;
     return { abort: true, reason: "client_disconnected", message: CLIENT_GONE_TEXT };
   });
 }

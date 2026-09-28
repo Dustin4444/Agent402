@@ -30,7 +30,7 @@ import { Challenge, Credential, Expires, Method, Receipt } from "mppx";
 import { stripe as stripeMethods } from "mppx/server";
 import { createHmac } from "node:crypto";
 import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
-import { clientGoneBeforeFirstByte, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
+import { chargeCancelledForClientGone, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 const STRIPE_MIN_USD = 0.50; // SPT card minimum (docs.stripe.com/payments/machine)
 const CHALLENGE_TIMEOUT_SECONDS = 300;
@@ -324,12 +324,13 @@ export function createStripeGate({ validate = validateStripeCredential, settle =
         releaseReplay();
         return;
       }
-      // The buyer left before anything could reach them (src/hangup-settlement.js):
-      // do not capture. The credential stays spent, so it cannot buy a second
-      // run; the 499 goes through the hang-up hook's res.end wrapper, which
-      // counts the strike. A close during the capture itself is charged and
-      // booked as owed.
-      if (clientGoneBeforeFirstByte(req)) {
+      // The buyer left before anything could reach them and the request holds
+      // a granted forgiveness ticket (src/hangup-settlement.js): do not
+      // capture. The credential stays spent, so it cannot buy a second run.
+      // Without a ticket the card is captured as usual and the hang-up hook
+      // books the undelivered charge as owed; so is a close during the
+      // capture itself.
+      if (chargeCancelledForClientGone(req)) {
         bufferedCalls = [];
         restore();
         settleReplay();

@@ -2086,9 +2086,10 @@ export const OPENROUTER_ATTRIBUTION = Object.freeze({
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
-  // Inside a report composite, the buyer's connection closing before the first
-  // byte (src/hangup-settlement.js, src/drain-abort.js) means the payment will
-  // not settle: start no new paid call, and cut off the one in flight. The
+  // Inside a report composite, the client-gone signal is aborted when the
+  // buyer's connection closed before the first byte and the charge was
+  // cancelled (src/hangup-settlement.js, src/drain-abort.js): the payment will
+  // not settle, so start no new paid call, and cut off the one in flight. The
   // client-gone reason (a 499) is rethrown as is, so the dispatcher answers
   // 499 and a chain walker does not treat it as a link failure. Outside such
   // a scope this is null and nothing changes.

@@ -1,14 +1,18 @@
-// A buyer whose connection is gone before the first response byte is never
-// charged (src/hangup-settlement.js); only a close during the settle call
-// itself is charged, and that one is booked as owed in the refund ledger.
+// A buyer whose connection is gone before the first response byte is not
+// charged, within a budget (src/hangup-settlement.js, src/hangup-forgiveness.js);
+// past the budget, and for a close during the settle call itself, the charge
+// goes through and is booked as owed in the refund ledger.
 //
 // Why: @x402/express decides whether to settle from res.statusCode alone and
 // never asks whether the buyer is still connected, so a client with a 20 s
 // timeout against a 40 s media run used to produce a settled charge the buyer
-// never received plus a refund-ledger debt. Once repaid, that is exactly what
-// not settling would have produced, plus refund gas and manual work.
+// never received plus a refund-ledger debt. Not settling fixes that, but a
+// hang-up costs the caller nothing, so on its own it would be a free run on
+// repeat: the forgiveness budget (per wallet, per IP, service-wide, reserved
+// when the handler starts, never reset by a paid success) is what bounds it,
+// and running out of it puts the old behavior back rather than refusing.
 //
-// Part 1 drives the hook, the client-gone predicate and the credits gate
+// Part 1 drives the hook, the predicates, the budget and the credits gate
 // directly, and pins from source the seams the booted part cannot isolate.
 // Part 2 boots the REAL paid server against a stub facilitator and a stub
 // OpenRouter (scripts/lib/openrouter-stub-preload.js sends every openrouter.ai
@@ -17,25 +21,27 @@
 // moments:
 //   a. connected control: settled, nothing owed;
 //   b. close during a slow /settle (the residual window): settled once, owed once;
-//   c. close during verify: the handler never runs, nothing settles, no strike;
-//   d. close mid-handler: the handler ran, nothing settles, nothing owed,
+//   c. close during verify: the handler never runs, nothing settles, no budget spent;
+//   d. close mid-handler inside the budget: nothing settles, nothing owed,
 //      the spent credential cannot buy a second run;
-//   e. three such hang-ups from one wallet: the fourth call is refused 429
-//      before the handler; another wallet is unaffected;
-//   f. close during a report composite (the image tier): the upstream call in
-//      flight is cut off, no failover link starts, nothing settles; three of
-//      those block the wallet, and never pause the route for anyone else;
-//   g. close AFTER the whole answer arrived: an ordinary settled sale.
+//   e. the reviewers' R3 (hang-ups interleaved with a paid success from one
+//      wallet): forgiven and cut off inside the wallet's budget, then settled
+//      and owed, never refused;
+//   f. one IP rotating wallets: the IP's budget binds;
+//   g. the reviewers' R2 (ten concurrent hang-ups): in-flight runs count;
+//   h. rotating wallets AND IPs: the service-wide budget binds;
+//   i. close AFTER the whole answer arrived: an ordinary settled sale;
+//   j. no hang-up feeds the settle breaker or the composite guard.
 import { spawn } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
-import { createHangupSettlementHook, clientGoneBeforeFirstByte, clientGoneError, isClientGoneAbort, CLIENT_GONE_TEXT } from "../src/hangup-settlement.js";
+import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, CLIENT_GONE_TEXT } from "../src/hangup-settlement.js";
+import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { createCredits } from "../src/credits.js";
 import { getFreePorts } from "./lib/free-port.js";
-
 let pass = 0, proc = null, facilitator = null, orStub = null;
 const serverLog = [];
 const TMP = mkdtempSync(join(tmpdir(), "hangup-"));
@@ -114,10 +120,82 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   server.close();
 }
 
-// 1c. Credits: a hang-up before the first byte RELEASES the hold (it used to
-// charge it and book a debt); the hook still reports the undelivered end once,
-// with no charge evidence on the request.
+// 1c. chargeCancelledForClientGone: gone before the first byte AND a granted
+// forgiveness ticket. Either alone keeps the charge.
 {
+  _resetHangupForgiveness();
+  const gone = () => ({ __a402ClientGoneAt: Date.now() });
+  const g1 = gone(); reserveHangupForgiveness(g1, { keys: ["0xaa", "ip:1.1.1.1"], priceUsd: 0.01 });
+  ok(hangupForgiven(g1) && chargeCancelledForClientGone(g1), "gone + granted ticket: the charge is cancelled");
+  const connected = {}; reserveHangupForgiveness(connected, { keys: ["0xab", "ip:1.1.1.2"], priceUsd: 0.01 });
+  ok(hangupForgiven(connected) && !chargeCancelledForClientGone(connected), "a granted ticket on a connected buyer cancels nothing");
+  ok(!chargeCancelledForClientGone(gone()), "gone with NO ticket: the charge stands (settled, then booked as owed)");
+  // $6: over the default per-key budget, under the service-wide one.
+  const g2 = gone(); reserveHangupForgiveness(g2, { keys: ["ip:1.1.1.3"], priceUsd: 6 });
+  ok(!hangupForgiven(g2) && !chargeCancelledForClientGone(g2) && g2.__a402HangupTicket.reason === "ip budget", `gone with a DENIED ticket: the charge stands (${g2.__a402HangupTicket.reason})`);
+  const g3 = Object.assign(Object.create({ __a402HangupTicket: { granted: true } }), { __a402ClientGoneAt: Date.now() });
+  ok(!hangupForgiven(g3) && !chargeCancelledForClientGone(g3), "a ticket on the PROTOTYPE is ignored (a polluted prototype must not make every request unsettled)");
+  _resetHangupForgiveness();
+}
+
+// 1d. The forgiveness budget itself (src/hangup-forgiveness.js), with the
+// reviewers' three shapes: hang-ups interleaved with paid successes, a burst
+// of concurrent hang-ups, and rotation across wallets.
+{
+  const saved = { k: process.env.HANGUP_FORGIVE_KEY_USD, g: process.env.HANGUP_FORGIVE_GLOBAL_USD, w: process.env.HANGUP_FORGIVE_WINDOW_MS, o: process.env.HANGUP_FORGIVE };
+  process.env.HANGUP_FORGIVE_KEY_USD = "0.009"; process.env.HANGUP_FORGIVE_GLOBAL_USD = "0.05"; process.env.HANGUP_FORGIVE_WINDOW_MS = "60000";
+  _resetHangupForgiveness();
+  const T0 = 1_000_000;
+  const run = (keys, { price = 0.003, now = T0, abandoned = true } = {}) => { const req = {}; const t = reserveHangupForgiveness(req, { keys, priceUsd: price, now }); settleHangupTicket(req, { abandoned, now }); return t.granted; };
+  // R1: [2 hang-ups, 1 paid success] x 4 from one wallet on one IP. The
+  // success returns its own reservation and clears NOTHING, so the budget
+  // (3 x $0.003) is spent by the third hang-up and every later one is charged.
+  const r1 = [];
+  for (let c = 0; c < 4; c++) { r1.push(run(["0xr1", "ip:10.1.0.1"], { now: T0 + c })); r1.push(run(["0xr1", "ip:10.1.0.1"], { now: T0 + c })); run(["0xr1", "ip:10.1.0.1"], { now: T0 + c, abandoned: false }); }
+  ok(hangupForgivenessStatus(T0 + 4).inflightUsd === 0, "R1: every paid success returned its reservation (nothing left in flight)");
+  ok(r1.filter(Boolean).length === 3 && r1.slice(3).every((g) => g === false), `R1: a paid success between hang-ups never resets the budget - 3 of 8 hang-ups forgiven, the other 5 charged (${JSON.stringify(r1)})`);
+  // R2: 10 concurrent runs from one wallet, each from a different IP. The
+  // reservation happens BEFORE any of them ends, so in-flight runs count.
+  _resetHangupForgiveness();
+  const burst = Array.from({ length: 10 }, (_, i) => { const req = {}; reserveHangupForgiveness(req, { keys: ["0xr2", `ip:10.2.0.${i}`], priceUsd: 0.003, now: T0 }); return req; });
+  ok(burst.filter(hangupForgiven).length === 3, `R2: 10 concurrent runs from one wallet: only 3 hold a ticket (${burst.filter(hangupForgiven).length})`);
+  for (const req of burst) settleHangupTicket(req, { abandoned: true, now: T0 });
+  ok(!run(["0xr2", "ip:10.2.9.9"], { now: T0 + 1 }), "R2: and the wallet's next run is not forgiven either (the abandoned burst stays on the books)");
+  // One IP rotating wallets is bounded by the IP key.
+  _resetHangupForgiveness();
+  const ipRot = Array.from({ length: 5 }, (_, i) => run([`0xip${i}`, "ip:10.3.0.1"], { now: T0 }));
+  ok(ipRot.filter(Boolean).length === 3, `one IP rotating wallets: 3 forgiven, then the IP budget holds (${JSON.stringify(ipRot)})`);
+  // Rotating wallets AND IPs is bounded by the global budget ($0.05 here).
+  _resetHangupForgiveness();
+  const rot = Array.from({ length: 30 }, (_, i) => run([`0xrot${i}`, `ip:10.4.0.${i}`], { now: T0 }));
+  ok(rot.filter(Boolean).length === 16, `rotating wallets and IPs: the service-wide budget stops it at 16 x $0.003 (${rot.filter(Boolean).length})`);
+  const denied = {}; reserveHangupForgiveness(denied, { keys: ["0xfresh", "ip:10.9.9.9"], priceUsd: 0.003, now: T0 });
+  ok(!hangupForgiven(denied) && denied.__a402HangupTicket.reason === "global budget", "a fresh wallet on a fresh IP is refused forgiveness once the global budget is spent");
+  // The window: abandoned runs age out; a success never does it early.
+  ok(run(["0xlater", "ip:10.4.1.1"], { now: T0 + 60_001 }), "after the window the budget is available again");
+  // A released (delivered) run leaves no trace.
+  _resetHangupForgiveness();
+  for (let i = 0; i < 20; i++) run(["0xgood", "ip:10.5.0.1"], { now: T0, abandoned: false });
+  ok(hangupForgivenessStatus(T0).abandonedInWindow === 0 && hangupForgivenessStatus(T0).inflightUsd === 0, "20 delivered runs leave nothing abandoned and nothing in flight");
+  // settleHangupTicket is idempotent, and a denied ticket holds nothing.
+  const once = {}; reserveHangupForgiveness(once, { keys: ["0xonce", "ip:10.6.0.1"], priceUsd: 0.003, now: T0 });
+  ok(settleHangupTicket(once, { abandoned: true, now: T0 }) === true && settleHangupTicket(once, { abandoned: true, now: T0 }) === false && hangupForgivenessStatus(T0).abandonedInWindow === 1, "a ticket is settled at most once");
+  ok(!run(["0xbig", "ip:10.7.0.1"], { price: 0.01 }), "a single run pricier than the per-key budget is never forgiven");
+  const noKey = {}; reserveHangupForgiveness(noKey, { keys: [null, ""], priceUsd: 0.001 });
+  ok(!hangupForgiven(noKey) && noKey.__a402HangupTicket.reason === "no key", "a run with no key at all is never forgiven");
+  process.env.HANGUP_FORGIVE_KEY_USD = "not-a-number";
+  ok(hangupForgivenessConfig().keyMicro === 5_000_000, "a malformed per-key budget reads as the default, never as unbounded");
+  process.env.HANGUP_FORGIVE = "off";
+  const off = {}; reserveHangupForgiveness(off, { keys: ["0xoff", "ip:10.8.0.1"], priceUsd: 0.001 });
+  ok(!hangupForgiven(off) && off.__a402HangupTicket.reason === "disabled", "HANGUP_FORGIVE=off: nothing is forgiven (every hang-up is settled and owed)");
+  for (const [k, v] of [["HANGUP_FORGIVE_KEY_USD", saved.k], ["HANGUP_FORGIVE_GLOBAL_USD", saved.g], ["HANGUP_FORGIVE_WINDOW_MS", saved.w], ["HANGUP_FORGIVE", saved.o]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  _resetHangupForgiveness();
+}
+
+// 1e. Credits decide an abandoned hold when the response ENDS: released with a
+// ticket or on a >= 400, settled and flagged for the debt without one.
+{
+  _resetHangupForgiveness();
   const dir = join(TMP, "credits");
   const sessions = { cs_paid: { id: "cs_paid", mode: "payment", payment_status: "paid", payment_intent: "pi_1", customer_details: { email: "c@example.com" }, metadata: { credits_pack: "credits-20" } } };
   const stripe = { checkout: { sessions: { create: async () => ({ id: "x", url: "https://example.com" }), retrieve: async (id) => sessions[id] } } };
@@ -125,58 +203,82 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   const { key } = await cr.claim("cs_paid");
   const seen = [];
   const app = express();
-  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => seen.push({ kind, creditsSettled: req.creditsSettled === true, charged: req.creditsCharged ?? null, receipt: res.getHeader("PAYMENT-RESPONSE") || null }) }));
-  app.use(cr.gate((m, p) => (p === "/paid" ? { priceUsd: 0.25, slug: "paid" } : null)));
-  app.get("/paid", (req, res) => { setTimeout(() => { try { res.json({ ok: 1 }); } catch { /* gone */ } }, 300); });
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => seen.push({ path: req.path, kind, charged: req.creditsCharged ?? null, onClose: req.creditsChargedOnClose ?? null }) }));
+  app.use(cr.gate((m, p) => (["/forgiven", "/unforgiven", "/fails"].includes(p) ? { priceUsd: 0.25, slug: p.slice(1) } : null)));
+  // Mimics the dispatcher: reserve at handler start, settle the ticket on close.
+  const handler = (grant, status) => (req, res) => {
+    if (grant) reserveHangupForgiveness(req, { keys: [`credits:${req.creditsKeyId}`, `ip:${req.path}`], priceUsd: 0.25 });
+    res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
+    setTimeout(() => { try { res.status(status).json({ ok: status === 200 }); } catch { /* gone */ } }, 300);
+  };
+  app.get("/forgiven", handler(true, 200));
+  app.get("/unforgiven", handler(false, 200));
+  app.get("/fails", handler(false, 502));
   const { server, url } = await listen(app);
-  await hangUp(`${url}/paid`, { headers: { Authorization: `Bearer ${key}` }, abortAfterMs: 80 });
+  const auth = { Authorization: `Bearer ${key}` };
+  await hangUp(`${url}/forgiven`, { headers: auth, abortAfterMs: 80 });
   await sleep(450);
-  const bal = cr.balance(key);
-  ok(bal.balanceUsd === 20 && bal.heldUsd === 0 && bal.calls === 0, `credits: the hold is released when the buyer leaves before the first byte (balance ${bal.balanceUsd}, held ${bal.heldUsd}, calls ${bal.calls})`);
-  ok(seen.length === 1 && seen[0].kind === "end" && seen[0].creditsSettled && seen[0].charged === null && seen[0].receipt === null, `credits: the hook reports the undelivered end once, with no charge evidence (${JSON.stringify(seen)})`);
-  const r = await fetch(`${url}/paid`, { headers: { Authorization: `Bearer ${key}` } });
-  ok(r.status === 200 && cr.balance(key).balanceUsd === 19.75 && seen.length === 1, "credits: a connected buyer is debited once and the hook stays quiet");
+  let bal = cr.balance(key);
+  ok(bal.balanceUsd === 20 && bal.heldUsd === 0 && bal.calls === 0, `credits: a hang-up holding a ticket releases the hold (balance ${bal.balanceUsd}, held ${bal.heldUsd})`);
+  ok(seen.length === 1 && seen[0].charged === null && seen[0].onClose === null, `credits: the hook sees the undelivered end with no charge evidence (${JSON.stringify(seen)})`);
+  await hangUp(`${url}/fails`, { headers: auth, abortAfterMs: 80 });
+  await sleep(450);
+  bal = cr.balance(key);
+  ok(bal.balanceUsd === 20 && bal.heldUsd === 0 && seen.length === 2 && seen[1].onClose === null, `credits: an abandoned run whose handler failed (502) is never charged, ticket or not (balance ${bal.balanceUsd})`);
+  await hangUp(`${url}/unforgiven`, { headers: auth, abortAfterMs: 80 });
+  await sleep(450);
+  bal = cr.balance(key);
+  ok(bal.balanceUsd === 19.75 && bal.heldUsd === 0 && bal.calls === 1, `credits: a hang-up WITHOUT a ticket settles the hold, as before the rule (balance ${bal.balanceUsd}, calls ${bal.calls})`);
+  ok(seen.length === 3 && seen[2].path === "/unforgiven" && seen[2].onClose === 0.25, `credits: ... and flags it (creditsChargedOnClose) so the hook books it as owed (${JSON.stringify(seen[2])})`);
+  const r = await fetch(`${url}/forgiven`, { headers: auth });
+  ok(r.status === 200 && cr.balance(key).balanceUsd === 19.5 && seen.length === 3, "credits: a connected buyer is debited once and the hook stays quiet");
   server.close();
+  _resetHangupForgiveness();
 }
 
-// 1d. Source pins for the seams the booted test cannot isolate, and for the
+// 1f. Source pins for the seams the booted test cannot isolate, and for the
 // vendor shape the x402 hook depends on.
 {
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   const payments = readFileSync(new URL("../src/payments.js", import.meta.url), "utf8");
   const tempo = readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8");
   const stripeGate = readFileSync(new URL("../src/mpp-stripe.js", import.meta.url), "utf8");
-  const credits = readFileSync(new URL("../src/credits.js", import.meta.url), "utf8");
   const hookAt = server.indexOf("app.use(createHangupSettlementHook(");
   const firstGate = Math.min(...["app.use(tempoGate)", "app.use(mppShim)", "app.use(stripeGate)", "app.use(_credits.gate("].map((s) => server.indexOf(s)).filter((i) => i >= 0));
   ok(hookAt > 0 && hookAt < firstGate, "server.js mounts the hang-up hook before every payment gate");
   ok(/app\.use\(createHangupSettlementHook\(\{ onUndelivered: recordHangupOutcome \}\)\)/.test(server), "the hook reports to recordHangupOutcome (debt or cancelled charge)");
   ok(/registerWalletBlocklistHook\(server\);\s*\n\s*registerClientGoneSettleHook\(server\);/.test(payments), "payments.js registers the client-gone settle hook beside the wallet blocklist");
-  ok(/transportContext\?\.request\?\.adapter\?\.req/.test(payments) && /reason: "client_disconnected"/.test(payments), "the x402 hook reads the request from the transport context and aborts as client_disconnected");
+  ok(/transportContext\?\.request\?\.adapter\?\.req/.test(payments) && /if \(!req \|\| !chargeCancelledForClientGone\(req\)\) return;/.test(payments) && /reason: "client_disconnected"/.test(payments), "the x402 hook aborts only when the charge is cancelled (gone + ticket)");
   const belt = server.indexOf("if (clientGoneBeforeFirstByte(req)) throw clientGoneError(");
   const handlerCall = server.indexOf("? await runInAbortableScope(() => tool.handler(input, req)");
-  ok(belt > 0 && handlerCall > belt && handlerCall - belt < 1500, "the dispatcher's belt runs immediately before the handler call");
-  ok(/\bif \(isClientGoneAbort\(err\)\) status = 499;|\) \{ status = 499;/.test(server) && /req\.__a402HandlerStatus = status;/.test(server), "the dispatcher maps a client-gone throw to 499 and records the handler status");
+  ok(belt > 0 && handlerCall > belt && handlerCall - belt < 2500, "the dispatcher's belt runs immediately before the handler call");
+  // One post-paywall middleware reserves the ticket for EVERY paid catalog
+  // route: after the last gate (the x402 dispatcher) and before any handler -
+  // the memory family, the hand-written URL tools and the generic binder.
+  const reserve = server.indexOf("reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req) });");
+  const x402At = server.indexOf("return x402mw(req, res, next);");
+  const firstHandler = Math.min(...['app.post("/api/extract"', 'app.post("/api/memory"', "for (const tool of ALL_KIT) {\n  const [method, path] = tool.route.split"].map((s) => server.indexOf(s)).filter((i) => i >= 0));
+  ok(reserve > 0 && x402At > 0 && reserve > x402At && reserve < firstHandler, "the ticket is reserved after every payment gate and before every paid handler");
+  const mw = server.slice(server.lastIndexOf("app.use((req, res, next) => {", reserve), reserve);
+  ok(/if \(clientGoneBeforeFirstByte\(req\)\) \{\s*\n\s*try \{ res\.status\(499\)/.test(mw) && /X-Pow-Accepted/.test(mw) && /req\.__a402Dispatched = true;/.test(mw), "that middleware answers 499 for a buyer already gone, skips proof-of-work and trial calls, and marks the request dispatched");
+  ok(/res\.once\("close", \(\) => settleHangupTicket\(req, \{ abandoned: clientGoneBeforeFirstByte\(req\) \}\)\);/.test(server), "the ticket is settled on close (abandoned when gone before the first byte)");
+  ok(/const who = payer \|\| \(req\.mppTempoSender \? `tempo:\$\{req\.mppTempoSender\}` : req\.creditsKeyId \? `credits:\$\{req\.creditsKeyId\}` : null\);\s*\n\s*return \[who, `ip:\$\{clientIp\(req\)\}`\];/.test(server), "ticket keys: the verified payer (never the Tempo source hint) AND always the client IP");
+  ok(!/mppTempoPayer/.test(server.slice(server.indexOf("function hangupForgivenessKeys("), server.indexOf("function hangupForgivenessKeys(") + 600)), "the ticket keys never read the client-supplied Tempo payer hint");
   for (const [name, src, call] of [["mpp-tempo", tempo, "let b = await broadcast(auth);"], ["mpp-stripe", stripeGate, "const b = await settle(auth);"]]) {
-    const check = src.indexOf("if (clientGoneBeforeFirstByte(req)) {");
-    ok(check > 0 && src.indexOf(call) > check && src.indexOf(call) - check < 1200, `${name}: the client-gone check precedes the ${call.includes("broadcast") ? "broadcast" : "capture"}`);
+    const check = src.indexOf("if (chargeCancelledForClientGone(req)) {");
+    ok(check > 0 && src.indexOf(call) > check && src.indexOf(call) - check < 1200, `${name}: the cancelled-charge check precedes the ${call.includes("broadcast") ? "broadcast" : "capture"}`);
   }
-  ok(!/creditsChargedOnClose/.test(credits) && /if \(res\.headersSent\) \{ const c = settle\([^\n]*\n\s*else release\(a\.hash, a\.heldMicro\);/.test(credits), "credits: a close settles only a stream that began; otherwise the hold is released");
-  ok(!/creditsChargedOnClose/.test(server), "the debt recorder no longer has a credits-on-close branch (unreachable)");
-  // The composite scope carries the buyer's client-gone signal, and only the
-  // per-request paid upstream helpers join it - never the shared price-listing
-  // read, whose failure would be cached for an hour for every buyer.
+  ok(/\} else if \(req\.creditsSettled && Number\(req\.creditsChargedOnClose\) > 0\) \{/.test(server), "the debt recorder books a credits hold settled on an abandoned run");
+  ok(/priceFor: \(method, path, req\) => \{[\s\S]{0,700}longRunning: isLongRunningSlug\(def\.slug\) \} : null;\s*\n\s*\},\s*\n\s*\/\/ Input check before the relay round trip/.test(server), "the Tempo GATE's priceFor carries longRunning (not only the challenge appender)");
+  // The composite's client-gone signal aborts only when the charge is cancelled.
   ok(/\? await runInAbortableScope\(\(\) => tool\.handler\(input, req\), \{ signal: clientGoneCtl\.signal \}\)/.test(server), "the dispatcher runs a composite with the client-gone signal ({ signal })");
-  ok(/res\.once\("close", \(\) => \{ if \(clientGoneBeforeFirstByte\(req\)\) ctl\.abort\(clientGoneError\(\)\); \}\);/.test(server), "the dispatcher aborts the composite's signal on a close before the first byte");
+  ok(/res\.once\("close", \(\) => \{ if \(chargeCancelledForClientGone\(req\)\) ctl\.abort\(clientGoneError\(\)\); \}\);/.test(server), "the dispatcher aborts the composite's signal only when the charge is cancelled");
   const gatewayKit = readFileSync(new URL("../src/tools/llm-gateway-kit.js", import.meta.url), "utf8");
   const imagesKit = readFileSync(new URL("../src/tools/llm-images-fast-kit.js", import.meta.url), "utf8");
   const fnBody = (src, sig) => { const i = src.indexOf(sig); if (i < 0) return ""; const j = src.indexOf("\n}\n", i); return src.slice(i, j); };
   const fo = fnBody(gatewayKit, "export async function fetchOpenRouter(");
   ok(/const gone = clientGoneSignal\(\);/.test(fo) && /AbortSignal\.any\(\[own, gone\]\)/.test(fo) && /if \(gone\?\.aborted\) throw gone\.reason;/.test(fo), "fetchOpenRouter joins the client-gone signal (refuses to start, cuts off in flight, rethrows the 499)");
-  const og = fnBody(imagesKit, "async function openRouterGet(");
-  ok(/const gone = clientGoneSignal\(\);/.test(og) && /AbortSignal\.any\(\[own, gone\]\)/.test(og), "openRouterGet (video poll + download) joins the client-gone signal");
-  const le = fnBody(imagesKit, "async function listedEndpoints(");
-  ok(le.length > 0 && !/clientGoneSignal/.test(le) && !/openRouterGet\(/.test(le), "listedEndpoints (the shared, cached price listing) does NOT join it");
+  ok(!/clientGoneSignal/.test(imagesKit), "the video poll and download do NOT join it: a submitted job bills in full, and the poll reports its usage");
   // Vendor shape: @x402/express hands the settle hooks `{ request: context, ... }`
   // where context.adapter is an ExpressAdapter holding the Express request. A
   // bump that moves it would silently revert to settle-then-owe; fail here.
@@ -193,8 +295,10 @@ const TREASURY = "0x000000000000000000000000000000000000dEaD";
 const TX = `0x${"5e".repeat(32)}`;
 const OP = "test-hangup-operator-token-0123456789";
 
-// Stub facilitator: verify/settle counters with optional delays.
+// Stub facilitator: verify/settle counters with optional delays. Every settle
+// answers a DISTINCT tx hash (the refund ledger is idempotent on it).
 const fac = { verify: 0, settle: 0, verifyDelayMs: 0, settleDelayMs: 0 };
+const txFor = (n) => (n === 1 ? TX : `0x${n.toString(16).padStart(64, "0")}`);
 facilitator = createServer((req, res) => {
   let b = ""; req.on("data", (c) => { b += c; });
   req.on("end", async () => {
@@ -204,7 +308,7 @@ facilitator = createServer((req, res) => {
     let parsed = {}; try { parsed = b ? JSON.parse(b) : {}; } catch { /* ignore */ }
     const payer = parsed.paymentPayload?.payload?.authorization?.from;
     if (req.url === "/verify") { fac.verify++; if (fac.verifyDelayMs) await sleep(fac.verifyDelayMs); return reply({ isValid: true, payer }); }
-    if (req.url === "/settle") { fac.settle++; if (fac.settleDelayMs) await sleep(fac.settleDelayMs); return reply({ success: true, transaction: TX, network: "eip155:8453", payer }); }
+    if (req.url === "/settle") { const n = ++fac.settle; fac.lastTx = txFor(n); if (fac.settleDelayMs) await sleep(fac.settleDelayMs); return reply({ success: true, transaction: txFor(n), network: "eip155:8453", payer }); }
     reply({});
   });
 });
@@ -237,6 +341,10 @@ orStub = createServer((req, res) => {
 });
 await new Promise((r) => orStub.listen(OR_PORT, "127.0.0.1", r));
 
+// Budgets small enough to spend inside one run: $0.10 per wallet and per IP,
+// $0.40 for the service, over a day. The nano tier is $0.003, the image tiers
+// $0.02 (fast) and $0.05 (pro). The breaker and composite-guard thresholds
+// stay at 3 so the test would show it if a hang-up still fed either of them.
 proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "src/server.js"], {
   env: { ...process.env, PORT: String(PORT), FREE_MODE: "", WALLET_ADDRESS: TREASURY, NETWORK: "base",
     FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`, PAYMENT_NETWORKS: "base",
@@ -244,6 +352,7 @@ proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "s
     OPENROUTER_API_KEY: "test-key-never-used", OPENROUTER_MANAGEMENT_KEY: "", OPENROUTER_STUB_URL: `http://127.0.0.1:${OR_PORT}`, OPENROUTER_FLEX: "off",
     GATEWAY_SETTLE_BREAKER_MAX: "3", GATEWAY_SETTLE_BREAKER_WINDOW_MS: "600000", GATEWAY_SETTLE_BREAKER_GLOBAL_MAX: "3",
     COMPOSITE_GUARD_MAX_FAILS: "3", COMPOSITE_GUARD_GLOBAL_MAX_FAILS: "3",
+    HANGUP_FORGIVE: "", HANGUP_FORGIVE_KEY_USD: "0.1", HANGUP_FORGIVE_GLOBAL_USD: "0.4", HANGUP_FORGIVE_WINDOW_MS: "86400000",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
     AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: TMP },
   stdio: ["ignore", "pipe", "pipe"],
@@ -252,11 +361,8 @@ const keepLog = (chunk) => { for (const line of String(chunk).split("\n")) { if 
 proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
 const logSince = (i) => serverLog.slice(i).join("\n");
 
-const refunds = async () => {
-  const r = await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}` } });
-  const j = await r.json();
-  return j.refunds || [];
-};
+const refundsDoc = async () => (await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}` } })).json();
+const refunds = async () => (await refundsDoc()).refunds || [];
 
 // Crafted credentials: the stub facilitator is the only verifier, so a
 // credential names its payer in authorization.from and a fresh nonce makes it
@@ -267,6 +373,8 @@ const credential = (accepted, payer) => Buffer.from(JSON.stringify({
   payload: { signature: "0x" + "11".repeat(65), authorization: { from: payer, to: accepted.payTo, value: accepted.amount, validAfter: "0", validBefore: "9999999999", nonce: "0x" + (0x7000 + ++nonceN).toString(16).padStart(64, "0") } },
 })).toString("base64");
 const CHAT = { path: "/v1/nano/chat/completions", method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "say ok" }], max_tokens: 16 }) };
+const PRO = { path: "/v1/images/pro", method: "POST", body: JSON.stringify({ prompt: "a red fox in the snow" }) };
+const FAST = { path: "/v1/images/fast", method: "POST", body: JSON.stringify({ prompt: "a red fox in the snow" }) };
 const accepts = {};
 const acceptFor = async (t) => {
   if (accepts[t.path]) return accepts[t.path];
@@ -277,9 +385,19 @@ const acceptFor = async (t) => {
   ok(!!accepts[t.path], `${t.path} offers exact on Base`);
   return accepts[t.path];
 };
-const headersFor = async (t, payer) => ({ "content-type": "application/json", "payment-signature": credential(await acceptFor(t), payer) });
-const pay = async (t, payer) => fetch(`${B}${t.path}`, { method: t.method, headers: await headersFor(t, payer), body: t.body });
+// Every request names its client IP (the server trusts one proxy hop), so a
+// scenario can hold the wallet or the IP fixed while it varies the other.
+const headersFor = async (t, payer, ip) => ({ "content-type": "application/json", "x-forwarded-for": ip, "payment-signature": credential(await acceptFor(t), payer) });
+const pay = async (t, payer, ip) => fetch(`${B}${t.path}`, { method: t.method, headers: await headersFor(t, payer, ip), body: t.body });
 const wallet = (n) => `0x${n.toString(16).padStart(40, "0")}`;
+// A hang-up once the upstream call has started (the handler is running).
+const hangUpMidRun = async (t, payer, ip, { counter = "images", delayMs = 150 } = {}) => {
+  const c0 = or[counter];
+  const upstreamSeen = waitFor(() => or[counter] > c0, 8000);
+  let abortedAt = 0;
+  await hangUp(`${B}${t.path}`, { method: "POST", headers: await headersFor(t, payer, ip), body: t.body, abortWhen: upstreamSeen.then(() => sleep(delayMs)).then(() => { abortedAt = Date.now(); }) });
+  return () => abortedAt;
+};
 
 try {
   let up = false;
@@ -315,13 +433,13 @@ try {
     fac.settleDelayMs = 1_200;
     const settlesBefore = fac.settle, logAt = serverLog.length;
     const settleSeen = waitFor(() => fac.settle > settlesBefore, 5000);
-    await hangUp(`${B}/api/uuid`, { headers: { [mintedHeader]: minted }, abortWhen: settleSeen.then(() => sleep(100)) });
+    await hangUp(`${B}/api/uuid`, { headers: { [mintedHeader]: minted, "x-forwarded-for": "10.0.0.2" }, abortWhen: settleSeen.then(() => sleep(100)) });
     await sleep(1_800);
     fac.settleDelayMs = 0;
     ok(fac.settle - settlesBefore === 1, `b. a close during the settle call itself: the payment settled (settles +${fac.settle - settlesBefore})`);
     const rows = (await refunds()).filter((row) => row.slug === "uuid");
     ok(rows.length === 1, `b. exactly one debt is recorded for the charge the buyer never received (${rows.length})`);
-    ok(rows[0].evidence === TX && rows[0].wire === "x402" && rows[0].httpStatus === 499 && (rows[0].network === "base" || rows[0].network === "eip155:8453") && rows[0].status === "owed",
+    ok(rows[0].evidence === fac.lastTx && rows[0].wire === "x402" && rows[0].httpStatus === 499 && (rows[0].network === "base" || rows[0].network === "eip155:8453") && rows[0].status === "owed",
       `b. the debt carries the settle tx, rail and a 499 marker (${JSON.stringify(rows[0])})`);
     ok(/\[hangup\] CHARGED-BUT-NOT-SERVED/.test(logSince(logAt)), "b. the log says CHARGED-BUT-NOT-SERVED");
     const again = await fetch(`${B}/api/uuid`, { headers: { [mintedHeader]: minted } });
@@ -330,121 +448,158 @@ try {
   }
 
   // c. The buyer leaves while the payment is being verified: the handler never
-  // runs, nothing settles, nothing is owed, and the refusal is no strike.
+  // runs, nothing settles, nothing is owed, and no forgiveness is spent.
   {
     const W = wallet(0xc1);
     fac.verifyDelayMs = 1_200;
     or.chatDelayMs = 0;
+    const before = (await refundsDoc()).hangupForgiveness;
     for (let i = 1; i <= 3; i++) {
       const v0 = fac.verify, s0 = fac.settle, c0 = or.chat;
       const verifySeen = waitFor(() => fac.verify > v0, 5000);
-      await hangUp(`${B}${CHAT.path}`, { method: "POST", headers: await headersFor(CHAT, W), body: CHAT.body, abortWhen: verifySeen.then(() => sleep(150)) });
+      await hangUp(`${B}${CHAT.path}`, { method: "POST", headers: await headersFor(CHAT, W, "10.0.0.3"), body: CHAT.body, abortWhen: verifySeen.then(() => sleep(150)) });
       await sleep(1_500);
       ok(fac.verify - v0 === 1 && fac.settle === s0 && or.chat === c0, `c${i}. gone during verify: verified once, the handler never ran (chat stub +${or.chat - c0}), nothing settled (settles +${fac.settle - s0})`);
     }
     fac.verifyDelayMs = 0;
+    const after = (await refundsDoc()).hangupForgiveness;
     ok((await refunds()).length === 1, "c. no debt for a payment that was never settled");
+    ok(after.abandonedInWindow === before.abandonedInWindow, `c. a run refused before its handler spends no forgiveness (${before.abandonedInWindow} -> ${after.abandonedInWindow})`);
     const s0 = fac.settle;
-    const r = await pay(CHAT, W);
-    ok(r.status === 200 && fac.settle === s0 + 1, `c. three refusals that spent nothing are no strikes: the same wallet is then served (status ${r.status}, settles +${fac.settle - s0})`);
+    const r = await pay(CHAT, W, "10.0.0.3");
+    ok(r.status === 200 && fac.settle === s0 + 1, `c. the same wallet is then served (status ${r.status}, settles +${fac.settle - s0})`);
   }
 
-  // d. The buyer leaves mid-handler on a non-composite route: the handler
-  // runs to the end, the payment is not settled, nothing is owed, and the
-  // spent credential cannot buy a second run.
-  const WD = wallet(0xd1);
+  // d. The buyer leaves mid-handler on a non-composite route, inside the
+  // budget: the payment is not settled, nothing is owed, and the spent
+  // credential cannot buy a second run.
   {
+    const WD = wallet(0xd1);
     or.chatDelayMs = 1_500;
     const s0 = fac.settle, c0 = or.chat, logAt = serverLog.length;
-    const headers = await headersFor(CHAT, WD);
+    const headers = await headersFor(CHAT, WD, "10.0.0.4");
     const upstreamSeen = waitFor(() => or.chat > c0, 5000);
     await hangUp(`${B}${CHAT.path}`, { method: "POST", headers, body: CHAT.body, abortWhen: upstreamSeen.then(() => sleep(150)) });
     await sleep(2_000);
     ok(or.chat - c0 === 1 && fac.settle === s0, `d. gone mid-handler: the handler ran (chat stub +${or.chat - c0}), the payment was NOT settled (settles +${fac.settle - s0})`);
     ok((await refunds()).length === 1, "d. a cancelled charge is not a refund-ledger debt: no row");
     const log = logSince(logAt);
-    ok(/\[hangup\] NOT CHARGED: [^\n]*POST \/v1\/nano\/chat\/completions rail=x402/.test(log) && !/CHARGED-BUT-NOT-SERVED/.test(log), "d. the log says NOT CHARGED (and not CHARGED-BUT-NOT-SERVED)");
-    // The replay guard marks the key consumed on close (statusCode is still
-    // the default 200 then). No code carries this outcome by itself, so no
-    // mutation can kill it; the outcome is what is asserted.
+    ok(/\[hangup\] NOT CHARGED: [^\n]*POST \/v1\/nano\/chat\/completions rail=x402[^\n]*within the hang-up forgiveness budget/.test(log) && !/CHARGED-BUT-NOT-SERVED/.test(log), "d. the log says NOT CHARGED within the forgiveness budget");
     const c1 = or.chat;
     const again = await fetch(`${B}${CHAT.path}`, { method: "POST", headers, body: CHAT.body });
     ok(again.status === 409 && or.chat === c1, `d. re-sending the same credential is refused 409 and runs nothing (status ${again.status}, chat stub +${or.chat - c1})`);
-  }
-
-  // e. Strikes: two more hang-ups from the same wallet (three with d), then a
-  // fourth call is refused 429 BEFORE the handler; another wallet is served.
-  {
-    for (let i = 2; i <= 3; i++) {
-      const c0 = or.chat, s0 = fac.settle;
-      const upstreamSeen = waitFor(() => or.chat > c0, 5000);
-      await hangUp(`${B}${CHAT.path}`, { method: "POST", headers: await headersFor(CHAT, WD), body: CHAT.body, abortWhen: upstreamSeen.then(() => sleep(150)) });
-      await sleep(2_000);
-      ok(or.chat - c0 === 1 && fac.settle === s0, `e. hang-up ${i} from the same wallet: ran, not settled`);
-    }
     or.chatDelayMs = 0;
-    const c0 = or.chat, s0 = fac.settle;
-    const r = await pay(CHAT, WD);
-    const body = await r.json().catch(() => ({}));
-    ok(r.status === 429 && or.chat === c0 && fac.settle === s0, `e. the fourth call from that wallet is refused 429 before the handler (status ${r.status}, chat stub +${or.chat - c0}, settles +${fac.settle - s0})`);
-    ok(/^\d+$/.test(r.headers.get("retry-after") || "") && /Nothing was charged/.test(body.error || "") && /abandoned before their answer arrived/.test(body.error || ""), `e. the 429 carries Retry-After and names both causes (${String(body.error).slice(0, 90)}...)`);
-    const r2 = await pay(CHAT, wallet(0xe2));
-    ok(r2.status === 200 && fac.settle === s0 + 1, `e. another wallet is served and settles (status ${r2.status}) - strikes never feed the global pause`);
-    ok((await refunds()).length === 1, "e. still no debt for any cancelled charge");
   }
 
-  // f. A report composite (the image tier): the buyer leaves while the paid
-  // upstream call is in flight. That call is cut off (the stub sees its own
-  // inbound request close), no failover link starts, nothing settles, nothing
-  // is owed. Three of those from one wallet block it; they never pause the
-  // route for anyone else (both global thresholds are 3 on this boot).
+  // e. The reviewers' R3: one wallet, [2 hang-ups on /v1/images/pro, then a
+  // paid /v1/images/fast] - each from a different IP, so only the WALLET's
+  // budget binds. The first two are forgiven and cut off in flight; the paid
+  // success resets nothing; the third hang-up is past the wallet's $0.10, so it
+  // runs to the end, SETTLES, and is booked as owed. Never refused.
   {
-    const IMG = { path: "/v1/images/pro", method: "POST", body: JSON.stringify({ prompt: "a red fox in the snow" }) };
-    const WF = wallet(0xf1);
-    or.imagesDelayMs = 3_000;
-    for (let i = 1; i <= 3; i++) {
+    const WE = wallet(0xe1);
+    or.imagesDelayMs = 2_000;
+    for (let i = 1; i <= 2; i++) {
       const i0 = or.images, e0 = or.imagesClosedEarly, s0 = fac.settle, logAt = serverLog.length;
-      const upstreamSeen = waitFor(() => or.images > i0, 8000);
-      let abortedAt = 0;
-      await hangUp(`${B}${IMG.path}`, { method: "POST", headers: await headersFor(IMG, WF), body: IMG.body, abortWhen: upstreamSeen.then(() => sleep(150)).then(() => { abortedAt = Date.now(); }) });
+      const abortedAt = await hangUpMidRun(PRO, WE, `10.0.1.${i}`);
       const cut = await waitFor(() => or.imagesClosedEarly > e0, 3000);
-      ok(cut && or.imagesClosedAt - abortedAt < 1_000, `f${i}. the image call in flight is cut off within a second of the buyer leaving (${or.imagesClosedAt - abortedAt} ms)`);
+      ok(cut && or.imagesClosedAt - abortedAt() < 1_000, `e${i}. forgiven: the image call in flight is cut off within a second of the buyer leaving (${or.imagesClosedAt - abortedAt()} ms)`);
       await sleep(600);
-      ok(or.images - i0 === 1 && fac.settle === s0, `f${i}. exactly one upstream image POST (no failover link after the buyer left), nothing settled (POSTs +${or.images - i0}, settles +${fac.settle - s0})`);
-      if (i === 1) ok(/\[hangup\] NOT CHARGED: [^\n]*POST \/v1\/images\/pro rail=x402 after \d+ ms of work\) - payment not settled; counted by the composite guard and settle breaker/.test(logSince(logAt)), "f1. the log says NOT CHARGED on /v1/images/pro and counts the strike");
+      ok(or.images - i0 === 1 && fac.settle === s0, `e${i}. exactly one upstream POST (no failover link after the buyer left), nothing settled (POSTs +${or.images - i0}, settles +${fac.settle - s0})`);
+      if (i === 1) ok(/\[hangup\] NOT CHARGED: [^\n]*POST \/v1\/images\/pro rail=x402 after \d+ ms of work\) - payment not settled; within the hang-up forgiveness budget/.test(logSince(logAt)), "e1. the log says NOT CHARGED on /v1/images/pro");
     }
-    ok((await refunds()).length === 1, "f. no debt for any cancelled composite charge");
     or.imagesDelayMs = 0;
-    const i0 = or.images, s0 = fac.settle;
-    const blocked = await pay(IMG, WF);
-    ok(blocked.status === 429 && or.images === i0 && fac.settle === s0, `f. after three hang-ups the fourth composite call from that wallet is 429 before any upstream work (status ${blocked.status}, POSTs +${or.images - i0})`);
-    const other = await pay(IMG, wallet(0xf2));
-    const ob = await other.json().catch(() => ({}));
-    ok(other.status === 200 && Array.isArray(ob.data) && fac.settle === s0 + 1, `f. another wallet's composite call is served and settles, not paused (status ${other.status}) - hang-ups never feed the global pauses`);
+    const s1 = fac.settle;
+    const paid = await pay(FAST, WE, "10.0.1.9");
+    ok(paid.status === 200 && fac.settle === s1 + 1, `e. a paid /v1/images/fast from the same wallet is served and settles (status ${paid.status})`);
+    or.imagesDelayMs = 1_500;
+    const i0 = or.images, e0 = or.imagesClosedEarly, s0 = fac.settle, owed0 = (await refunds()).length, logAt = serverLog.length;
+    await hangUpMidRun(PRO, WE, "10.0.1.3");
+    await sleep(2_500);
+    ok(or.imagesClosedEarly === e0 && or.images - i0 === 1, `e3. past the wallet's budget: the run is NOT cut off, it finishes (closed early +${or.imagesClosedEarly - e0}, POSTs +${or.images - i0})`);
+    ok(fac.settle === s0 + 1, `e3. ... and the payment SETTLES: a hang-up is not a free run once the budget is spent (settles +${fac.settle - s0})`);
+    const rows = (await refunds()).filter((row) => row.slug === "v1-images-pro");
+    ok((await refunds()).length === owed0 + 1 && rows.length === 1 && rows[0].httpStatus === 499 && rows[0].status === "owed" && rows[0].priceUsd === 0.05, `e3. ... and the undelivered charge is booked as owed once (${JSON.stringify(rows)})`);
+    ok(/\[hangup\] CHARGED-BUT-NOT-SERVED: [^\n]*POST \/v1\/images\/pro/.test(logSince(logAt)), "e3. the log says CHARGED-BUT-NOT-SERVED");
+    or.imagesDelayMs = 0;
+    const s2 = fac.settle;
+    const next = await pay(PRO, WE, "10.0.1.4");
+    ok(next.status === 200 && fac.settle === s2 + 1, `e. the wallet is never refused: its next connected call is served and settles (status ${next.status})`);
   }
 
-  // g. Control: the buyer reads the WHOLE answer, then drops the socket. An
-  // ordinary settled sale: no debt, no hang-up line, no strike.
+  // f. One IP rotating wallets: bounded by the IP's budget.
   {
-    const WG = wallet(0x61);
+    or.imagesDelayMs = 1_500;
+    const s0 = fac.settle, owed0 = (await refunds()).length, e0 = or.imagesClosedEarly;
+    for (let i = 1; i <= 3; i++) { await hangUpMidRun(PRO, wallet(0xf0 + i), "10.0.2.1"); await sleep(2_300); }
+    ok(or.imagesClosedEarly - e0 === 2 && fac.settle - s0 === 1 && (await refunds()).length === owed0 + 1, `f. three wallets from one IP: two forgiven and cut off, the third settled and owed (cut +${or.imagesClosedEarly - e0}, settles +${fac.settle - s0}, owed +${(await refunds()).length - owed0})`);
+    or.imagesDelayMs = 0;
+  }
+
+  // g. The reviewers' R2: ten CONCURRENT hang-ups from one wallet on
+  // /v1/images/fast, each from its own IP. Tickets are reserved when each
+  // handler starts, so in-flight runs count: exactly five fit the wallet's
+  // $0.10, and the other five are settled and owed.
+  {
+    const WC = wallet(0x61c);
+    or.imagesDelayMs = 2_000;
+    const i0 = or.images, e0 = or.imagesClosedEarly, s0 = fac.settle, owed0 = (await refunds()).length;
+    const heads = await Promise.all(Array.from({ length: 10 }, (_, i) => headersFor(FAST, WC, `10.0.3.${i}`)));
+    const allUp = waitFor(() => or.images - i0 >= 10, 8000);
+    await Promise.all(heads.map((headers) => hangUp(`${B}${FAST.path}`, { method: "POST", headers, body: FAST.body, abortWhen: allUp.then(() => sleep(150)) })));
+    await sleep(3_000);
+    ok(or.images - i0 === 10, `g. all ten runs started upstream (POSTs +${or.images - i0})`);
+    ok(or.imagesClosedEarly - e0 === 5 && fac.settle - s0 === 5, `g. five forgiven (cut off, not settled), five settled (cut +${or.imagesClosedEarly - e0}, settles +${fac.settle - s0})`);
+    ok((await refunds()).length === owed0 + 5, `g. the five settled runs are booked as owed (+${(await refunds()).length - owed0})`);
+    or.imagesDelayMs = 0;
+  }
+
+  // h. Rotating wallets AND IPs: bounded by the service-wide budget ($0.40).
+  // Forgiven so far: $0.001 (b) + $0.003 (d) + $0.10 (e) + $0.10 (f) + $0.10
+  // (g) = $0.304, so one more $0.05 run fits and the next does not.
+  {
+    const st = (await refundsDoc()).hangupForgiveness;
+    ok(Math.abs(st.abandonedUsdInWindow - 0.304) < 1e-9 && st.inflightUsd === 0 && st.perKeyBudgetUsd === 0.1 && st.globalBudgetUsd === 0.4, `h. the operator surface reports the budget in use (${JSON.stringify(st)})`);
+    or.imagesDelayMs = 1_500;
+    const s0 = fac.settle, owed0 = (await refunds()).length, e0 = or.imagesClosedEarly;
+    await hangUpMidRun(PRO, wallet(0x71), "10.0.4.1"); await sleep(2_300);
+    ok(or.imagesClosedEarly - e0 === 1 && fac.settle === s0, "h. a fresh wallet on a fresh IP inside the global budget: forgiven");
+    await hangUpMidRun(PRO, wallet(0x72), "10.0.4.2"); await sleep(2_300);
+    ok(or.imagesClosedEarly - e0 === 1 && fac.settle === s0 + 1 && (await refunds()).length === owed0 + 1, `h. the next fresh wallet on a fresh IP is past the global budget: settled and owed (settles +${fac.settle - s0})`);
+    ok(serverLog.some((l) => /\[hangup\] forgiveness budget for the whole service is spent/.test(l)), "h. the server says the service-wide budget is spent");
+    or.imagesDelayMs = 0;
+    const r = await pay(PRO, wallet(0x73), "10.0.4.3");
+    ok(r.status === 200, `h. and nobody is refused: a connected buyer is served (${r.status})`);
+  }
+
+  // i. Control: the buyer reads the WHOLE answer, then drops the socket. An
+  // ordinary settled sale: no debt, no hang-up line.
+  {
+    const WG = wallet(0x81);
     or.chatDelayMs = 0;
-    const s0 = fac.settle, logAt = serverLog.length;
-    const headers = await headersFor(CHAT, WG);
+    const s0 = fac.settle, logAt = serverLog.length, owed0 = (await refunds()).length;
+    const headers = await headersFor(CHAT, WG, "10.0.5.1");
     const status = await new Promise((resolve) => {
       const req = httpRequest(`${B}${CHAT.path}`, { method: "POST", headers });
-      req.on("response", (res) => { let n = 0; res.on("data", (c) => { n += c.length; }); res.on("end", () => { req.destroy(); resolve(res.statusCode); }); });
+      req.on("response", (res) => { res.on("data", () => {}); res.on("end", () => { req.destroy(); resolve(res.statusCode); }); });
       req.on("error", () => resolve(0));
       req.write(CHAT.body); req.end();
     });
     await sleep(300);
-    ok(status === 200 && fac.settle === s0 + 1, `g. a buyer who read the whole answer and then closed: served and settled once (status ${status})`);
-    ok((await refunds()).length === 1 && !/\[hangup\]/.test(logSince(logAt)), "g. no debt and no hang-up line for a delivered answer");
-    const r = await pay(CHAT, WG);
-    ok(r.status === 200, `g. and no strike: that wallet's next call is served (${r.status})`);
+    ok(status === 200 && fac.settle === s0 + 1, `i. a buyer who read the whole answer and then closed: served and settled once (status ${status})`);
+    ok((await refunds()).length === owed0 && !/\[hangup\]/.test(logSince(logAt)), "i. no debt and no hang-up line for a delivered answer");
+  }
+
+  // j. Nothing a hang-up does feeds the settle breaker or the composite
+  // guard: after all of the above, the wallets that hung up most are served.
+  {
+    const r1 = await pay(CHAT, wallet(0xd1), "10.0.6.1");
+    const r2 = await pay(PRO, wallet(0x61c), "10.0.6.2");
+    ok(r1.status === 200 && r2.status === 200, `j. no 429 anywhere: the hang-up wallets are served (${r1.status}, ${r2.status})`);
   }
 
   if (process.env.HANGUP_TEST_SHOW_LOG) console.log(serverLog.filter((l) => /\[hangup\]/.test(l)).join("\n"));
-  console.log(`\nPASS - ${pass} checks (a buyer gone before the first byte is not charged)`);
+  console.log(`\nPASS - ${pass} checks (a buyer gone before the first byte is not charged, within a budget)`);
   cleanup();
   process.exit(0);
 } catch (e) {

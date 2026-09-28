@@ -10,8 +10,9 @@
 // - The gate AUTHORIZES before the handler (balance >= the route's list price)
 //   and DEBITS only on a final 200 (res "finish"); a 4xx/5xx is never charged.
 //   A buyer whose connection closes before the first response byte is not
-//   charged either (the hold is released, the same rule as every other rail,
-//   src/hangup-settlement.js); a stream that already began is settled.
+//   charged while the run holds a forgiveness ticket (the same rule and budget
+//   as every other rail, src/hangup-settlement.js); without one the hold
+//   settles and is booked as owed. A stream that already began is settled.
 //   Balances are integer micro-dollars (sub-cent prices like $0.001 are exact).
 // - Keys are stored HASHED (sha256); the plaintext exists only in the claim
 //   response / email. Per-key files under /data/credits, atomic tmp+rename.
@@ -22,6 +23,12 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdir
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { sendEmail } from "./email.js";
+import { chargeCancelledForClientGone } from "./hangup-settlement.js";
+
+// A hold whose buyer left before the first byte is decided when the response
+// ends; one that nothing ends within this long is released (call-time read,
+// CREDITS_ABANDONED_HOLD_MS, default 10 minutes).
+const abandonedHoldMs = () => { const n = Number(process.env.CREDITS_ABANDONED_HOLD_MS); return Number.isFinite(n) && n > 0 ? n : 10 * 60 * 1000; };
 
 export const CREDIT_PACKS = {
   "credits-20": { label: "Starter", cents: 2000 },
@@ -272,21 +279,43 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
         else release(a.hash, a.heldMicro);
       });
       // A client that drops the socket before the response finished (`finish`
-      // never fires on a destroyed socket). Before the FIRST byte, nothing
-      // reached the buyer, so the hold is RELEASED - the same rule as every
-      // other rail, none of which settles once the buyer is gone
-      // (src/hangup-settlement.js). This also means a close followed by a
-      // handler failure is never charged. The 2026-08-28 concern (an abort
-      // made an expensive handler free) is bounded elsewhere: the dispatcher
-      // refuses to start a handler for a client already gone, a report
-      // composite's upstream calls are cut off the moment the buyer leaves,
-      // and each abandoned run counts a strike against this credits key in
-      // the composite guard and settle breaker. After the first byte (a stream
-      // that began), the response was partly delivered: the hold is settled.
-      res.on("close", () => {
+      // never fires on a destroyed socket). After the first byte (a stream
+      // that began) the response was partly delivered: the hold settles, once.
+      //
+      // Before the FIRST byte the close alone decides nothing: the handler may
+      // still be running, and what happens to the hold is the same rule every
+      // other rail follows (src/hangup-settlement.js), read when the abandoned
+      // response ENDS - its final status is known then:
+      //   - a >= 400 (the dispatcher refusing to start a handler for a client
+      //     already gone, or a handler that failed) is never charged;
+      //   - a run holding a granted forgiveness ticket is not charged;
+      //   - otherwise (the forgiveness budget is spent, or the route reserved
+      //     no ticket) the hold settles, exactly as before this rule, and
+      //     creditsChargedOnClose tells the hang-up hook to book it as owed.
+      //     That keeps an abort from being a free expensive run on this rail
+      //     (the 2026-08-28 finding: /v1/research ran, nothing was debited).
+      // The dispatcher always ends a response; a hold nobody ends within
+      // CREDITS_ABANDONED_HOLD_MS is released (nothing was delivered).
+      let goneEarly = false;
+      const decideGone = () => {
         if (done) return; done = true;
-        if (res.headersSent) { const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) req.creditsCharged = c.chargedUsd; }
-        else release(a.hash, a.heldMicro);
+        const cacheHit = String(res.getHeader?.("X-Cache") || "").toLowerCase() === "hit"
+          || String(res.getHeader?.("X-Idempotent-Replay") || "").toLowerCase() === "true";
+        if (res.statusCode >= 400 || cacheHit || chargeCancelledForClientGone(req)) { release(a.hash, a.heldMicro); return; }
+        const c = settle(a.hash, a.heldMicro, item.slug || req.path);
+        if (c) { req.creditsCharged = c.chargedUsd; req.creditsChargedOnClose = c.chargedUsd; }
+      };
+      const priorEnd = res.end;
+      res.end = function creditsAwareEnd(...args) {
+        if (goneEarly) decideGone();
+        return priorEnd.apply(this, args);
+      };
+      res.on("close", () => {
+        if (done) return;
+        if (res.headersSent) { done = true; const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) req.creditsCharged = c.chargedUsd; return; }
+        goneEarly = true;
+        const t = setTimeout(() => { if (!done) { done = true; release(a.hash, a.heldMicro); } }, abandonedHoldMs());
+        t.unref?.();
       });
       return next();
     };

@@ -1,5 +1,5 @@
-// A buyer whose connection is gone before the first response byte is never
-// charged: one rule on every rail.
+// A buyer whose connection is gone before the first response byte is not
+// charged, within a budget: one rule on every rail.
 //
 // The signal is the ServerResponse "close" event fired while nothing has been
 // written (!res.writableFinished && !res.headersSent). Every paid gate (the
@@ -7,34 +7,49 @@
 // buffers writeHead/write/end/flushHeaders until after it settles, so on those
 // rails "headers not sent" means both that no byte reached the buyer AND that
 // settlement has not been broadcast yet. This hook records that moment on the
-// request (req.__a402ClientGoneAt) and every settlement point reads it through
-// clientGoneBeforeFirstByte() before it moves money:
+// request (req.__a402ClientGoneAt).
+//
+// Whether that cancels the charge is decided by chargeCancelledForClientGone():
+// the buyer left before the first byte AND the request holds a granted
+// forgiveness ticket (src/hangup-forgiveness.js). The dispatcher reserves the
+// ticket when the handler starts, priced at the charge, against a per-wallet,
+// per-IP and service-wide budget that a paid success never resets. Every
+// settlement point reads the predicate before it moves money:
 //   - x402 (and MPP evm): an onBeforeSettle hook aborts settlement with
 //     reason "client_disconnected" before any facilitator call
 //     (registerClientGoneSettleHook in src/payments.js);
-//   - Tempo and Stripe: the gate checks the same condition after the handler
-//     and before the broadcast / capture, and answers 499 with nothing spent;
-//   - credits: the gate releases its hold when the socket closes before the
-//     first byte (a stream that already began is settled, as before).
-// The dispatcher also refuses to START a handler for a request whose client
-// is already gone, and a report composite's per-request upstream calls are
-// cut off the moment the buyer leaves (src/drain-abort.js clientGoneSignal).
+//   - Tempo pull and Stripe: the gate checks it after the handler and before
+//     the broadcast / capture, and answers 499 with nothing spent;
+//   - credits: the gate decides when the abandoned response ends, releasing
+//     the hold (a stream that already began is settled, as before).
+// A request WITHOUT a granted ticket (the budget is spent, or the route never
+// reserved one) is settled exactly as before this rule existed, and the charge
+// the buyer never received is booked as owed (server.js recordHangupDebt).
+// So is a Tempo push credential, whose transfer is already on chain before the
+// request arrives: the gate finalizes it before the handler, and any answer
+// that is not delivered is owed.
 //
-// What is left in the refund ledger is the one window no check can close: a
-// close that lands while the settle, broadcast or capture call is itself in
-// flight. The money has moved by the time the gate can see the socket is gone,
-// so that charge is booked as owed (server.js recordHangupDebt), exactly as
-// before. A cancelled charge is NOT a debt and writes no ledger row.
+// The dispatcher also refuses to START a handler for a request whose client
+// is already gone (a >= 400, which no rail settles), and a forgiven report
+// composite's per-request upstream calls are cut off the moment the buyer
+// leaves (src/drain-abort.js clientGoneSignal).
+//
+// What is left in the refund ledger, besides a run with no ticket, is the one
+// window no check can close: a close that lands while the settle, broadcast or
+// capture call is itself in flight. A cancelled charge is NOT a debt and
+// writes no ledger row.
 //
 // Mechanism: mounted BEFORE every payment gate, the hook wraps the REAL
 // res.end, so each gate's captured "originalEnd" is this wrapper. When a gate
 // finally ends a response whose client already left, `onUndelivered` sees the
 // request with whatever settlement evidence is on it (PAYMENT-RESPONSE,
-// req.tempoSettled, req.stripeSettled) and decides whether it is the residual
-// debt or a cancelled charge.
+// req.tempoSettled, req.stripeSettled, req.creditsChargedOnClose) and decides
+// whether it is a debt or a cancelled charge.
 //
 // Only a close that happened BEFORE any header reached the client counts: a
 // stream that was cut part way through was (partly) delivered.
+
+import { hangupForgiven } from "./hangup-forgiveness.js";
 
 export const CLIENT_GONE_TEXT = "The connection closed before the response was ready, so the payment was not settled and nothing was charged.";
 
@@ -61,6 +76,16 @@ export function clientGoneBeforeFirstByte(req) {
   const res = req.res;
   if (!res || typeof res !== "object" || res.headersSent) return false;
   return res.destroyed === true || req.socket?.destroyed === true;
+}
+
+/**
+ * True when the charge for this request must NOT be taken: the buyer left
+ * before the first byte AND the request holds a granted forgiveness ticket.
+ * Without the ticket the rail settles as usual and the charge is booked as
+ * owed, so a hang-up is never a free run once the budget is spent.
+ */
+export function chargeCancelledForClientGone(req) {
+  return clientGoneBeforeFirstByte(req) && hangupForgiven(req);
 }
 
 /**
