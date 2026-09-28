@@ -962,7 +962,7 @@ relayStub.close();
   const hintReads = srv.split("\n").filter((l) => /req\.mppTempoPayer/.test(l) && !/^\s*\/\//.test(l));
   ok(hintReads.length === 0, `server.js never reads the Tempo source hint as a payer (${hintReads.join(" | ")})`);
   ok((srv.match(/tempoLedgerPayer\(req\)/g) || []).length >= 3, "server.js books Tempo sales, hang-up debts and charged-failure debts under tempoLedgerPayer(req)");
-  ok(/onPushNotClaimed:[\s\S]{0,400}recordRefundOwed\(\{[^}]*network: "tempo"[^}]*tx: hash/.test(srv), "server.js wires onPushNotClaimed to a tempo refund-owed row keyed on the hash");
+  ok(/onPushNotClaimed:[\s\S]{0,400}\n\s*return recordRefundOwed\(\{[^}]*network: "tempo"[^}]*tx: hash/.test(srv), "server.js wires onPushNotClaimed to a tempo refund-owed row keyed on the hash");
 }
 
 console.log(`\n${pass} passed, 0 failed`);
