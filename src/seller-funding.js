@@ -74,22 +74,25 @@
 // the RPC, no split of this job can fit the history under it, and the log line
 // names FUNDING_HISTORY_CHUNK_BLOCKS as the setting that can.
 // ONE WALLET CANNOT SPEND THE SCAN (2026-09-28, after review). A history or gap
-// read is charged to every wallet in it, and the next job read is always the
-// one whose wallets have spent the least so far (ties in priority order), so
-// every other wallet is served before a wallet whose history keeps being
-// refused gets a second turn. Each wallet may spend the calls its reads were
-// planned to take (payer jobs x range chunks) plus `walletMaxCalls` more on
-// splits; past that its reads stop for the scan, and a wallet stopped there, or
-// refused even over the narrowest range, is not read again for
-// `retryBackoffMs` (a day), persisted, instead of from the token's deployment
-// every hour. Such a wallet stays behind (its payments count as they are, the
-// behaviour without this reader), which the scan's counts report. A history
-// that could never fit one scan's budget (a range bound so small that one job
-// needs more chunks than the whole budget) is not started at all.
-// A wallet whose history
-// reads did not complete this scan, or whose pools start before the window and
-// whose gap before it was not read (readFundingGaps), is not advanced: it is
-// "behind". What is known still nets it, what is not is unknown, and a circular
+// read is charged to every wallet in it, and the next job read is always one
+// whose wallets have overrun their planned calls least (ties in priority
+// order), across both history reads, so every other wallet is served before a
+// wallet whose history keeps being refused gets another turn. Each wallet may
+// spend the calls its reads were planned to take (payer jobs x range chunks)
+// plus `walletMaxCalls` more on splits; past that its reads stop for the scan,
+// and a wallet stopped there, or refused even over the narrowest range, is not
+// read again for `retryBackoffMs` (a day, persisted) instead of from the
+// token's deployment every hour. Such a wallet stays behind (its payments
+// count as they are, the behaviour without this reader), which the scan's
+// counts report. A history that could never fit one scan's budget (a range
+// bound so small that one job needs more chunks than the whole budget) is not
+// started at all. RESIDUAL: a history that needs more than a wallet's share
+// in every scan (a contract with dense transfers to its payers all through the
+// token's history) is never read, so that wallet is never netted; nothing
+// persists a partial history between scans.
+// A wallet whose history reads did not complete this scan, or whose pools
+// start before the window and whose gap before it was not read
+// (readFundingGaps), is not advanced: it is "behind". What is known still nets it, what is not is unknown, and a circular
 // wallet behind is credited nothing.
 //
 // The state also keeps what the router needs to net THIRD-PARTY counts of the
@@ -719,8 +722,8 @@ async function readPairs(opts) {
 export async function readPayerHistory({ rpc, token, state, wallets = [], windowStartBlock, historyFromBlock = historyFromBlockFor(token), historyChunkBlocks = FUNDING_DEFAULTS.historyChunkBlocks, walletChunk = FUNDING_DEFAULTS.walletChunk, payerChunk = FUNDING_DEFAULTS.payerChunk, maxCalls = FUNDING_DEFAULTS.maxCalls, minRangeBlocks = FUNDING_DEFAULTS.minRangeBlocks, walletMaxCalls = FUNDING_DEFAULTS.walletMaxCalls, retryBackoffMs = FUNDING_DEFAULTS.retryBackoffMs, scanMaxCalls = maxCalls, now = Date.now(), ctl = newFundingReadControl(), onProgress = () => {} } = {}) {
   const tok = lower(token);
   // overShare / gaveUp / tooLarge: wallets whose reads stopped for the reasons
-  // readPairs names; waiting: wallets not read this scan because an earlier
-  // one stopped them (their `retryAt` is still ahead).
+  // pairsReader names; waiting: wallets not read this scan because an earlier
+  // scan stopped their reads (their `retryAt` is still ahead).
   const stats = { calls: 0, refusals: 0, wallets: 0, payers: 0, funded: 0, creditReads: 0, read: 0, failed: 0, overShare: 0, gaveUp: 0, tooLarge: 0, waiting: 0, events: 0, budgetExhausted: false, transportError: null, stopped: null };
   const budget = { calls: 0, max: Math.max(0, maxCalls) };
   const from = Math.max(0, historyFromBlock);
