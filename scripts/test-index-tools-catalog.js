@@ -313,6 +313,16 @@ const page = (results, extra = {}) =>
       check(`rebuild ${i}: the verb that was read keeps its chains, stamp, payTo and domain`,
         g?.networks?.length === 3 && g.networksVerifiedAt === readAt && g.payToByNetwork?.["eip155:8453"] === PAYTO && g.evmDomainByNetwork?.["eip155:8453"]?.name === "USD Coin");
     }
+    // Contrast: a declared sibling with NO chains of its own still takes a
+    // learned quote's chains through the route-level price-and-networks
+    // fallback (pinned above for the price), and the payTo and domain that
+    // describe those chains ride with them, so the row is never left naming a
+    // chain with no wallet. Never the stamp: it was not read.
+    const bare = carryForwardLearnedQuotes([...rebuild(), { ...sibling(), networks: undefined }], { tools: crawlN({ evmDomainByNetwork: DOMAIN }) })
+      .find((r) => r.method === "POST");
+    check(`a chainless sibling takes the learned chains with their payTo and domain, unstamped (got ${JSON.stringify({ n: bare?.networks, p: bare?.payToByNetwork, v: bare?.networksVerifiedAt })})`,
+      bare?.networks?.length === 3 && bare.payToByNetwork?.["eip155:8453"] === PAYTO
+        && bare.evmDomainByNetwork?.["eip155:8453"]?.name === "USD Coin" && !(Number(bare.networksVerifiedAt) > 0));
   }
 
   // The ORDER rules the carry keeps when several remembered rows share a key.
