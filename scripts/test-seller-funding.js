@@ -450,8 +450,8 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const ieOut = await readSellerFunding({ rpc: fakeRpc(dOuts, { refuse: () => INTERNAL }), token: USDC, state: ieKnown, wallets: [{ wallet: lights[0], payers: new Set([P(6000)]) }, { wallet: lights[1], payers: new Set([P(6005)]) }], latest, windowStartBlock: start, ctl: ieCtl });
   ok(ieOut.calls === 4 && ieCtl.stop === "errors" && ieOut.behind === 2, `...and the outbound read the same (${ieOut.calls} calls, then stopped; both wallets left at their cursors)`);
   let flaky = 0;
-  const onceEach = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: () => (++flaky % 3 === 1 ? INTERNAL : false) } });
-  ok(onceEach.stats.history.read === 20 && !onceEach.stats.history.stopped, `(an unexplained error now and then, with answers between, is split as before: all 20 read, ${onceEach.stats.history.refusals} refusals)`);
+  const onceEach = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: () => (++flaky <= 8 && flaky % 2 === 1 ? INTERNAL : false) } });
+  ok(onceEach.stats.history.read === 20 && !onceEach.stats.history.stopped && onceEach.stats.history.refusals === 4, `(four such errors, each followed by an answer, are split as before - only errors in a row count: all 20 read, ${onceEach.stats.history.refusals} refusals)`);
   // THE TIMEOUT BOUND IS THE SCAN'S: with one control shared by the passes
   // (as runLeaderboard does), an RPC that times out on everything costs a few
   // calls in all, not a few per pass.
