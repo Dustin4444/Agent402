@@ -792,7 +792,10 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
       ? {
           callsSettled: f.netCalls, uniqueBuyers: f.netPayers,
           grossCallsSettled: grossCalls, grossUniqueBuyers: grossBuyers,
-          selfFundedCalls: f.fundedCalls, selfFundedUsd: Number(f.fundedUsd.toFixed(6)), grossUsd: Number(f.grossUsd.toFixed(6)),
+          selfFundedCalls: f.fundedCalls, selfFundedPayers: f.fundedPayers, selfFundedUsd: Number(f.fundedUsd.toFixed(6)), grossUsd: Number(f.grossUsd.toFixed(6)),
+          // The same over the Bazaar's 30 days: what third-party counts of
+          // this wallet are reduced by (src/evidence-binding.js).
+          selfFundedCalls30d: f.fundedCalls30d, selfFundedPayers30d: f.fundedPayers30d,
           circular: f.circular, lastCircularAt: f.lastCircularAt, fundingRead: f.read,
           ...(f.withheldUntilRead ? { fundingPending: true } : {}),
           ...(f.truncated ? { fundingTruncated: true } : {}),
@@ -1541,7 +1544,7 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
       circular: circularWalletsFrom(e ? { [w]: e } : {}, { now }).has(w),
       cleared: !!cleared?.has?.(w),
       lastCircularAt: e?.lastCircularAt || ws?.lastCircularAt || null,
-      evidence: e ? { callsSettled: e.callsSettled, uniqueBuyers: e.uniqueBuyers, grossCallsSettled: e.grossCallsSettled ?? null, grossUniqueBuyers: e.grossUniqueBuyers ?? null, selfFundedCalls: e.selfFundedCalls ?? null, selfFundedUsd: e.selfFundedUsd ?? null, grossUsd: e.grossUsd ?? null, fundingRead: e.fundingRead ?? null, fundingPending: !!e.fundingPending, fundingTruncated: !!e.fundingTruncated } : null,
+      evidence: e ? { callsSettled: e.callsSettled, uniqueBuyers: e.uniqueBuyers, grossCallsSettled: e.grossCallsSettled ?? null, grossUniqueBuyers: e.grossUniqueBuyers ?? null, selfFundedCalls: e.selfFundedCalls ?? null, selfFundedPayers: e.selfFundedPayers ?? null, selfFundedUsd: e.selfFundedUsd ?? null, grossUsd: e.grossUsd ?? null, selfFundedCalls30d: e.selfFundedCalls30d ?? null, selfFundedPayers30d: e.selfFundedPayers30d ?? null, fundingRead: e.fundingRead ?? null, fundingPending: !!e.fundingPending, fundingTruncated: !!e.fundingTruncated } : null,
       state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, knownPayers: ws.known.size, truncated: ws.truncated } : null,
     };
   };

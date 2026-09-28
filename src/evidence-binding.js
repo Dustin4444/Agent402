@@ -16,11 +16,19 @@
 // SELF-FUNDED payments are not evidence (2026-09-28): a payment into wallet W
 // made with USDC that W had sent its payer is the seller's own money coming
 // home. The leaderboard's per-wallet figures arrive already netted of those
-// (src/seller-funding.js); the gross figures are kept as `selfFunded` so a
-// label can say why. When MOST of the dollars a wallet received were
-// self-funded (a "circular" wallet), its Bazaar and chain-join figures - which
-// count the same payments and cannot be netted - are disregarded too; the
-// netted leaderboard figures, the genuine part, still count.
+// (src/seller-funding.js). The Bazaar's and the chain join's figures at W count
+// the same payments, so they are reduced by what W's own scan netted: the
+// payments paid with its money and the payers that only ever paid with it,
+// over the Bazaar's 30 days for the Bazaar and over the scan window for the
+// chain join (both measured over those same days). Without that, a seller
+// paying cheap calls from wallets it funded kept that share of the dollars
+// small enough never to be judged circular, and the third-party count of the
+// same calls cleared the floor on its own. When MOST of the dollars a wallet
+// received were self-funded (a "circular" wallet), its Bazaar and chain-join
+// figures are disregarded outright; the netted leaderboard figures, the
+// genuine part, still count. What was not credited is kept as `selfFunded`
+// (the figures that would have counted, for the label's wording) and what was
+// netted as `selfFunded.netted` (counts only).
 // A wallet the operator LISTS as shared (a split or settlement contract many
 // sellers are paid through, src/shared-paytos.js) credits nobody with its
 // leaderboard or chain-join history: those figures count payments forwarded
@@ -54,6 +62,20 @@ import { payToFromLive402, meetsRouterGate } from "./settlement-proof.js";
 
 const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
+
+/** What wallet `w`'s own scan netted as self-funded, or null (no funding
+ *  read, or the operator cleared the wallet: its evidence then reads gross).
+ *  `calls`/`payers` over the scan window, `calls30d`/`payers30d` over the
+ *  Bazaar's 30 days; `payers` are payers that paid only with the wallet's
+ *  money. */
+export function nettedAtWallet(walletEvidence, w) {
+  if (!walletEvidence) return null;
+  const e = walletEvidence instanceof Map ? walletEvidence.get(w) : walletEvidence[w];
+  if (!e || typeof e !== "object" || e.selfFundingCleared || e.grossCallsSettled === undefined) return null;
+  const n = (x) => Math.max(0, Number(x) || 0);
+  const calls = n(e.selfFundedCalls), payers = n(e.selfFundedPayers);
+  return { calls, payers, usd: n(e.selfFundedUsd), calls30d: Math.max(calls, n(e.selfFundedCalls30d)), payers30d: Math.max(payers, n(e.selfFundedPayers30d)) };
+}
 
 /** Fold one observation of wallet `w` into `map`: the larger count and the larger payer figure. */
 function put(map, w, settled, payers) {
@@ -107,10 +129,16 @@ export function rowWalletFigures(row, walletEvidence = null) {
  *                             advertised address), for reporting
  *   withheld     { byWallet, payTos }  leaderboard / chain-join figures at wallets
  *                             the operator lists as shared: credited to nobody
- *   selfFunded   { byWallet, payTos }  what was NOT credited because it was
- *                             self-funded: a wallet's gross leaderboard figures
- *                             where the scan netted some out, and the Bazaar /
- *                             chain-join figures at a circular wallet
+ *   selfFunded   { byWallet, payTos, netted }  what was NOT credited because
+ *                             it was self-funded. byWallet: the figures that
+ *                             WOULD have been credited at a wallet had those
+ *                             payments counted (the gross leaderboard figures,
+ *                             the Bazaar / chain-join figures before netting or
+ *                             at a circular wallet) - for the label's wording
+ *                             only, never a claim that they were self-funded.
+ *                             netted: wallet -> { calls, payers, usd, calls30d,
+ *                             payers30d, circular }, what the wallet's own scan
+ *                             actually found paid with its money
  * }
  *
  * `sharedWallets`, `circularWallets`: anything with has(wallet), or null.
@@ -119,11 +147,30 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
   const m = new Map();
   const ent = (o) => {
     const k = norm(o);
-    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), selfByWallet: new Map(), ownSettled: 0, ownPayers: undefined });
+    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), selfByWallet: new Map(), nettedByWallet: new Map(), ownSettled: 0, ownPayers: undefined });
     return m.get(k);
   };
   const isShared = (w) => !!(sharedWallets && typeof sharedWallets.has === "function" && sharedWallets.has(w));
   const isCircular = (w) => !!(circularWallets && typeof circularWallets.has === "function" && circularWallets.has(w));
+  // What each wallet's own scan netted, recorded on every origin credited
+  // with (or refused) figures measured at it.
+  const noteNetted = (e, w) => {
+    if (e.nettedByWallet.has(w)) return;
+    const n = nettedAtWallet(walletEvidence, w);
+    const circular = isCircular(w);
+    if (circular || (n && (n.calls > 0 || n.payers > 0 || n.calls30d > 0 || n.payers30d > 0))) e.nettedByWallet.set(w, { ...(n || { calls: 0, payers: 0, usd: 0, calls30d: 0, payers30d: 0 }), circular });
+  };
+  // A third-party figure measured at wallet w, reduced by what w's own scan
+  // netted over the same days (`span`: "window" or "30d").
+  const netOf = (w, settled, payers, span) => {
+    const n = nettedAtWallet(walletEvidence, w);
+    const c = Number(settled) || 0;
+    if (!n) return { settled: c, payers, reduced: false };
+    const dc = span === "30d" ? n.calls30d : n.calls, dp = span === "30d" ? n.payers30d : n.payers;
+    if (!(dc > 0) && !(dp > 0)) return { settled: c, payers, reduced: false };
+    const p = payers === undefined || payers === null ? payers : Math.max(0, (Number(payers) || 0) - dp);
+    return { settled: Math.max(0, c - dc), payers: p, reduced: true };
+  };
   for (const row of Array.isArray(leaderboardRows) ? leaderboardRows : []) {
     const origins = Array.isArray(row?.origins) ? row.origins : (row?.homepage ? [row.homepage] : []);
     const figures = rowWalletFigures(row, walletEvidence);
@@ -134,6 +181,7 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
       for (const [w, v] of figures) {
         if (isShared(w)) { put(e.heldByWallet, w, v.gross?.settled ?? v.settled, v.gross?.payers ?? v.payers); continue; }
         put(e.byWallet, w, v.settled, v.payers);
+        noteNetted(e, w);
         if (v.gross && (v.gross.settled > v.settled || v.gross.payers > v.payers)) put(e.selfByWallet, w, v.gross.settled, v.gross.payers);
       }
     }
@@ -143,8 +191,12 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
     for (const [w0, v] of bazaarByPayTo(q)) {
       const w = evmKey(w0);
       if (!w || !(Number(v?.calls) > 0)) continue;
-      if (isCircular(w)) { put(ent(o).selfByWallet, w, v.calls, v.payers); continue; }
-      put(ent(o).byWallet, w, v.calls, v.payers);
+      const e = ent(o);
+      noteNetted(e, w);
+      if (isCircular(w)) { put(e.selfByWallet, w, v.calls, v.payers); continue; }
+      const net = netOf(w, v.calls, v.payers, "30d");
+      put(e.byWallet, w, net.settled, net.payers);
+      if (net.reduced) put(e.selfByWallet, w, v.calls, v.payers);
     }
   }
   if (chainProven instanceof Map) {
@@ -153,10 +205,13 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
       if (!o || !ev || !w) continue;
       const e = ent(o);
       if (isShared(w)) { put(e.heldByWallet, w, ev.settled, ev.payers); continue; }
+      noteNetted(e, w);
       if (isCircular(w)) { put(e.selfByWallet, w, ev.settled, ev.payers); continue; }
-      put(e.byWallet, w, ev.settled, ev.payers);
-      e.ownSettled = Math.max(e.ownSettled, Number(ev.settled) || 0);
-      if (ev.payers != null) e.ownPayers = Math.max(Number(e.ownPayers ?? 0), Number(ev.payers) || 0);
+      const net = netOf(w, ev.settled, ev.payers, "window");
+      put(e.byWallet, w, net.settled, net.payers);
+      if (net.reduced) put(e.selfByWallet, w, ev.settled, ev.payers);
+      e.ownSettled = Math.max(e.ownSettled, net.settled);
+      if (net.payers != null) e.ownPayers = Math.max(Number(e.ownPayers ?? 0), Number(net.payers) || 0);
     }
   }
   const out = new Map();
@@ -179,7 +234,7 @@ export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = nu
       ownSettled: e.ownSettled,
       ownPayers: e.ownPayers,
       withheld: { byWallet: e.heldByWallet, payTos: new Set(e.heldByWallet.keys()) },
-      selfFunded: { byWallet: e.selfByWallet, payTos: new Set(e.selfByWallet.keys()) },
+      selfFunded: { byWallet: e.selfByWallet, payTos: new Set(e.selfByWallet.keys()), netted: e.nettedByWallet },
     });
   }
   return out;

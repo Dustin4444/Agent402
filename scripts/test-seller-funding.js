@@ -111,7 +111,7 @@ async function scanOnce({ sellers, pays, outs, state, latest, span, historyFrom 
 }
 // A state whose wallets already know some payers (as after an earlier scan),
 // with every cursor at `cursor`.
-const knownState = (map, cursor) => parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: Object.fromEntries(Object.entries(map).map(([w, ps]) => [w, { c: cursor, t: posOf(cursor + 1, 0) - 1, s: cursor + 1, x: 0, seen: NOW, lc: null, p: {}, k: Object.fromEntries(ps.map((p) => [p, [0, 0, 0, -1]])), b: {} }])) }), USDC);
+const knownState = (map, cursor) => parseFundingState(JSON.stringify({ v: 2, token: USDC, wallets: Object.fromEntries(Object.entries(map).map(([w, ps]) => [w, { c: cursor, t: posOf(cursor + 1, 0) - 1, s: cursor + 1, x: 0, seen: NOW, lc: null, p: {}, k: Object.fromEntries(ps.map((p) => [p, [0, -1, -1, -1]])), b: {} }])) }), USDC);
 const isOutbound = (c) => c.topics[2] === null;
 
 // --- 1. What is never a wallet ----------------------------------------------------
@@ -468,6 +468,61 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   ok(!JSON.stringify(self).includes(P(1)) && !/0x[0-9a-f]{6}|\.example/.test(flag), "...counts only (no payer), and the flag names no one");
 }
 
+// --- 6c. Third-party counts of a wallet are netted by what its own scan found ----
+{
+  // THE REVIEW'S BYPASS: cheap self-funded calls keep the self-funded share of
+  // the DOLLARS small, so the wallet is never judged circular, and the
+  // Bazaar's count of the same calls cleared the floor on its own. The wallet
+  // sends two fresh wallets $0.03 each, each makes 25 calls at $0.001, and one
+  // outside buyer pays $0.50 once. The Bazaar reads 51 calls from 3 payers.
+  const W = addr("f1");
+  const sp = [], so = [];
+  for (const i of [1, 2]) { so.push(log(W, P(600 + i), usd(0.03), 100, i)); for (let k = 0; k < 25; k++) sp.push({ wallet: W, payer: P(600 + i), usd: 0.001, pos: posOf(200 + k, i) }); }
+  sp.push({ wallet: W, payer: P(690), usd: 0.5, pos: posOf(300, 0) });
+  const r = await scanOnce({ sellers: [seller(W, "seller-f.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 1000, span: 1000 });
+  const e = r.ev[W];
+  ok(e.circular === false && e.selfFundedCalls === 50 && e.selfFundedPayers === 2 && e.selfFundedCalls30d === 50 && e.selfFundedPayers30d === 2 && e.callsSettled === 1 && e.uniqueBuyers === 1,
+    "the wallet is not circular (9% of its dollars), and its own scan found 50 calls and 2 payers paid only with its money (window and 30 days)");
+  const q = { calls30d: 51, payers30d: 3, payTos: [W] };
+  Object.defineProperty(q, "byPayTo", { value: { [W]: { calls: 51, payers: 3 } }, enumerable: false });
+  const circ = circularWalletsFrom(r.ev, { now: NOW });
+  const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, bazaarQuality: [["https://seller-f.example", q]], circularWallets: circ, ...FLOORS });
+  const be = bind.get("https://seller-f.example");
+  const gate = baseLiveGate({ networks: ["eip155:8453"], settled: be.settled, payers: be.payers, priceUsd: 0.001, ...FLOORS, binding: be, livePayTo: W });
+  ok(be.byWallet.get(W).settled === 1 && be.byWallet.get(W).payers === 1 && gate.ok === false, "BYPASS CLOSED: the Bazaar's 51 / 3 at the wallet is netted to 1 / 1, and the live gate refuses");
+  ok(label(bind, "https://seller-f.example", W).reason === "settlement_self_funded" && be.selfFunded.byWallet.get(W).settled === 51 && be.selfFunded.netted.get(W)?.calls30d === 50, "...labelled settlement_self_funded, with what would have counted (51) and what was netted (50) kept apart");
+  const stripped = Object.fromEntries(Object.entries(r.ev).map(([k, v]) => [k, { callsSettled: v.callsSettled, uniqueBuyers: v.uniqueBuyers, origins: v.origins }]));
+  const ctl = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: stripped, bazaarQuality: [["https://seller-f.example", q]], circularWallets: circ, ...FLOORS }).get("https://seller-f.example");
+  ok(baseLiveGate({ networks: ["eip155:8453"], settled: ctl.settled, payers: ctl.payers, priceUsd: 0.001, ...FLOORS, binding: ctl, livePayTo: W }).ok === true, "control: without the scan's netted counts the same Bazaar figures clear the floor (the bypass the review measured)");
+  // The chain join counts the same payments over the scan window.
+  const cj = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, chainProven: new Map([["https://seller-f.example", { settled: 60, payers: 4, payTo: W }]]), circularWallets: circ, ...FLOORS }).get("https://seller-f.example");
+  ok(cj.byWallet.get(W).settled === 10 && cj.byWallet.get(W).payers === 2 && cj.ownSettled === 10 && baseLiveGate({ networks: ["eip155:8453"], settled: cj.settled, payers: cj.payers, priceUsd: 0.001, ...FLOORS, binding: cj, livePayTo: W }).ok === false,
+    "the chain join's 60 / 4 at the wallet is netted by the window's 50 / 2 to 10 / 2: refused");
+  // An operator clearance reads the wallet gross: nothing is netted.
+  const cleared = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: { ...r.ev, [W]: { callsSettled: e.grossCallsSettled, uniqueBuyers: e.grossUniqueBuyers, origins: e.origins, selfFundingCleared: true } }, bazaarQuality: [["https://seller-f.example", q]], ...FLOORS }).get("https://seller-f.example");
+  ok(cleared.byWallet.get(W).settled === 51 && cleared.selfFunded.netted.size === 0, "a wallet the operator cleared is not netted (its evidence reads gross)");
+  // An honest seller with no self-funded payment: its Bazaar figures are untouched.
+  const honest = buildEvidenceBinding({ leaderboardRows: s1.ranked, walletEvidence: ev, bazaarQuality: [["https://seller-b.example", Object.defineProperty({ calls30d: 300, payers30d: 20, payTos: [SIB_A] }, "byPayTo", { value: { [SIB_A]: { calls: 300, payers: 20 } }, enumerable: false })]], ...FLOORS }).get("https://seller-b.example");
+  ok(honest.byWallet.get(SIB_A).settled === 300 && honest.byWallet.get(SIB_A).payers === 20 && !honest.selfFunded.netted.has(SIB_A), "a wallet whose scan netted nothing keeps its Bazaar figures whole (300 / 20)");
+}
+{
+  // THE 30 DAYS: payments netted in an earlier scan, now outside the 7-day
+  // window, still reduce the Bazaar's 30-day count of the same wallet.
+  const W = addr("f2"), st = createFundingState(USDC);
+  const sp = [], so = [];
+  for (const i of [1, 2, 3]) { so.push(log(W, P(640 + i), usd(0.2), 100, i)); for (let k = 0; k < 20; k++) sp.push({ wallet: W, payer: P(640 + i), usd: 0.01, pos: posOf(200 + k, i) }); }
+  for (let i = 0; i < 4; i++) for (let k = 0; k < 5; k++) sp.push({ wallet: W, payer: P(660 + i), usd: 0.05, pos: posOf(1_000 + k, i) });
+  const first = await scanOnce({ sellers: [seller(W, "seller-g.example")], pays: sp, outs: so, state: st, latest: 2_000, span: 2_000 });
+  ok(first.ev[W].circular === false && first.ev[W].selfFundedCalls === 60, "(scan 1: 60 calls netted, $0.60 of $1.60: not circular)");
+  for (let i = 0; i < 4; i++) for (let k = 0; k < 5; k++) sp.push({ wallet: W, payer: P(660 + i), usd: 0.01, pos: posOf(399_000 + k, i) });
+  const later = await scanOnce({ sellers: [seller(W, "seller-g.example")], pays: sp, outs: so, state: st, latest: 400_000, span: 302_400 });
+  const e = later.ev[W];
+  ok(e.selfFundedCalls === 0 && e.selfFundedCalls30d === 60 && e.selfFundedPayers30d === 3 && e.callsSettled === 20, "seven days on: nothing netted in the window, 60 calls and 3 payers netted inside the 30 days");
+  const q = Object.defineProperty({ calls30d: 100, payers30d: 7, payTos: [W] }, "byPayTo", { value: { [W]: { calls: 100, payers: 7 } }, enumerable: false });
+  const b30 = buildEvidenceBinding({ leaderboardRows: later.ranked, walletEvidence: later.ev, bazaarQuality: [["https://seller-g.example", q]], circularWallets: circularWalletsFrom(later.ev, { now: NOW }), ...FLOORS }).get("https://seller-g.example");
+  ok(b30.byWallet.get(W).settled === 40 && b30.byWallet.get(W).payers === 4, "the Bazaar's 100 / 7 over 30 days is netted to 40 / 4");
+}
+
 // --- 7. Refunds and cheap calls cannot be turned against an honest seller ----------
 {
   // A seller refunds its main repeat buyer $0.01 once; the buyer then makes 60
@@ -485,7 +540,7 @@ ok(lc.eligible === true && b.get("https://seller-c.example").byWallet.get(MIXED)
   const circ = circularWalletsFrom(r.ev, { now: NOW });
   const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, bazaarQuality: bz, circularWallets: circ, ...FLOORS });
   ok(r.ev[W].selfFundedCalls === 1 && r.ev[W].callsSettled === 159 && r.ev[W].circular === false && !circ.has(W), "ONE $0.01 REFUND to the main buyer nets one later $0.01 payment, not its 60 (159 of 160 counted, not circular)");
-  ok(label(bind, "https://seller-r.example", W).eligible === true && bind.get("https://seller-r.example").byWallet.get(W).settled === 400 && rankingPayersOf(bz[0][1], circ) === 12, "...eligible, and its Bazaar figures (400 / 12) and tie-break payers kept");
+  ok(label(bind, "https://seller-r.example", W).eligible === true && bind.get("https://seller-r.example").byWallet.get(W).settled === 399 && bind.get("https://seller-r.example").byWallet.get(W).payers === 12 && rankingPayersOf(bz[0][1], circ) === 12, "...eligible: its Bazaar figures lose only the one payment the refund paid for (399 / 12), and its tie-break payers are kept");
 }
 {
   // Wallets the seller once refunded, each paying the seller's cheapest price

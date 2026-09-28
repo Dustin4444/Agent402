@@ -1113,8 +1113,9 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 //   - the chain join (provenByChain, the busiest Base merchants we observed
 //     settling), kept against the origin's own advertised address.
 // A payment made with USDC its payTo had sent the payer is not evidence: the
-// scan nets those out per wallet, and a wallet whose received dollars are
-// MOSTLY self-funded has its Bazaar and chain-join figures disregarded
+// scan nets those out per wallet, the Bazaar and chain-join figures at that
+// wallet are reduced by what it netted over the days they cover, and a wallet
+// whose received dollars are MOSTLY self-funded has them disregarded outright
 // (src/seller-funding.js, src/evidence-binding.js).
 // The committed seed is not evidence (see SOR_SEED_ORIGINS above).
 // `settled` and `payers` are projections of the binding: the best single
@@ -1192,7 +1193,8 @@ function buildEvidenceBindingByOrigin({ chainProven }) {
     chainProven,
     sharedWallets: sharedPayToStore(),
     // Wallets whose settled evidence was mostly self-funded: their Bazaar and
-    // chain-join figures count the same payments and are disregarded.
+    // chain-join figures count the same payments and are disregarded (at any
+    // other wallet they are reduced by what its own scan netted).
     circularWallets: getLeaderboardCircularWallets().wallets,
     minSettled: SOR_MIN_SETTLED_TX,
     minPayers: SOR_MIN_DISTINCT_PAYERS,

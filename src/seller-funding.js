@@ -156,8 +156,9 @@ function newWalletState(windowStartBlock, now) {
   // `cursor`: the last block whose outbound transfers to KNOWN payers are
   // read (inclusive). `through`: the chain position up to which each pool has
   // been worked through against the payments the scan counted. `known`: payer
-  // -> [addedAt, lastOwnMoneyPos, lastSellerMoneyPos, preWindowEnd] (positions;
-  // preWindowEnd is the last block before the window when it became known).
+  // -> [addedAt, lastOwnMoneyPos, lastSellerMoneyPos, preWindowEnd] (positions,
+  // -1 for never; preWindowEnd is the last block before the window when it
+  // became known).
   // `netted`: day bucket -> payments netted.
   const s = Math.max(0, windowStartBlock);
   return { cursor: s - 1, through: posOf(s, 0) - 1, since: s, truncated: false, lastSeenAt: now, lastCircularAt: null, pairs: new Map(), known: new Map(), netted: new Map() };
@@ -226,14 +227,14 @@ export function parseFundingState(text, token) {
     const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, pairs: new Map(), known: new Map(), netted: new Map() };
     for (const [p0, v] of Object.entries(e.k || {})) {
       const p = lower(p0);
-      if (EVM.test(p) && Array.isArray(v) && v.length === 4 && v.every((x) => int(x) !== null)) ws.known.set(p, v.slice());
+      if (EVM.test(p) && Array.isArray(v) && v.length === 4 && v.every((x) => int(x) !== null && x >= -1)) ws.known.set(p, v.slice());
     }
     for (const [p0, v] of Object.entries(e.p || {})) {
       const p = lower(p0);
       if (!EVM.test(p) || !Array.isArray(v) || int(v[0]) === null || v[0] < 0) continue;
       ws.pairs.set(p, { pool: v[0], recs: triples(v[1], 3), pend: triples(v[2], 2), credit: int(v[3]) !== null && v[3] >= 0 ? v[3] : 0, at: int(v[4]) !== null && v[4] >= 0 ? v[4] : 0, h: v[5] === 1 ? 1 : 0 });
       // A pool always belongs to a known payer.
-      if (!ws.known.has(p)) ws.known.set(p, [0, 0, 0, -1]);
+      if (!ws.known.has(p)) ws.known.set(p, [0, -1, -1, -1]);
     }
     for (const [d, n] of Object.entries(e.b || {})) if (int(Number(d)) !== null && int(n) !== null && n > 0) ws.netted.set(Number(d), n);
     state.wallets.set(w, ws);
@@ -719,7 +720,7 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
       if ((!need || (gap && gap.toBlock >= need.to)) && historyOk) {
         const fresh = new Map();
         for (const p of freshPayers) {
-          ws.known.set(p, [limit, 0, 0, windowStartBlock - 1]);
+          ws.known.set(p, [limit, -1, -1, windowStartBlock - 1]);
           const funds = hist?.funds?.get(p);
           if (!funds?.length) continue;
           if (ws.pairs.size >= maxPairsPerWallet || total.n >= total.max) { ws.truncated = true; continue; }
