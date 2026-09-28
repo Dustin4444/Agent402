@@ -76,6 +76,13 @@
 // same wallet (src/evidence-binding.js): per known payer the last position it
 // paid with its own money and the last it paid with the wallet's, and per day
 // how many payments were netted, over the Bazaar's 30-day window.
+// RESIDUAL: those counts cover 30 days and a scan window 7, and a payment is
+// netted once a scan's window has seen its payer. So for the first 30 days a
+// wallet is read (when this state starts, or after it was dropped), payments
+// made with the wallet's money before its first read, by payers that do not
+// pay it again inside a window, are not netted from a third-party count. A
+// funded payer that does pay inside a window has its earlier payments read
+// with its history and netted.
 export const FUNDING_DEFAULTS = {
   maxCalls: parseInt(process.env.LEADERBOARD_FUNDING_MAX_CALLS || "400", 10),
   minRangeBlocks: 1000,
