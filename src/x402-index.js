@@ -957,6 +957,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // is an explicit, rate-limited request (5/hour/IP), so it now re-runs the
     // live-402 quote enrichment for THIS origin, budget-exempt and bounded by
     // the same per-origin cap; probeDue backoffs still apply per route.
+    let reread = false, repriced = false, routesProbed = 0;
     try {
       // RE-READ THE DOCUMENTS FIRST. Until 2026-09-18 this branch ran only the
       // quote enrichment, so "register again" was a lever over PRICE and
@@ -988,11 +989,26 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
       if (forcedCrawlDue(origin)) {
         noteForcedCrawl(origin);
         clearOriginProbeState(origin);
+        reread = true;
         if (crawl) await crawl(origin); else await crawlSeller(origin);
       }
       const fresh = cache.get(origin);
       const tools = Array.isArray(fresh?.tools) && fresh.tools.length ? fresh.tools : existing.tools;
-      await enrichLiveQuotes(tools, origin, { ignoreBudget: true });
+      // The re-price is bounded AT THE ORIGIN too (2026-09-28). ignoreBudget
+      // makes every live-verified route a candidate, and a successful probe
+      // clears that route's backoff, so without a window each call re-asked up
+      // to REPRICE_MAX_PER_CALL routes on two or three verbs - and anyone may
+      // call it about anyone. A seller who fixes a price, domain or payTo is
+      // re-read on the first call and again once the window passes; an origin
+      // also has an hourly route allowance across calls.
+      if (repriceDue(origin)) {
+        const allowance = repriceAllowance(origin);
+        if (allowance > 0) {
+          noteReprice(origin);
+          await enrichLiveQuotes(tools, origin, { ignoreBudget: true, maxProbes: allowance, onProbed: (n) => { routesProbed = n; spendRepriceAllowance(origin, n); } });
+          repriced = true;
+        }
+      }
       // The route pool memoizes DECORATED tools by entry-object identity
       // (remotePoolMemo), so prices learned into the existing entry are
       // invisible until the object is replaced - a fresh spread busts the
@@ -1005,7 +1021,7 @@ export async function registerOrigin(origin, { crawl, replaces = null } = {}) {
     // ecosystem seller as one of ours if recorded here.
     succession = await checkSuccession();
     if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin), inheritFirstSeenFrom: succession?.ok ? replaces : null });
-    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || existing), ...(succession ? { succession } : {}) };
+    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || existing), reverify: reverifyReport(origin, { reread, repriced, routesProbed }), ...(succession ? { succession } : {}) };
   }
   // Cap applies only to origins that would grow the submitted set. An origin
   // already on the list (retrying after a prior failure) is not new growth,
@@ -3619,7 +3635,7 @@ export function adoptLivePrice(row, livePrice, originUrl = "") {
   delete row.quoteCarriedForward;
 }
 
-export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false } = {}) {
+export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false, maxProbes = null, onProbed = null } = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   dropGoneRoutes(tools, originUrl);
   if (!tools.length) return tools;
@@ -3696,10 +3712,14 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   // Rows with an age still go last, as before.
   const readRank = (t) => (t.quoteObservedAt ? 2 : stampIsOwn(t) ? 1 : 0);
   const repriceCap = Number(process.env.REPRICE_MAX_PER_CALL || "120");
-  const cap = ignoreBudget ? repriceCap : Math.min(quoteProbeCapFor(tools), liveQuoteBudget);
+  let cap = ignoreBudget ? repriceCap : Math.min(quoteProbeCapFor(tools), liveQuoteBudget);
+  // A caller-supplied ceiling (the re-registration's per-origin hourly
+  // allowance) can only LOWER the cap, never raise it.
+  if (maxProbes != null && Number.isFinite(Number(maxProbes))) cap = Math.min(cap, Math.max(0, Math.floor(Number(maxProbes))));
   const rotated = [...candidates]
     .sort((a, b) => readRank(a) - readRank(b))
     .slice(0, Math.max(0, cap));
+  if (typeof onProbed === "function") { try { onProbed(rotated.length); } catch { /* accounting only */ } }
   if (!rotated.length) return tools;
   if (!ignoreBudget) liveQuoteBudget -= rotated.length;
 
@@ -4104,7 +4124,75 @@ export function noteForcedCrawl(originUrl, now = Date.now()) {
   }
   forcedCrawlAt.set(originUrl, now);
 }
-export function __resetForcedCrawlForTest() { forcedCrawlAt.clear(); }
+export function __resetForcedCrawlForTest() { forcedCrawlAt.clear(); repriceAt.clear(); repriceSpend.clear(); }
+
+// The same bound for the re-registration's live-402 re-price: a window per
+// origin, and an hourly allowance of route probes per origin across calls.
+// A restart forgets both, which at worst allows one extra pass per origin.
+const repriceAt = new Map();      // origin -> last re-price start
+const repriceSpend = new Map();   // origin -> [{ at, n }]
+const REPRICE_COOLDOWN_MS = Math.max(60_000, Number(process.env.INDEX_REPRICE_COOLDOWN_MS || 10 * 60_000));
+const REPRICE_MAX_PER_ORIGIN_HOUR = Math.max(1, Number(process.env.INDEX_REPRICE_MAX_PER_ORIGIN_HOUR || 240));
+const HOUR_MS = 3600_000;
+function trimMap(map, keep) {
+  if (map.size <= 2000) return;
+  for (const [k, v] of map) if (!keep(v)) map.delete(k);
+  if (map.size > 2000) map.clear();
+}
+export function __shiftRecheckClocksForTest(ms) {
+  for (const [k, t] of repriceAt) repriceAt.set(k, t - ms);
+  for (const [k, t] of forcedCrawlAt) forcedCrawlAt.set(k, t - ms);
+  for (const rows of repriceSpend.values()) for (const r of rows) r.at -= ms;
+}
+export function repriceDue(originUrl, now = Date.now()) {
+  const at = repriceAt.get(originUrl);
+  return !at || now - at >= REPRICE_COOLDOWN_MS;
+}
+function noteReprice(originUrl, now = Date.now()) {
+  trimMap(repriceAt, (t) => now - t < REPRICE_COOLDOWN_MS);
+  repriceAt.set(originUrl, now);
+}
+function spentThisHour(originUrl, now = Date.now()) {
+  const rows = (repriceSpend.get(originUrl) || []).filter((r) => now - r.at < HOUR_MS);
+  if (rows.length) repriceSpend.set(originUrl, rows); else repriceSpend.delete(originUrl);
+  return rows.reduce((a, r) => a + r.n, 0);
+}
+export function repriceAllowance(originUrl, now = Date.now()) {
+  return Math.max(0, REPRICE_MAX_PER_ORIGIN_HOUR - spentThisHour(originUrl, now));
+}
+function spendRepriceAllowance(originUrl, n, now = Date.now()) {
+  if (!(n > 0)) return;
+  trimMap(repriceSpend, (rows) => rows.some((r) => now - r.at < HOUR_MS));
+  const rows = repriceSpend.get(originUrl) || [];
+  rows.push({ at: now, n });
+  repriceSpend.set(originUrl, rows);
+}
+// What the register answer says about the re-check it did (or did not) run,
+// so a seller whose call landed inside a window knows when to try again
+// rather than reading a silent no-op as "the fix did not take".
+function reverifyReport(originUrl, { reread, repriced, routesProbed }, now = Date.now()) {
+  const left = (at, win) => (at ? Math.max(0, Math.ceil((at + win - now) / 1000)) : 0);
+  const rereadAfter = reread ? 0 : left(forcedCrawlAt.get(originUrl), FORCED_CRAWL_COOLDOWN_MS);
+  const repriceAfter = repriced ? 0 : left(repriceAt.get(originUrl), REPRICE_COOLDOWN_MS);
+  const allowance = repriceAllowance(originUrl, now);
+  const parts = [];
+  parts.push(reread ? "documents re-read now" : `documents were re-read recently; the next re-read is available in ${rereadAfter}s`);
+  if (repriced) parts.push(`${routesProbed} route(s) re-checked against their live 402 now`);
+  else if (allowance <= 0) parts.push(`this origin's hourly re-check allowance (${REPRICE_MAX_PER_ORIGIN_HOUR} routes) is spent; it refills over the hour`);
+  else parts.push(`routes were re-checked recently; the next re-check is available in ${repriceAfter}s`);
+  return {
+    documentsReread: reread,
+    routesRechecked: repriced,
+    routesProbed: repriced ? routesProbed : 0,
+    rereadCooldownSeconds: Math.round(FORCED_CRAWL_COOLDOWN_MS / 1000),
+    recheckCooldownSeconds: Math.round(REPRICE_COOLDOWN_MS / 1000),
+    nextRereadInSeconds: rereadAfter,
+    nextRecheckInSeconds: repriceAfter,
+    recheckAllowancePerHour: REPRICE_MAX_PER_ORIGIN_HOUR,
+    recheckAllowanceLeft: allowance,
+    note: `${parts.join("; ")}. The crawler also re-reads every listed origin on its own cycle.`,
+  };
+}
 
 export function clearOriginProbeState(originUrl) {
   let cleared = 0;

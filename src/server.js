@@ -273,7 +273,7 @@ import { learnPage, learnIndex } from "./learn.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
-import { runSelfCheck } from "./selfcheck.js";
+import { runSelfCheck, createSelfCheckRoute } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
@@ -554,7 +554,7 @@ import { readTextCapped } from "./capped-body.js";
 import { svmBuyerConfigured, svmBuyerStatus, SOLANA_NETWORK_LABELS } from "./solana-buyer.js";
 import { payTempo, tempoBuyerConfigured, tempoBuyerStatus, tempoRpc } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken, PROBE_POW_SLUG } from "./pow.js";
-import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
+import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL, limiterKey } from "./rate-limit.js";
 import { classifyWishes, wishClassifyEnabled } from "./wish-classify.js";
 import { rerankMisses, rerankEnabled } from "./discovery-rerank.js";
 import { JUDGE_TOOLS, judgeEnabled } from "./tools/judge-kit.js";
@@ -5366,27 +5366,14 @@ app.get("/api/reliability", async (_req, res) =>
 );
 // Synthetic self-check — runs a curated set of high-value tools' own examples
 // live (see src/selfcheck.js) so a paid tool that breaks in prod is caught even
-// with zero organic traffic. Cached 5 min + single-flighted so repeated polls
-// (and any abuse) can't hammer the upstreams; the tool-alert.yml Action polls
-// this and opens an issue on failure, mirroring the heartbeat. Free/unpaywalled.
-const SELFCHECK_TTL_MS = 5 * 60 * 1000;
-let selfCheckCache = { at: 0, value: null };
-let selfCheckInFlight = null;
-app.get("/api/selfcheck", async (_req, res) => {
-  if (selfCheckCache.value && Date.now() - selfCheckCache.at < SELFCHECK_TTL_MS) {
-    return res.json({ ...selfCheckCache.value, cached: true });
-  }
-  if (!selfCheckInFlight) {
-    selfCheckInFlight = runSelfCheck(CATALOG)
-      .then((v) => { selfCheckCache = { at: Date.now(), value: v }; return v; })
-      .finally(() => { selfCheckInFlight = null; });
-  }
-  try {
-    res.json({ ...(await selfCheckInFlight), cached: false });
-  } catch {
-    res.status(500).json({ ok: false, error: "selfcheck failed to run" });
-  }
-});
+// with zero organic traffic. Free/unpaywalled, so a public caller is served a
+// cached answer and can never cause a run more often than once per 30 minutes
+// (the cadence tool-alert.yml polls at); the operator may force a fresher one
+// with ?fresh=1, still no more than once per 5 minutes (createSelfCheckRoute).
+app.get("/api/selfcheck", createSelfCheckRoute({
+  run: () => runSelfCheck(CATALOG),
+  isOperator: (req) => operatorAuthed(req),
+}));
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
 app.get("/acp/feed", (_req, res) =>
@@ -6579,7 +6566,9 @@ setInterval(() => {
 }, 60_000);
 app.post("/api/index/register", async (req, res) => {
   const now = Date.now();
-  const ip = req.ip || "?";
+  // An IPv6 client is keyed on its /64: one host is routinely assigned a whole
+  // /64, so a full-address key gave it a fresh 5/hour per address.
+  const ip = limiterKey(req.ip || "?");
   if (regByIp.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
   const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
   if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
@@ -6594,8 +6583,9 @@ app.post("/api/index/register", async (req, res) => {
     // for the rest of the hour, and a first-time seller got "registration is
     // busy" with nothing they could do. Measured 2026-08-31 from the mailbox:
     // three sellers hit this in one week and two gave up and emailed instead -
-    // the growth funnel refusing the people it exists to serve. Re-registering a
-    // KNOWN origin short-circuits before this cap, so only new sellers were hit.
+    // the growth funnel refusing the people it exists to serve. A re-registration
+    // of a known origin that fetches nothing (inside both of that origin's
+    // windows) gives its slot back below, so such calls cannot fill this cap.
     if (!regGlobalTripped || now - regGlobalTripped > 600_000) {
       console.warn(`[index-register] GLOBAL cap hit (${regGlobal.length}/${REG_GLOBAL_MAX} in the last hour) - NEW sellers are being refused`);
       regGlobalTripped = now;
@@ -6617,6 +6607,14 @@ app.post("/api/index/register", async (req, res) => {
     replaces = rv.origin;
   }
   const result = await registerOrigin(v.origin, { replaces });
+  // A re-registration that landed inside both of the origin's windows fetched
+  // nothing, so it gives back its slot in the GLOBAL budget: repeated calls
+  // about one known origin must not use up the hour for new sellers. (The
+  // per-IP count stands - that is the caller's own limit.)
+  if (!replaces && result?.reverify && !result.reverify.documentsReread && !result.reverify.routesRechecked) {
+    const i = regGlobal.lastIndexOf(now);
+    if (i >= 0) regGlobal.splice(i, 1);
+  }
   res.json(result);
 });
 // MPP self-serve listing: same shape/limits as /api/index/register above -
