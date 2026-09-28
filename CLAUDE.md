@@ -174,9 +174,10 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   reader's switch is `LEADERBOARD_FUNDING_SCAN=off` or `POST /__operator/seller-funding
   {"action":"disable"}` (runtime, persisted); off, the router reads gross per-wallet evidence
   with no netting and no verdict. Each wallet's history reads get a bounded share, kept with
-  their progress across scans; past it, or when a scan's or a day's budget
-  (`LEADERBOARD_FUNDING_DAY_MAX_CALLS`) runs out first, the wallet waits (a day, doubling up to
-  a week) and counts gross. The scan's counts and log line name why a wallet was not read.
+  their progress across scans; retries past a wallet's planned reads are capped per rolling
+  day (`LEADERBOARD_FUNDING_DAY_MAX_CALLS`), first reads are not. A wallet whose reads cannot
+  finish waits (see `src/seller-funding.js`). The scan's counts and log line name why a wallet
+  was not read.
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
 - **Facilitators:** boot guard in `src/payments.js` and `src/x402-boot-init.js`; diagnostics in
