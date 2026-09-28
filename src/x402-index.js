@@ -3591,10 +3591,22 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
   // 128-route seller with 45 priced drains 5/pass over a dozen passes. The
   // automatic crawl keeps the gentle cap. Untouched rows first either way, so
   // each pass makes new ground.
+  //
+  // quoteObservedAt alone does not say "touched": a row the rebuild priced
+  // from a registry snapshot keeps a learned quote's stamp but not its age,
+  // so it is due on every crawl and reads as never attempted. A stamp naming
+  // the row's own verb (stampIsOwn) is the other record of a read, so such a
+  // row goes behind the rows that hold neither. Those include a learned quote
+  // whose read was withheld (carryForwardLearnedQuotes: a stamp naming no
+  // verb, on a row with chains of its own), which keeps no payTo until its
+  // own read. Ranked level with the snapshot rows, a cap's worth of those
+  // ahead in array order took every crawl's probes and that read never came.
+  // Rows with an age still go last, as before.
+  const readRank = (t) => (t.quoteObservedAt ? 2 : stampIsOwn(t) ? 1 : 0);
   const repriceCap = Number(process.env.REPRICE_MAX_PER_CALL || "120");
   const cap = ignoreBudget ? repriceCap : Math.min(quoteProbeCapFor(tools), liveQuoteBudget);
   const rotated = [...candidates]
-    .sort((a, b) => (a.quoteObservedAt ? 1 : 0) - (b.quoteObservedAt ? 1 : 0))
+    .sort((a, b) => readRank(a) - readRank(b))
     .slice(0, Math.max(0, cap));
   if (!rotated.length) return tools;
   if (!ignoreBudget) liveQuoteBudget -= rotated.length;

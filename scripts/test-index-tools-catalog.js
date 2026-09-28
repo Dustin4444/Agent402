@@ -704,7 +704,7 @@ const page = (results, extra = {}) =>
   const {
     enrichLiveQuotes, carryForwardLearnedQuotes, normaliseManifestTools, networksNeedLiveVerify,
     allPayToOrigins, sellerDetail, indexSnapshot, __testSeedCache, __testResetSubmitted,
-    markRouteGone, goneMark,
+    markRouteGone, goneMark, quoteIsStale,
   } = await import("../src/x402-index.js");
 
   const PAYTO = "0x3333333333333333333333333333333333333333";
@@ -1020,6 +1020,120 @@ const page = (results, extra = {}) =>
             check(`older carry, GET 402: one read, then the weekly clock (GET probes over 8 crawls: ${gets - 1} before the re-registration)`, gets === 2);
           }
         }
+      }
+    }
+
+    // A learned quote whose read carry-forward WITHHOLDS (its stamp names no
+    // verb, on a row with a chain of its own) keeps its price but no payTo, and
+    // gets them back only from its own read. That read has to come: the probe
+    // takes a capped number of rows per crawl, and until 2026-09-28 it ranked
+    // them by quoteObservedAt alone, which a withheld row does not carry. Two
+    // kinds of row sat level with it and ahead of it in array order:
+    //  - "snapshot": a learned quote's row that the rebuild priced from a
+    //    registry snapshot keeps the quote's stamp but not its age, so it is due
+    //    on every crawl and read as never attempted. A cap's worth of these took
+    //    the probes on every crawl, and the withheld rows never got theirs.
+    //  - "weekly": origin-priced rows due for their weekly re-read. They took
+    //    the first crawl's probes.
+    // A stamp naming the row's own verb now also counts as a read, so a row
+    // holding neither goes first, in either array order.
+    {
+      const BASE = "eip155:8453", OP = "eip155:10";
+      const USDC_OP = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85";
+      const OLD_PAYTO = "0x1111111111111111111111111111111111111111";
+      const NOW_PAYTO = "0x5555555555555555555555555555555555555555";
+      const COMPETING = 20, HELD = 5, CRAWLS = 5;
+      const twoDays = Date.now() - 2 * 86_400_000, eightDays = Date.now() - 8 * 86_400_000;
+      for (const competitor of ["snapshot", "weekly"]) {
+        for (const heldFirst of [false, true]) {
+          const label = `${competitor} rows ${heldFirst ? "behind" : "ahead of"} the withheld rows`;
+          const prefix = `/x402/rank-${competitor}-${heldFirst ? "h" : "c"}-`;
+          const compRoute = (i) => `${prefix}comp-${i}`, heldRoute = (i) => `${prefix}held-${i}`;
+          const asked = new Map();
+          globalThis.fetch = async (url, init = {}) => {
+            const u = new URL(String(url));
+            if (String(init.method || "GET").toUpperCase() !== "GET" || !u.pathname.startsWith(prefix)) return new Response("{}", { status: 404 });
+            asked.set(u.pathname, (asked.get(u.pathname) || 0) + 1);
+            return new Response("{}", { status: 402, headers: { "payment-required": header([accept({ payTo: NOW_PAYTO, amount: "20000" }), accept({ network: OP, asset: USDC_OP, payTo: NOW_PAYTO, amount: "20000" })]), "content-type": "application/json" } });
+          };
+          const compBuilt = (i) => competitor === "snapshot"
+            ? { seller: ORIGIN, method: "GET", route: compRoute(i), slug: `comp-${i}`, price: 0.02, paid: true, networks: [BASE], payToByNetwork: { [BASE]: NOW_PAYTO } }
+            : { seller: ORIGIN, method: "GET", route: compRoute(i), slug: `comp-${i}`, price: 0.02, originDeclaredPrice: 0.02, quoteSource: "openapi", networks: [BASE] };
+          const compPrev = (i) => competitor === "snapshot"
+            ? { ...compBuilt(i), quoteSource: "live-402", quoteObservedAt: twoDays, networks: [BASE, OP], networksVerifiedAt: twoDays, networksVerifiedMethod: "GET" }
+            : { ...compBuilt(i), networksVerifiedAt: eightDays, networksVerifiedMethod: "GET", payToByNetwork: { [BASE]: NOW_PAYTO } };
+          const heldBuilt = (i) => ({ seller: ORIGIN, method: "GET", route: heldRoute(i), slug: `held-${i}`, quoteSource: "openapi", networks: [BASE] });
+          // As the older carry left them: a learned quote with both chains and a
+          // Base payTo, stamped before the verb was recorded.
+          const heldPrev = (i) => ({ ...heldBuilt(i), price: 0.02, quoteSource: "live-402", quoteObservedAt: twoDays,
+            networks: [BASE, OP], networksVerifiedAt: twoDays, payToByNetwork: { [BASE]: OLD_PAYTO } });
+          const ids = (n) => Array.from({ length: n }, (_, i) => i);
+          const order = (comp, held) => (heldFirst ? [...held, ...comp] : [...comp, ...held]);
+          const rebuild = () => order(ids(COMPETING).map(compBuilt), ids(HELD).map(heldBuilt));
+          let rows = order(ids(COMPETING).map(compPrev), ids(HELD).map(heldPrev));
+          const heldAsked = [], compAsked = [], heldCarried = [];
+          for (let crawl = 1; crawl <= CRAWLS; crawl++) {
+            rows = carryForwardLearnedQuotes(rebuild(), { tools: rows });
+            const held = rows.filter((r) => r.route.startsWith(`${prefix}held-`));
+            heldCarried.push(held.map((r) => ({ p: r.payToByNetwork?.[BASE] ?? null, n: r.networks?.length ?? 0, v: r.networksVerifiedMethod ?? null })));
+            if (crawl === 1) {
+              check(`${label}: after the first rebuild the withheld rows hold their price, no Base payTo and no stamp, and are due (got ${JSON.stringify(held.map((r) => [r.price, r.payToByNetwork?.[BASE] ?? null, r.networksVerifiedAt ?? null, quoteIsStale(r)]))})`,
+                held.length === HELD && held.every((r) => r.price === 0.02 && !r.payToByNetwork?.[BASE] && !(Number(r.networksVerifiedAt) > 0) && quoteIsStale(r) === true));
+            }
+            const before = new Map(asked);
+            await enrichLiveQuotes(rows, ORIGIN);
+            const delta = (route) => (asked.get(route) || 0) - (before.get(route) || 0);
+            heldAsked.push(ids(HELD).reduce((n, i) => n + delta(heldRoute(i)), 0));
+            compAsked.push(ids(COMPETING).reduce((n, i) => n + delta(compRoute(i)), 0));
+          }
+          // Control: the competing rows were due and took probes on the first
+          // crawl, so the withheld rows were competing for the cap.
+          check(`${label}: the competing rows took probes on the first crawl (per crawl ${JSON.stringify(compAsked)})`, compAsked[0] > 0);
+          check(`${label}: every withheld row is read on the first crawl, and not again (held probes per crawl ${JSON.stringify(heldAsked)})`,
+            heldAsked[0] === HELD && heldAsked.slice(1).every((n) => n === 0));
+          const restored = (s) => s.p === NOW_PAYTO && s.n === 2 && s.v === "GET";
+          check(`${label}: from the second rebuild on, each withheld row carries both chains, the 402's Base payTo and a stamp naming GET (rows restored per rebuild ${JSON.stringify(heldCarried.map((c) => c.filter(restored).length))}, e.g. ${JSON.stringify(heldCarried.at(-1)?.[0])})`,
+            heldCarried.slice(1).every((crawl) => crawl.length === HELD && crawl.every(restored)));
+        }
+      }
+
+      // Rows whose quote carries an age still go last, as before: a stale
+      // learned quote ahead in array order waits behind rows due for their
+      // weekly re-read when those fill the cap. Control: alone, it is read.
+      {
+        const prefix = "/x402/rank-aged-";
+        const asked = new Map();
+        globalThis.fetch = async (url, init = {}) => {
+          const u = new URL(String(url));
+          if (String(init.method || "GET").toUpperCase() !== "GET" || !u.pathname.startsWith(prefix)) return new Response("{}", { status: 404 });
+          asked.set(u.pathname, (asked.get(u.pathname) || 0) + 1);
+          return new Response("{}", { status: 402, headers: { "payment-required": header([accept({ payTo: NOW_PAYTO, amount: "20000" })]), "content-type": "application/json" } });
+        };
+        const aged = () => ({ seller: ORIGIN, method: "GET", route: `${prefix}stale`, slug: "stale", price: 0.02, quoteSource: "live-402", quoteObservedAt: eightDays,
+          networks: [BASE], networksVerifiedAt: eightDays, networksVerifiedMethod: "GET", payToByNetwork: { [BASE]: NOW_PAYTO } });
+        const weekly = (i) => ({ seller: ORIGIN, method: "GET", route: `${prefix}weekly-${i}`, slug: `weekly-${i}`, price: 0.02, originDeclaredPrice: 0.02, quoteSource: "openapi",
+          networks: [BASE], networksVerifiedAt: eightDays, networksVerifiedMethod: "GET", payToByNetwork: { [BASE]: NOW_PAYTO } });
+        const rows = [aged(), ...Array.from({ length: COMPETING }, (_, i) => weekly(i))];
+        check("the stale learned quote and the weekly rows are all due", quoteIsStale(rows[0]) === true && rows.slice(1).every((r) => networksNeedLiveVerify(r) === true));
+        await enrichLiveQuotes(rows, ORIGIN);
+        const weeklyAsked = [...asked].filter(([p]) => p.includes("weekly-")).reduce((n, [, c]) => n + c, 0);
+        check(`a stale learned quote goes behind rows with no age (stale asked ${asked.get(`${prefix}stale`) || 0}, weekly rows asked ${weeklyAsked} of ${COMPETING})`,
+          !asked.has(`${prefix}stale`) && weeklyAsked > 0 && weeklyAsked < COMPETING);
+        const alone = [aged()];
+        await enrichLiveQuotes(alone, ORIGIN);
+        check(`control: alone, the stale learned quote is read (asked ${asked.get(`${prefix}stale`) || 0})`, asked.get(`${prefix}stale`) === 1);
+
+        // A stamp that names no verb, or another verb, is no record of a read
+        // of this row (the same rule networksNeedLiveVerify reads): a row still
+        // holding one, as the persisted cache can hand a re-registration, goes
+        // ahead of rows due for their weekly re-read, not level with them.
+        const foreign = (route, over) => ({ seller: ORIGIN, method: "GET", route: `${prefix}${route}`, slug: route, price: 0.02, originDeclaredPrice: 0.02, quoteSource: "openapi",
+          networks: [OP, BASE], networksVerifiedAt: twoDays, payToByNetwork: { [BASE]: NOW_PAYTO }, ...over });
+        const later = [...Array.from({ length: COMPETING }, (_, i) => weekly(`later-${i}`)), foreign("verbless", {}), foreign("other-verb", { networksVerifiedMethod: "POST" })];
+        check("the verb-less and other-verb stamps are due", networksNeedLiveVerify(later.at(-2)) === true && networksNeedLiveVerify(later.at(-1)) === true);
+        await enrichLiveQuotes(later, ORIGIN);
+        check(`rows whose stamp names no verb, or another verb, are read ahead of a cap's worth of weekly rows (asked ${JSON.stringify([asked.get(`${prefix}verbless`) || 0, asked.get(`${prefix}other-verb`) || 0])})`,
+          asked.get(`${prefix}verbless`) === 1 && asked.get(`${prefix}other-verb`) === 1);
       }
     }
   } finally {
