@@ -26,6 +26,8 @@ const dir = mkdtempSync(join(tmpdir(), "seller-funding-"));
 process.env.LEADERBOARD_SNAPSHOT_FILE = join(dir, "leaderboard-snapshot.json");
 process.env.LEADERBOARD_HISTORY_FILE = join(dir, "leaderboard-history.json");
 process.env.LEADERBOARD_FUNDING_FILE = join(dir, "leaderboard-funding.json");
+process.env.LEADERBOARD_FUNDING_SWITCH_FILE = join(dir, "leaderboard-funding-switch.json");
+delete process.env.LEADERBOARD_FUNDING_SCAN;
 const LB = await import("../src/leaderboard.js");
 const SF = await import("../src/seller-funding.js");
 const { initWalletAccumulator, foldTransfers, finalizeLeaderboard, applySellerFunding, runLeaderboard } = LB;
@@ -758,6 +760,54 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   LB._resetLeaderboardCacheForTests();
 }
 
+// --- 9b. THE SWITCH: off is the gross per-wallet evidence, nothing else -------------
+// LEADERBOARD_FUNDING_SCAN=off (read at call time) or the operator's runtime
+// switch. The router's evidence must then be exactly what it is without this
+// reader: every wallet's GROSS figures, no netting, no circular verdict - from
+// the next read, not the next scan, so a warm-started snapshot full of netted
+// figures stops counting at once.
+{
+  LB._resetLeaderboardCacheForTests();
+  writeFileSync(process.env.LEADERBOARD_SNAPSHOT_FILE, JSON.stringify({ spec: "x402-leaderboard/1", asOf: new Date(NOW).toISOString(), leaderboard: s1.ranked, walletEvidence: { ...ev, [addr("9e")]: { callsSettled: 0, uniqueBuyers: 0, circular: false, lastCircularAt: new Date(NOW).toISOString(), carried: true, origins: [] } } }));
+  LB.startLeaderboardRefresh({ intervalMs: 3_600_000, firstDelayMs: 3_600_000 });
+  const bazaarQ = [["https://seller-a.example", { calls30d: 500, payers30d: 40, payTos: [LOOP] }], ["https://seller-c.example", { calls30d: 900, payers30d: 50, payTos: [MIXED] }]];
+  const chainQ = new Map([["https://seller-a.example", { settled: 800, payers: 9, payTo: LOOP }]]);
+  const bindNow = () => buildEvidenceBinding({ leaderboardRows: s1.ranked, walletEvidence: LB.getLeaderboardWalletEvidence(), bazaarQuality: bazaarQ, chainProven: chainQ, circularWallets: LB.getLeaderboardCircularWallets(NOW).wallets, ...FLOORS });
+  // What the router reads with no seller-funding reader at all: the scan's
+  // gross per-wallet figures and nothing else.
+  const grossOnly = {};
+  for (const [w, e] of Object.entries(ev)) grossOnly[w] = { callsSettled: e.grossCallsSettled ?? e.callsSettled, uniqueBuyers: e.grossUniqueBuyers ?? e.uniqueBuyers, origins: e.origins };
+  const main = buildEvidenceBinding({ leaderboardRows: s1.ranked, walletEvidence: grossOnly, bazaarQuality: bazaarQ, chainProven: chainQ, ...FLOORS });
+  const flat = (bind) => JSON.stringify([...bind].map(([o, e]) => [o, [...e.byWallet], [...e.clearing], e.settled, e.payers ?? null, e.ownSettled, [...e.selfFunded.byWallet], [...e.selfFunded.netted]]));
+  ok(LB.getLeaderboardCircularWallets(NOW).wallets.has(LOOP) && LB.getLeaderboardWalletEvidence()[LOOP].callsSettled === 2 && flat(bindNow()) !== flat(main), "on (the default): netted figures and the circular verdict");
+  process.env.LEADERBOARD_FUNDING_SCAN = "off";
+  const offEv = LB.getLeaderboardWalletEvidence();
+  ok(JSON.stringify(offEv) === JSON.stringify(grossOnly) && LB.getLeaderboardCircularWallets(NOW).wallets.size === 0 && !LB.sellerFundingEnabled(),
+    "LEADERBOARD_FUNDING_SCAN=off, read at call time: every wallet's gross figures and nothing else (no netting, no verdict, not even a carried one)");
+  ok(flat(bindNow()) === flat(main), "...so the router's evidence binding is exactly the one built with no seller-funding reader");
+  const lbl = (bind) => { const e = bind.get("https://seller-a.example"); return dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: e?.settled || 0, payers: e?.payers, spendChains: ["base"], ...FLOORS, evidence: e, livePayTo: LOOP }); };
+  const lOff = lbl(bindNow()), lMain = lbl(main);
+  ok(lOff.eligible === true && lOff.reason === lMain.reason && JSON.stringify(lOff.chains) === JSON.stringify(lMain.chains), `...and seller-a reads as it would without the reader (${lOff.reason})`);
+  delete process.env.LEADERBOARD_FUNDING_SCAN;
+  ok(LB.getLeaderboardWalletEvidence()[LOOP].callsSettled === 2 && LB.getLeaderboardCircularWallets(NOW).wallets.has(LOOP), "back on: the measurement was never dropped");
+  // The operator's switch, no redeploy.
+  const d = LB.setSellerFundingEnabled(false, { note: "range read unconfirmed", now: NOW });
+  ok(d.changed === true && d.enabled === false && d.source === "operator" && d.operator.persisted === true && JSON.stringify(LB.getLeaderboardWalletEvidence()) === JSON.stringify(grossOnly) && flat(bindNow()) === flat(main),
+    "the operator's switch turns it off at runtime: the same gross evidence, persisted on the volume");
+  LB._resetLeaderboardCacheForTests();
+  ok(!LB.sellerFundingEnabled() && LB.sellerFundingSwitch().operator?.note === "range read unconfirmed", "...and it survives a restart (read back from the volume)");
+  const e = LB.setSellerFundingEnabled(true, { now: NOW });
+  process.env.LEADERBOARD_FUNDING_SCAN = "off";
+  ok(e.enabled === true && !LB.sellerFundingEnabled() && LB.sellerFundingSwitch().source === "env", "the env's off wins over the operator's on");
+  delete process.env.LEADERBOARD_FUNDING_SCAN;
+  ok(LB.sellerFundingEnabled(), "...and with the env unset the operator's on stands");
+  let threw = false;
+  try { LB.setSellerFundingEnabled("no"); } catch (err) { threw = err.statusCode === 400; }
+  ok(threw, "a switch value that is not a boolean is refused");
+  LB.stopLeaderboardRefresh();
+  LB._resetLeaderboardCacheForTests();
+}
+
 // --- 10. End to end: the refresh loop against a stub Bazaar + RPC, twice ------------
 {
   let LATEST = 10_000;
@@ -846,6 +896,14 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
       `scan against a range-limited primary: one history call, then stopped (readStopped ${f.readStopped}, ${f.historyCalls} call); seller-a counted as it is`);
     ok(lines.some((l) => /stopped: range-limited/.test(l) && /FUNDING_HISTORY_CHUNK_BLOCKS/.test(l)) && LB.fundingReadNotes(f).includes("range-limited"), "...and the log line says why and which setting fits a history under the limit");
     rangeLimitedTargeted = 0;
+    // Switched off, the scan itself: no funding read at all, the evidence is
+    // gross, and no verdict is carried from the previous scan.
+    process.env.LEADERBOARD_FUNDING_SCAN = "off";
+    rpcCalls.length = 0;
+    const off = await runLeaderboard({ ...opts, now: NOW, previousWalletEvidence: direct.walletEvidence });
+    delete process.env.LEADERBOARD_FUNDING_SCAN;
+    ok(!off.routerFundingScan && rpcCalls.every((p) => !Array.isArray(p.topics?.[1])) && off.walletEvidence[LOOP]?.grossCallsSettled === undefined && Object.values(off.walletEvidence).every((e) => !e.circular && !e.lastCircularAt),
+      "switched off, the scan makes no funding read, publishes gross per-wallet evidence and carries no verdict");
   } finally {
     LB.stopLeaderboardRefresh();
     srv.close();
@@ -891,7 +949,7 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
       env: {
         ...process.env, PORT: String(port), FREE_MODE: "true", AGENT402_OPERATOR_TOKEN: TOKEN,
         LEADERBOARD_SNAPSHOT_FILE: join(dir2, "lb.json"), LEADERBOARD_FUNDING_FILE: join(dir2, "funding.json"),
-        SOR_SELF_FUNDING_CLEARED_FILE: join(dir2, "cleared.json"), SOR_SHARED_PAYTOS_FILE: join(dir2, "shared.json"),
+        SOR_SELF_FUNDING_CLEARED_FILE: join(dir2, "cleared.json"), SOR_SHARED_PAYTOS_FILE: join(dir2, "shared.json"), LEADERBOARD_FUNDING_SWITCH_FILE: join(dir2, "switch.json"),
         X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", X402_SYNC_ON_START: "false",
         MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
       },
@@ -925,6 +983,17 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
     const restore = await post({ action: "restore", wallet: W });
     const back = await get(`/__operator/seller-funding.json?wallet=${W}`);
     ok(restore.body.changed === true && back.body.cleared === false && back.body.circular === true && back.body.creditedTo.some((x) => x.settled === 4), "POST restore puts the verdict back at once");
+    const dis = await post({ action: "disable", note: "hold" });
+    const whileOff = await get(`/__operator/seller-funding.json?wallet=${W}`);
+    ok(dis.status === 200 && dis.body.enabled === false && dis.body.changed === true && whileOff.body.switch?.enabled === false && whileOff.body.creditedTo.some((x) => x.origin === A && x.settled === 500) && whileOff.body.notCounted.length === 0,
+      "POST disable turns the whole reader off, no redeploy: the gross 500 is credited, nothing is left uncounted");
+    await stop();
+    ok(await boot(), "RESTART with the reader switched off");
+    const offAgain = await get(`/__operator/seller-funding.json?wallet=${W}`);
+    ok(offAgain.body.switch?.enabled === false && offAgain.body.switch?.source === "operator" && offAgain.body.creditedTo.some((x) => x.settled === 500), "the switch survived the restart");
+    const en = await post({ action: "enable" });
+    const onAgain = await get(`/__operator/seller-funding.json?wallet=${W}`);
+    ok(en.body.enabled === true && onAgain.body.creditedTo.some((x) => x.settled === 4), "POST enable turns it back on at once");
   } catch (e) {
     ok(false, `booted leg threw: ${e?.stack || e}`);
     for (const l of serverLog.slice(-20)) console.error("  server:", l);

@@ -24,7 +24,7 @@
 // eth_getLogs calls (~30s-2min). We cache the snapshot in memory and refresh
 // hourly; the endpoint reads from cache so each request is sub-millisecond.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { readFile, writeFile, rename as renameFile } from "node:fs/promises";
 import { timedSync } from "./boot-timing.js";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
@@ -1095,7 +1095,7 @@ export async function runLeaderboard(overrides = {}) {
   // rows stay gross. Base only by default (the router's chain).
   let fundingScan = null;
   let fundingStateUsed = null;
-  const fundingOn = (opts.fundingScan ?? chain.key === "base") && process.env.LEADERBOARD_FUNDING_SCAN !== "off";
+  const fundingOn = (opts.fundingScan ?? chain.key === "base") && sellerFundingEnabled();
   if (fundingOn) {
     const nowMs = opts.now ?? Date.now();
     const state = opts.fundingState || createFundingState(chain.token);
@@ -1190,7 +1190,9 @@ export async function runLeaderboard(overrides = {}) {
   // not see it at all (no longer listed, or no payments this window).
   const walletEvidenceOut = { ...(ranked.walletEvidence || {}) };
   const carryAt = new Map();
-  for (const k of circularWalletsFrom(opts.previousWalletEvidence || null, { now: opts.now ?? Date.now() })) carryAt.set(k, opts.previousWalletEvidence[k]);
+  // Switched off (sellerFundingEnabled), nothing is carried: the evidence is
+  // the gross per-wallet figures and no verdict.
+  if (fundingOn) for (const k of circularWalletsFrom(opts.previousWalletEvidence || null, { now: opts.now ?? Date.now() })) carryAt.set(k, opts.previousWalletEvidence[k]);
   for (const [k, ws] of fundingStateUsed?.wallets || []) {
     if (typeof ws.lastCircularAt === "string" && circularWalletsFrom({ [k]: { lastCircularAt: ws.lastCircularAt } }, { now: opts.now ?? Date.now() }).size) carryAt.set(k, { ...(carryAt.get(k) || {}), lastCircularAt: [carryAt.get(k)?.lastCircularAt, ws.lastCircularAt].filter((x) => typeof x === "string").sort().pop() });
   }
@@ -1343,6 +1345,61 @@ async function persistSellerFundingState(state, file = LEADERBOARD_FUNDING_FILE)
   } catch { return false; } // no /data volume (local dev, CI): the next scan reads every payer's history again
 }
 
+// THE SWITCH (2026-09-28): the seller-funding reader and everything it feeds
+// the router, on by default. Off when LEADERBOARD_FUNDING_SCAN=off (read at
+// call time; the env wins) or when the operator turned it off at runtime
+// (POST /__operator/seller-funding {"action":"disable"}, persisted on the
+// volume, no redeploy). OFF IS THE GROSS PER-WALLET EVIDENCE AND NOTHING ELSE:
+// no funding read, no netting, no circular verdict, not even one carried from
+// an earlier scan - and it applies from the next read of the getters below,
+// not from the next scan, so a warm-started snapshot's netted figures and
+// verdicts stop counting at once. The measurement already on the volume is
+// left alone: switching back on resumes from it.
+export const LEADERBOARD_FUNDING_SWITCH_FILE =
+  process.env.LEADERBOARD_FUNDING_SWITCH_FILE || "/data/leaderboard-funding-switch.json";
+let fundingSwitch = null; // null: not loaded; false: no operator choice; else { enabled, at, note, persisted }
+let fundingSwitchVersion = 0;
+function operatorFundingSwitch() {
+  if (fundingSwitch === null) {
+    fundingSwitch = false;
+    try {
+      const j = JSON.parse(readFileSync(LEADERBOARD_FUNDING_SWITCH_FILE, "utf8"));
+      if (typeof j?.enabled === "boolean") fundingSwitch = { enabled: j.enabled, at: typeof j.at === "string" ? j.at : null, note: typeof j.note === "string" ? j.note.slice(0, 200) : "", persisted: true };
+    } catch { /* no operator choice on the volume */ }
+  }
+  return fundingSwitch || null;
+}
+/** Whether the seller-funding reader and its evidence are on (see THE SWITCH). */
+export function sellerFundingEnabled() {
+  if (String(process.env.LEADERBOARD_FUNDING_SCAN || "").trim().toLowerCase() === "off") return false;
+  const op = operatorFundingSwitch();
+  return op ? op.enabled : true;
+}
+/** Operator view of the switch: whether it is on, and what decided it. */
+export function sellerFundingSwitch() {
+  const env = String(process.env.LEADERBOARD_FUNDING_SCAN || "").trim().toLowerCase() === "off";
+  const op = operatorFundingSwitch();
+  return { enabled: sellerFundingEnabled(), source: env ? "env" : op ? "operator" : "default", envOff: env, operator: op ? { enabled: op.enabled, at: op.at, note: op.note, persisted: op.persisted } : null };
+}
+/** The operator's runtime switch. Persisted on the volume when it can be
+ *  (else it holds until the process restarts). */
+export function setSellerFundingEnabled(enabled, { note = "", now = Date.now() } = {}) {
+  if (typeof enabled !== "boolean") throw Object.assign(new Error("enabled must be true or false"), { statusCode: 400 });
+  const before = sellerFundingEnabled();
+  const next = { enabled, at: new Date(now).toISOString(), note: String(note || "").slice(0, 200), persisted: false };
+  try {
+    const tmp = `${LEADERBOARD_FUNDING_SWITCH_FILE}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ enabled: next.enabled, at: next.at, note: next.note }));
+    renameSync(tmp, LEADERBOARD_FUNDING_SWITCH_FILE);
+    next.persisted = true;
+  } catch { /* no volume: in memory until the next restart */ }
+  fundingSwitch = next;
+  fundingSwitchVersion++;
+  evidenceMemo = { ev: null, ver: null, out: null };
+  circularMemo = { ev: null, at: 0, set: new Set(), version: "", ver: null };
+  return { changed: before !== sellerFundingEnabled(), ...sellerFundingSwitch() };
+}
+
 // Operator levers for the seller-funding rule, handed in by the server:
 //   cleared: wallets whose self-funded verdict the operator has cleared
 //            (anything with has(wallet) and a changing `version`): their
@@ -1358,7 +1415,7 @@ export function configureSellerFunding({ cleared = null, skip = null } = {}) {
   evidenceMemo = { ev: null, ver: null, out: null };
   circularMemo = { ev: null, at: 0, set: new Set(), version: "", ver: null };
 }
-const clearanceVersion = () => (fundingConfig.cleared ? String(fundingConfig.cleared.version ?? "") : "");
+const clearanceVersion = () => `${sellerFundingEnabled() ? "on" : "off"}:${fundingSwitchVersion}:${fundingConfig.cleared ? String(fundingConfig.cleared.version ?? "") : ""}`;
 
 // --- server-side cache + refresh -------------------------------------------
 
@@ -1384,7 +1441,7 @@ async function refreshOnce(opts) {
     // of every Base scan; the previous scan's per-wallet evidence rides in too,
     // so a wallet found circular keeps that verdict for the Bazaar's window.
     const base = !opts.chain || opts.chain === "base";
-    const fundingState = base && process.env.LEADERBOARD_FUNDING_SCAN !== "off" ? await loadSellerFundingState() : undefined;
+    const fundingState = base && sellerFundingEnabled() ? await loadSellerFundingState() : undefined;
     const snap = await runLeaderboard({ ...opts, fundingState, fundingSkip: fundingConfig.skip, previousWalletEvidence: cached.snapshot?.walletEvidence || null });
     if (snap?.routerFundingScan) {
       const f = snap.routerFundingScan;
@@ -1510,6 +1567,18 @@ export function getLeaderboardSnapshot() {
 export function getLeaderboardWalletEvidence() {
   const ev = cached.snapshot?.walletEvidence;
   if (!(ev && typeof ev === "object" && !Array.isArray(ev))) return {};
+  // Switched off: the gross per-wallet figures, with no netting and no verdict.
+  if (!sellerFundingEnabled()) {
+    const ver = clearanceVersion();
+    if (evidenceMemo.ev === ev && evidenceMemo.ver === ver) return evidenceMemo.out;
+    const out = {};
+    for (const [w, e] of Object.entries(ev)) {
+      if (!e || typeof e !== "object" || e.carried) continue;
+      out[w] = { callsSettled: e.grossCallsSettled ?? e.callsSettled, uniqueBuyers: e.grossUniqueBuyers ?? e.uniqueBuyers, origins: Array.isArray(e.origins) ? e.origins : [] };
+    }
+    evidenceMemo = { ev, ver, out };
+    return out;
+  }
   const cleared = fundingConfig.cleared;
   if (!cleared) return ev;
   // A wallet the operator has cleared reads its gross figures (the netting
@@ -1544,6 +1613,7 @@ let circularMemo = { ev: null, at: 0, set: new Set(), version: "", ver: null };
 export function getLeaderboardCircularWallets(now = Date.now()) {
   const ev = cached.snapshot?.walletEvidence || null;
   const ver = clearanceVersion();
+  if (!sellerFundingEnabled()) return { wallets: new Set(), version: `${cached.snapshot?.asOf || "none"}:0:${ver}` };
   if (circularMemo.ev !== ev || circularMemo.ver !== ver || now - circularMemo.at > 10 * 60_000) {
     const set = circularWalletsFrom(ev, { now, cleared: fundingConfig.cleared });
     circularMemo = { ev, at: now, set, ver, version: `${cached.snapshot?.asOf || "none"}:${set.size}:${ver}` };
@@ -1571,9 +1641,12 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
       state: ws ? { cursor: ws.cursor, since: ws.since, pools: ws.pairs.size, openPools: [...ws.pairs.values()].filter((p) => p.pool > 0).length, knownPayers: ws.known.size, truncated: ws.truncated, retryAt: ws.retryAt > 0 ? new Date(ws.retryAt).toISOString() : null } : null,
     };
   };
-  if (wallet) return one(String(wallet).toLowerCase());
+  if (wallet) return { ...one(String(wallet).toLowerCase()), switch: sellerFundingSwitch() };
   const circularWallets = [...circularWalletsFrom(ev, { now })].sort();
   return {
+    // `circular` below is what the last scans MEASURED; with the switch off
+    // the router applies none of it (evidence gross, no verdict).
+    switch: sellerFundingSwitch(),
     asOf: cached.snapshot?.asOf || null,
     lastRead: cached.snapshot?.routerFundingScan || null,
     stateWallets: fundingStateCache?.wallets?.size ?? null,
@@ -1587,6 +1660,7 @@ export function sellerFundingStatus({ wallet = null, now = Date.now() } = {}) {
 export function _resetLeaderboardCacheForTests() {
   cached = { snapshot: null, warming: false, lastError: null, lastTriedAt: null, refreshIntervalMs: null };
   fundingStateCache = null;
+  fundingSwitch = null;
   configureSellerFunding({});
   stopLeaderboardRefresh();
 }

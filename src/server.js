@@ -285,7 +285,7 @@ import { tempoDataKey } from "./tempo-transfers.js";
 import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
-import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus } from "./leaderboard.js";
+import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -4946,8 +4946,12 @@ app.post("/__operator/shared-paytos", express.json(), (req, res) => {
 // last funding read's counts, the wallets currently judged circular, and the
 // operator's clearances. POST {"action":"clear","wallet"} makes a wallet's
 // evidence read gross and never circular while listed (the measurement goes
-// on); {"action":"restore"} undoes it. Persisted on the volume, applied from
-// the next evidence read. Counts and verdicts only: no payer is ever listed.
+// on); {"action":"restore"} undoes it. POST {"action":"disable"} turns the
+// whole reader off - gross per-wallet evidence, no netting, no verdict, the
+// same as LEADERBOARD_FUNDING_SCAN=off but with no redeploy - and
+// {"action":"enable"} turns it back on (the env's "off" still wins).
+// Persisted on the volume, applied from the next evidence read. Counts and
+// verdicts only: no payer is ever listed.
 app.get(["/__operator/seller-funding", "/__operator/seller-funding.json"], (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   const store = selfFundingClearedStore();
@@ -4966,17 +4970,22 @@ app.get(["/__operator/seller-funding", "/__operator/seller-funding.json"], (req,
     }
     return res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus({ wallet }), entry: store.list().find((x) => x.wallet === wallet) || null, creditedTo, notCounted, notCountedNote: "per origin, the figures at this wallet that would have been credited had the self-funded payments counted (gross: they include the payers' own money); what was netted is evidence.selfFunded*" });
   }
-  res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus(), cleared: store.list(), note: 'GET ?wallet=0x... for one wallet; POST {"action":"clear"|"restore","wallet":"0x...","note":"..."} to change it' });
+  res.set("Cache-Control", "no-store").json({ ...sellerFundingStatus(), cleared: store.list(), note: 'GET ?wallet=0x... for one wallet; POST {"action":"clear"|"restore","wallet":"0x...","note":"..."} to change it; POST {"action":"disable"|"enable","note":"..."} turns the whole reader off or on' });
 });
 app.post("/__operator/seller-funding", express.json(), (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   const { action, wallet, note } = req.body || {};
+  if (action === "disable" || action === "enable") {
+    const r = setSellerFundingEnabled(action === "enable", { note: typeof note === "string" ? note : "" });
+    dispatchEvidenceCache = null;
+    return res.set("Cache-Control", "no-store").json({ ok: true, ...r });
+  }
   const store = selfFundingClearedStore();
   let r;
   try {
     if (action === "clear") r = store.add(wallet, { note: typeof note === "string" ? note : "" });
     else if (action === "restore") r = store.remove(wallet);
-    else return res.status(400).json({ error: 'pass {"action":"clear"|"restore","wallet":"0x...","note":"optional"}' });
+    else return res.status(400).json({ error: 'pass {"action":"clear"|"restore","wallet":"0x...","note":"optional"} or {"action":"disable"|"enable"}' });
   } catch (e) {
     return res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) });
   }

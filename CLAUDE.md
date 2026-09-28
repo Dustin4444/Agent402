@@ -170,7 +170,11 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   `src/seller-funding.js` nets payments made with USDC the paid wallet itself sent the payer
   (each payer's history read once when it first pays, then incremental; state on `/data`);
   `src/shared-paytos.js` lists shared settlement contracts.
-  Operator levers: `/__operator/shared-paytos`, `/__operator/seller-funding`.
+  Operator levers: `/__operator/shared-paytos`, `/__operator/seller-funding`. The funding
+  reader's switch is `LEADERBOARD_FUNDING_SCAN=off` or `POST /__operator/seller-funding
+  {"action":"disable"}` (runtime, persisted); off, the router reads gross per-wallet evidence
+  with no netting and no verdict. Each wallet's history reads get a bounded share of a scan
+  and wait a day past it; the scan's counts and log line name why a wallet was not read.
 - **Report products:** kits under `src/tools/*-report-kit.js`, `src/report-tiers.js`,
   house style in `src/house-style.js`, samples in `src/sample-reports.js`.
 - **Facilitators:** boot guard in `src/payments.js` and `src/x402-boot-init.js`; diagnostics in
