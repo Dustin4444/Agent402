@@ -148,7 +148,7 @@ export const FUNDING_DEFAULTS = {
   // Transfers kept for unfinished history reads (their progress), per wallet
   // and in total. Past either, that wallet's progress is dropped and it waits.
   maxPartialLogsPerWallet: 20_000,
-  maxPartialLogsTotal: 200_000,
+  maxPartialLogsTotal: 100_000,
   // Pools kept per wallet and in total. Only a known payer ever has one; past
   // a cap, dust pools of payers not paying this scan make way first, and a
   // wallet that still cannot record one is flagged truncated.
@@ -412,7 +412,7 @@ const RATE_LIMITED = /"code":\s*429\b|\b429\b|rate[- ]?limit|too many requests|c
 // size ("eth_getLogs is limited to a 2,000 range", "block range too large",
 // "exceeds the maximum block range"). Checked after TOO_MANY: a size refusal
 // that also names a range it would accept is about THIS job, not the RPC.
-const RANGE_LIMITED = /limited to a [\d,]+(?: block)? range|block range (?:is )?too (?:large|wide|big)|range (?:is )?too (?:large|wide)|exceed(?:s|ed)? (?:the )?max(?:imum)? (?:block )?range|max(?:imum)? block range|maximum is set to|too many blocks|up to a [\d,.]+k? block range/i;
+const RANGE_LIMITED = /limited to a [\d,]+(?: blocks?)? range|block range (?:is )?too (?:large|wide|big)|range (?:is )?too (?:large|wide)|exceed(?:s|ed)? (?:the )?max(?:imum)? (?:block )?range|max(?:imum)? block range|maximum is set to|too many blocks|up to a [\d,.]+k? block range/i;
 /** The range limit a RANGE_LIMITED answer states, or null. */
 function statedRangeLimit(msg) {
   const m = /limited to a ([\d,]+)|max(?:imum)?(?: block)? range(?: is| of)?:? ([\d,]+)|maximum is set to ([\d,]+)/i.exec(msg);
@@ -1042,7 +1042,7 @@ export async function readPayerHistory({ rpc, token, state, wallets = [], window
       // waits (they double when it comes back); at the configured bound
       // (FUNDING_HISTORY_CHUNK_BLOCKS), nothing will change until the setting
       // does, so it is only skipped.
-      stats.tooLarge++;
+      stats.tooLarge++; stats.failed++;
       if (all.some((r) => r.width > 0 && r.width < maxSpan)) makeWait(ws, w, now, ctl, waitOpts);
       continue;
     }
@@ -1171,7 +1171,7 @@ export async function readFundingGaps({ rpc, token, state, wallets = [], windowS
     const planCalls = (r) => plannedCalls(r.hi - r.lo + 1, r.width, r.payers.length, payerChunk);
     for (const q of reqs) q.alone = ws.st > 0 || was.length > 0;
     const need = reqs.reduce((x, r) => x + planCalls(r), 0);
-    if (need > walletMaxPlan) { stats.tooLarge++; makeWait(ws, w, now, ctl, waitOpts); continue; }
+    if (need > walletMaxPlan) { stats.tooLarge++; stats.failed++; makeWait(ws, w, now, ctl, waitOpts); continue; }
     if (!ws.ep) ws.ep = { pl: reqs.reduce((x, r) => x + (r.stalled ? probeCalls(r) : planCalls(r)), 0), sp: 0, t: now };
     else ws.ep.pl += reqs.filter((r) => !r.seg).reduce((x, r) => x + planCalls(r), 0);
     stats.resumed += was.length;

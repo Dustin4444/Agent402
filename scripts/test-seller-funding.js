@@ -377,12 +377,14 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const rst = createFundingState(USDC);
   await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: rst, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (span > 2_000 ? RANGE : false) } });
   ok([...rst.wallets.values()].every((ws) => !ws.retryAt), "...and no wallet waits a day for it: the limit is the RPC's, not the wallet's");
+  const plural = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (span > 10_000 ? "{\"code\":-32600,\"message\":\"eth_getLogs and eth_newFilter are limited to a 10,000 blocks range\"}" : false) } });
+  ok(plural.stats.history.calls === 1 && plural.stats.history.stopped === "range-limited", `the same for "limited to a 10,000 blocks range" (${plural.stats.history.calls} call)`);
   const blk = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { rangeLimit: 100_000 } });
   ok(blk.stats.history.calls === 1 && blk.stats.history.stopped === "range-limited", "the same for a 'block range too large' answer");
   const chunked = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { rangeLimit: 20_000_000 }, readOpts: { historyChunkBlocks: 20_000_000 } });
   ok(chunked.stats.history.read === 20 && lights.slice(0, 4).every((w) => chunked.ev[w].circular === true), `with FUNDING_HISTORY_CHUNK_BLOCKS under the limit the same histories are read in full (${chunked.stats.history.calls} calls)`);
   const tiny = await scanOnce({ sellers: sells.slice(1), pays: dPays, outs: dOuts, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, readOpts: { historyChunkBlocks: 10_000 } });
-  ok(tiny.stats.history.calls === 0 && tiny.stats.history.tooLarge === 20, `a range bound so small no history fits one scan's budget is not started (${tiny.stats.history.calls} calls, ${tiny.stats.history.tooLarge} too large)`);
+  ok(tiny.stats.history.calls === 0 && tiny.stats.history.tooLarge === 20 && tiny.stats.history.failed === 20 && lights.every((w) => tiny.ev[w].fundingRead === false), `a range bound so small no history fits one scan's budget is not started (${tiny.stats.history.calls} calls, ${tiny.stats.history.tooLarge} too large), and each counts as history still pending`);
   // A RATE LIMIT stops the read: splitting would only send more requests to a
   // provider that is throttling us.
   const RATE = "{\"code\":429,\"message\":\"Your app has exceeded its compute units per second capacity.\"}";
