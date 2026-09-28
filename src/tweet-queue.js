@@ -430,19 +430,22 @@ export function createTweetQueue({
     return { dropped, item: pick, hour };
   }
 
-  // Under the lock: turn our own SENDING record into its outcome.
+  // Under the lock: turn the SENDING record into its outcome. The file is
+  // re-read, and if it no longer holds our record (restored from a backup, or
+  // replaced by hand mid-post) the outcome is written anyway: anything that
+  // may have posted must stay recorded, or the next tick would send it again.
   function recordOutcome(item, hour, out) {
     const st = readState(storePath);
-    const cur = st.records.get(item.id);
-    if (!cur || cur.state !== "sending") return false; // the file moved under us: leave it as found
-    const t = now();
-    const releaseSlot = () => { if (st.slots.get(hour) === item.id) st.slots.delete(hour); };
     const id = item.id;
-    if (out.kind === "posted") st.records.set(id, { id, state: "posted", at: t, hour, ...(out.tweetId ? { tweetId: out.tweetId } : {}) });
+    const ours = st.records.get(id)?.state === "sending";
+    const t = now();
+    const releaseSlot = () => { if (st.slots.get(hour) === id) st.slots.delete(hour); };
+    const holdSlot = () => { if (!st.slots.has(hour)) st.slots.set(hour, id); };
+    if (out.kind === "posted") { st.records.set(id, { id, state: "posted", at: t, hour, ...(out.tweetId ? { tweetId: out.tweetId } : {}) }); holdSlot(); }
     else if (out.kind === "duplicate") { st.records.set(id, { id, state: "duplicate", at: t, hour }); releaseSlot(); }
     else if (out.kind === "rejected") { st.records.set(id, { id, state: "rejected", at: t, status: out.status }); releaseSlot(); }
-    else if (out.kind === "account" || out.kind === "not_sent") { st.records.delete(id); releaseSlot(); }
-    else st.records.set(id, { id, state: "in_doubt", at: t, hour, cls: safeCls(out.cls || `http_${out.status}`) });
+    else if (out.kind === "account" || out.kind === "not_sent") { if (ours) st.records.delete(id); releaseSlot(); }
+    else { st.records.set(id, { id, state: "in_doubt", at: t, hour, cls: safeCls(out.cls || `http_${out.status}`) }); holdSlot(); }
     persist(st);
     return true;
   }

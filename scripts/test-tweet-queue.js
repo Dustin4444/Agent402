@@ -362,6 +362,18 @@ function mk(items, { clock = T0 + MIN, script = [], raw = null, ...extra } = {})
   await thrower.q.tick();
   ok(thrower.status().counts.inDoubt === 1, "a poster that throws is in doubt, never retried");
 
+  // The state file is replaced mid-post (a restore from a backup): the post
+  // that went out must still be recorded, or the next tick sends it again.
+  const swapPath = join(mkdtempSync(join(tmpdir(), "tweetq-swap-")), "state.json");
+  let swapSent = 0;
+  const swapQ = createTweetQueue({ queueJson: JSON.stringify(three), creds: CREDS, storePath: swapPath, now: () => T0 + MIN, log: () => {},
+    post: async () => { swapSent++; writeFileSync(swapPath, JSON.stringify({ v: 1, records: [], slots: [] })); return { kind: "posted", tweetId: "42" }; } });
+  await swapQ.tick();
+  const afterSwap = JSON.parse(readFileSync(swapPath, "utf8"));
+  ok(swapSent === 1 && afterSwap.records.some((r) => r.id === "x0" && r.state === "posted") && afterSwap.slots.some((sl) => sl.id === "x0"), "a post is recorded even when the state file was replaced while it was in flight");
+  await swapQ.tick();
+  ok(swapSent === 1, "and it is not sent again");
+
   const poster = createXPoster({ creds: CREDS, fetchImpl: async () => new Response("not json", { status: 201 }) });
   const out = await poster(text("p"));
   ok(out.kind === "posted" && out.tweetId === null, "a 2xx without a readable body still counts as posted");
