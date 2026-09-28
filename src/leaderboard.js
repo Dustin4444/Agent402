@@ -811,6 +811,9 @@ export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd
           // Payments the seller refunded: removed from the evidence, and from
           // third-party counts of the same wallet (src/evidence-binding.js).
           refundedCalls: f.refundedCalls || 0, refundedCalls30d: f.refundedCalls30d || 0, refundedUsd: Number((f.refundedUsd || 0).toFixed(6)),
+          // Payers EVERY one of whose payments in the window was refunded: not
+          // buyers, so third-party payer counts of this wallet lose them too.
+          refundedPayers: f.refundedPayers || 0,
           circular: f.circular, lastCircularAt: f.lastCircularAt, fundingRead: f.read,
           ...(f.withheldUntilRead ? { fundingPending: true } : {}),
           ...(f.truncated ? { fundingTruncated: true } : {}),
