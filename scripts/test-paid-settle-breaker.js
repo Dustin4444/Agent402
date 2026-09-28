@@ -18,7 +18,8 @@
 // (global:true) could not re-arm it - no /v1 settle failure ever reached the
 // global count. The server boots under scripts/lib/upstream-stub-preload.js so
 // /v1/embeddings runs to a 200 with no key and nothing spent, then settlement
-// fails; GLOBAL_MAX of them across different wallets must pause every /v1 tier.
+// fails; GLOBAL_MAX of them across different wallets must pause every /v1 tier,
+// and one wallet's concurrent burst, however large, must not.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { getFreePorts } from "./lib/free-port.js";
@@ -171,15 +172,30 @@ try {
     ok(r.status === 402 && settles === before + 1, `no global pause from catalog failures: a third wallet still reaches the handler (status ${r.status})`);
   }
   // THE /v1 GLOBAL PAUSE, through HTTP. The catalog failures above (well past
-  // GLOBAL_MAX, across three wallets) fed nothing global. Now GLOBAL_MAX /v1
-  // calls, each from a DIFFERENT fresh wallet (one failure each, far under the
-  // per-wallet MAX), run the handler and fail to settle; the next /v1 call,
-  // from yet another wallet, must be refused 503 before the handler.
+  // GLOBAL_MAX, across three wallets) fed nothing global.
+  const V1 = (i) => ({ path: "/v1/embeddings", method: "POST", body: JSON.stringify({ input: `settle breaker probe ${i}` }) });
+  const wallet = (i) => "0x" + "e".repeat(38) + i.toString(16).padStart(2, "0");
+  const GLOBAL_MAX = 4; // GATEWAY_SETTLE_BREAKER_GLOBAL_MAX below
+  // ONE wallet, a concurrent burst: every call passes the per-wallet check
+  // before any of the burst's failures lands, so well over GLOBAL_MAX handlers
+  // run and fail to settle. That wallet is the per-wallet bound's business; it
+  // must not pause every /v1 buyer (the global pause counts distinct buyers).
   {
-    const V1 = (i) => ({ path: "/v1/embeddings", method: "POST", body: JSON.stringify({ input: `settle breaker probe ${i}` }) });
-    const wallet = (i) => "0x" + "e".repeat(38) + i.toString(16).padStart(2, "0");
-    const GLOBAL_MAX = 4; // GATEWAY_SETTLE_BREAKER_GLOBAL_MAX below
-    for (let i = 1; i <= GLOBAL_MAX; i++) {
+    await acceptFor(V1(0));
+    const before = settles;
+    const burst = await Promise.all(Array.from({ length: 10 }, (_, k) => pay(V1(100 + k), wallet(0x90))));
+    const ran = settles - before;
+    ok(ran >= GLOBAL_MAX && burst.every((r) => r.status === 402 || r.status === 429), `one wallet's burst of 10 concurrent /v1 calls: ${ran} handlers ran and failed to settle (>= GLOBAL_MAX ${GLOBAL_MAX}, so the old per-failure count would have paused /v1)`);
+    const b0 = settles;
+    const r = await pay(V1(200), wallet(0x91));
+    ok(r.status === 402 && settles === b0 + 1, `...and a DIFFERENT wallet's /v1 call still reaches its handler: one buyer cannot pause every /v1 tier (status ${r.status}, settles ${settles})`);
+  }
+  // Now /v1 calls from DIFFERENT fresh wallets (one failure each, far under
+  // the per-wallet MAX) run the handler and fail to settle. Two buyers failed
+  // above; GLOBAL_MAX - 2 more reach the threshold, and the next /v1 call, from
+  // yet another wallet, must be refused 503 before the handler.
+  {
+    for (let i = 1; i <= GLOBAL_MAX - 2; i++) {
       const before = settles;
       const r = await pay(V1(i), wallet(i));
       ok(r.status === 402 && settles === before + 1, `/v1 call ${i} from its own wallet: the handler ran (upstream stubbed), settlement failed -> 402 (status ${r.status}, settles ${settles})`);
@@ -187,7 +203,7 @@ try {
     const before = settles;
     const r = await pay(V1(99), wallet(99));
     const body = await r.json().catch(() => ({}));
-    ok(r.status === 503 && settles === before && /briefly paused/.test(body.error || "") && r.headers.get("retry-after"), `after ${GLOBAL_MAX} /v1 settle failures across wallets the NEXT /v1 call is paused 503 before the handler (status ${r.status}, settles ${settles} == ${before})`);
+    ok(r.status === 503 && settles === before && /briefly paused/.test(body.error || "") && r.headers.get("retry-after"), `after /v1 settle failures from ${GLOBAL_MAX} different wallets the NEXT /v1 call is paused 503 before the handler (status ${r.status}, settles ${settles} == ${before})`);
     const g = await (await fetch(`${B}/api/gateway-status`)).json().catch(() => ({}));
     const txt = JSON.stringify(g);
     ok(!txt.includes(wallet(1)), "the pause is reported without naming a wallet");

@@ -47,8 +47,15 @@ const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 
 export const MAX_FAILS = num(process.env.GATEWAY_SETTLE_BREAKER_MAX, 3);
 /** Rolling window, and the length of a global pause. */
 export const WINDOW_MS = num(process.env.GATEWAY_SETTLE_BREAKER_WINDOW_MS, 15 * 60_000);
-/** Settle failures across ALL keys in the window that pause every tier - the
- *  per-key count is evadable by rotating wallets or IPs; this is not. */
+/** DISTINCT buyers with a settle failure inside the window that pause every
+ *  /v1 tier - the per-key count is evadable by rotating wallets or IPs; this
+ *  is not. Distinct, not a sum of failures (2026-09-28): the per-key check
+ *  runs before any of a burst's failures lands, so one wallet firing a burst
+ *  of concurrent calls could otherwise supply the whole global count by itself
+ *  and pause every /v1 buyer for a window. A single buyer is the per-key
+ *  bound's job; the pause answers many buyers failing at once. The one
+ *  exception is a withdrawn sub-cent refusal: each counts on its own (the
+ *  backstop for requests already in flight, see armGatewaySettleBreaker). */
 export const GLOBAL_MAX_FAILS = num(process.env.GATEWAY_SETTLE_BREAKER_GLOBAL_MAX, 12);
 
 const fails = new Map(); // key -> number[] (failure timestamps inside the window)
@@ -58,7 +65,12 @@ const fails = new Map(); // key -> number[] (failure timestamps inside the windo
 // unbounded served-never-charged loop - but the 429 must not tell the buyer to
 // check a wallet that was never the problem.
 const billingFails = new Map();
-let globalFails = [];
+// key -> the time of its latest settle failure inside the window: the global
+// pause counts distinct buyers (see GLOBAL_MAX_FAILS). A failure with no key
+// (no request to key it on, or a withdrawn sub-cent refusal, which is recorded
+// keyless on purpose so it stays a backstop) counts as its own buyer.
+let globalFailKeys = new Map();
+let anonSeq = 0;
 let globalPausedUntil = 0;
 let globalTrips = 0;
 
@@ -81,6 +93,7 @@ export function gatewaySettleBreakerKey(req) {
 }
 
 function inWindow(arr, now) { return arr.filter((t) => now - t < WINDOW_MS); }
+function pruneGlobal(now) { for (const [k, t] of globalFailKeys) if (now - t >= WINDOW_MS) globalFailKeys.delete(k); }
 
 /** Per-key state: blocked while MAX_FAILS or more failures sit inside the
  *  window; `until` is when the count next drops below the threshold. */
@@ -96,7 +109,7 @@ export function gatewaySettleBreakerBlocked(key, now = Date.now()) {
   return { blocked: true, fails: arr.length, billingFails: bill.length, until };
 }
 
-/** Global state: paused for WINDOW_MS once GLOBAL_MAX_FAILS failures land in a window. */
+/** Global state: paused for WINDOW_MS once GLOBAL_MAX_FAILS different buyers fail to settle inside a window. */
 export function gatewaySettleBreakerGlobalPaused(now = Date.now()) {
   if (globalPausedUntil > now) return { paused: true, until: globalPausedUntil };
   globalPausedUntil = 0;
@@ -111,13 +124,13 @@ export function recordGatewaySettleFailure(key, now = Date.now(), { global = tru
   // with twelve failed settlements a lever on the gateway (the operator,
   // 2026-09-06).
   if (global) {
-    globalFails = inWindow(globalFails, now);
-    globalFails.push(now);
-    if (globalFails.length >= GLOBAL_MAX_FAILS) {
+    pruneGlobal(now);
+    globalFailKeys.set(key || `anon:${++anonSeq}`, now);
+    if (globalFailKeys.size >= GLOBAL_MAX_FAILS) {
       globalPausedUntil = now + WINDOW_MS;
-      globalFails = [];
+      globalFailKeys = new Map();
       globalTrips++;
-      console.warn(`[gateway-breaker] ${GLOBAL_MAX_FAILS} unsettled gateway calls inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
+      console.warn(`[gateway-breaker] unsettled gateway calls from ${GLOBAL_MAX_FAILS} different buyers inside ${Math.round(WINDOW_MS / 1000)} s - pausing every /v1 tier until ${new Date(globalPausedUntil).toISOString()}`);
     }
   }
   if (!key) return;
@@ -180,7 +193,9 @@ export function armGatewaySettleBreaker(req, key, { global = true } = {}) {
       // buyer's to carry: kept off the WALLET's count, and not a clear either.
       // It still feeds the /v1 global pause when this consult takes part in
       // it - that pause names no wallet, and it is the backstop if requests
-      // already in flight keep arriving. The request is handed over so the
+      // already in flight keep arriving. It is recorded with no key, so each
+      // one counts as its own buyer toward that pause: counting distinct
+      // buyers does not weaken the backstop. The request is handed over so the
       // gate checks the requirement THIS call paid against (sub-cent, to the
       // paused payTo) and that the route's next 402 really drops it.
       if (isWithdrawnSubcentRefusal(receipt, { req })) {
@@ -248,11 +263,13 @@ export function gatewaySettleBreakerStatus(now = Date.now()) {
   const g = gatewaySettleBreakerGlobalPaused(now);
   return {
     trackedKeys, blockedKeys,
-    globalFailsInWindow: inWindow(globalFails, now).length,
+    // Distinct buyers with a settle failure inside the window: the count the
+    // global pause trips on.
+    globalFailsInWindow: (pruneGlobal(now), globalFailKeys.size),
     globalPaused: g.paused, globalPausedUntil: g.paused ? new Date(g.until).toISOString() : null, globalTrips,
     maxFails: MAX_FAILS, windowMs: WINDOW_MS, globalMaxFails: GLOBAL_MAX_FAILS,
   };
 }
 
 /** Test-only. */
-export function _gatewaySettleBreakerReset() { fails.clear(); billingFails.clear(); globalFails = []; globalPausedUntil = 0; globalTrips = 0; }
+export function _gatewaySettleBreakerReset() { fails.clear(); billingFails.clear(); globalFailKeys = new Map(); globalPausedUntil = 0; globalTrips = 0; }

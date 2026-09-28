@@ -154,10 +154,11 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   tier whose 402 is a per-request quote. `handlerInputOf(req)` (`src/handler-input.js`) is the
   one input object for pricing and serving. Streams commit 200 only on the first `data:` frame.
 - **Settle-failure breakers:** `src/gateway-settle-breaker.js` (per wallet and global on `/v1`,
-  per wallet on other wallet-only tools). Only a refusal whose offer the next 402 withdraws
-  (`isWithdrawnSubcentRefusal`) stays off the buyer's count, and it still feeds the `/v1`
-  global pause; every other facilitator billing refusal (`src/payment-reject.js`) counts in
-  both breakers and the composite guard, with a 429 that names it instead of the wallet.
+  per wallet on other wallet-only tools). The `/v1` global pause counts distinct buyers, not
+  failures. Only a refusal whose offer the next 402 withdraws (`isWithdrawnSubcentRefusal`)
+  stays off the buyer's count, and it still feeds the `/v1` global pause, each one counted on
+  its own; every other facilitator billing refusal (`src/payment-reject.js`) counts in both
+  breakers and the composite guard, with a 429 that names it instead of the wallet.
 - **Algorand sub-cent offer gate:** `src/avm-sponsorship.js` drops the Algorand accept from
   sub-cent 402s while the facilitator's sponsored sub-cent allowance is spent (fails open;
   a status row last updated in an earlier UTC month, or with an unreadable `updatedTs`, is
