@@ -18,8 +18,9 @@
 //     document instead of the paywall's own body. The 402 body mirror
 //     (src/payment-required-body.js) is mounted before every gate, so the
 //     send it wraps is the mirror's: the problem document goes out with the
-//     PaymentRequired object from the PAYMENT-REQUIRED header merged in after
-//     its members. Nothing else about the response changes.
+//     offer from the PAYMENT-REQUIRED header merged in after its members, and
+//     no `error` (the detail is the explanation). Nothing else about the
+//     response changes.
 //   - DIRECT (tempo replay / post-handler settle failure): the gate answers
 //     itself; sendMppProblem() writes the 402 + problem body and the outbound
 //     tempo hook still appends a fresh tempo challenge at writeHead.

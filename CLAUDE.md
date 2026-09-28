@@ -182,8 +182,10 @@ whose effect outlives the answer never takes a ticket (`hasLastingEffect`: the m
   own schema.
 - **402 body mirror:** `src/payment-required-body.js` copies the decoded PAYMENT-REQUIRED object
   into the JSON body of every paywall 402 (header authoritative, header keys win, our fields
-  kept); keyed on the header, so settle-failure, credits and Tempo/Stripe direct 402s are
-  untouched. It wraps `res.send`, so it is mounted before the MPP shim and the Tempo/Stripe gates.
+  kept); a refusal that explains itself (a `hint`, or a problem's `detail`) gets the offer and
+  no `error`, so `error`-first clients read the explanation. Keyed on the header, so
+  settle-failure, credits and Tempo/Stripe direct 402s are untouched. It wraps `res.send`, so it
+  is mounted before the MPP shim and the Tempo/Stripe gates.
 - **X posting:** `announce.yml` / `scripts/tweet.js`, dispatched via Actions only; tweet copy is
   never committed.
 

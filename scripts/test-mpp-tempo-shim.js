@@ -148,7 +148,8 @@ try {
   // A tempo credential whose challenge we never minted (wrong HMAC secret)
   // is refused at the binding check and FALLS THROUGH to the paywall's 402.
   // That 402 carries PAYMENT-REQUIRED, so its RFC 9457 problem body also
-  // carries the same PaymentRequired object as the header, key for key.
+  // carries the header's offer, key for key; the problem explains itself in
+  // `detail`, so it carries no `error`.
   {
     const forged = Challenge.from({
       realm: tempoCh.realm, method: "tempo", intent: "charge", expires: new Date(Date.now() + 60_000),
@@ -160,7 +161,7 @@ try {
     const hdr = r.headers.get("payment-required");
     const pr = hdr ? JSON.parse(Buffer.from(hdr, "base64").toString("utf8")) : null;
     ok(r.status === 402 && /problem\+json/.test(r.headers.get("content-type") || "") && /^https:\/\/paymentauth\.org\/problems\//.test(body.type || "") && typeof body.detail === "string", `a forged tempo challenge falls through to a 402 problem (${body.type})`);
-    ok(!!pr && Object.keys(pr).every((k) => isDeepStrictEqual(body[k], pr[k])), "that fall-through problem body mirrors the PAYMENT-REQUIRED header, key for key");
+    ok(!!pr && typeof pr.error === "string" && !("error" in body) && Object.keys(pr).filter((k) => k !== "error").every((k) => isDeepStrictEqual(body[k], pr[k])), "that fall-through problem body mirrors the PAYMENT-REQUIRED offer key for key, and carries no error beside its detail");
   }
 } finally {
   proc.kill("SIGKILL");
@@ -372,7 +373,8 @@ async function listen(app) {
   s2.server.close();
   // Prod mount order: the body mirror sits BEFORE the gate, so the problem
   // patch delegates to it. When the paywall's 402 carries PAYMENT-REQUIRED,
-  // the problem document also carries the same PaymentRequired object.
+  // the problem document also carries the header's offer (no `error`: the
+  // problem's detail is the explanation).
   const OFFER = { x402Version: 2, error: "Payment required", resource: { url: "http://x/paid", description: "paid", mimeType: "application/json" }, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "50000", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: TREASURY, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } }] };
   const app3 = express();
   app3.use(paymentRequiredBodyMiddleware());
@@ -382,7 +384,7 @@ async function listen(app) {
   const r3 = await fetch(`${s3.url}/paid`, { headers: { Authorization: buildTempoCredential() } });
   const b3 = await r3.json();
   ok(r3.status === 402 && b3.type === "https://paymentauth.org/problems/verification-failed" && /expired/.test(b3.detail || "") && /problem\+json/.test(r3.headers.get("content-type") || ""), `case D: with the header present the fall-through body is still the problem (${b3.type})`);
-  ok(Object.keys(OFFER).every((k) => isDeepStrictEqual(b3[k], OFFER[k])), "case D: ...and it mirrors the PAYMENT-REQUIRED header, key for key");
+  ok(!("error" in b3) && Object.keys(OFFER).filter((k) => k !== "error").every((k) => isDeepStrictEqual(b3[k], OFFER[k])), "case D: ...and it mirrors the PAYMENT-REQUIRED offer key for key, with no error beside its detail");
   s3.server.close();
   server.close();
 }

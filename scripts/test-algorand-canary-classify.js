@@ -20,10 +20,10 @@ ok(outcomeOf(R(402, '{"error":"Payment rejected","reason":"requirements-mismatch
   "a FAST 402 carrying our gate's own named refusal is a rail verdict, never a throttle (metered Messages, 2026-08-31 + 09-07)");
 ok(outcomeOf(R(402, '{"error":"Payment required"}', 40)) === "fast-402", "a fast bare 402 with no named refusal is still fast-402");
 // The 402 body now also carries the PaymentRequired offer, mirrored from the
-// PAYMENT-REQUIRED header: `error` is the header's sentence, and the offer's
-// extensions can hold a `reason` of their own inside an example.
-ok(outcomeOf(R(402, JSON.stringify({ error: "No matching payment requirements", reason: "requirements-mismatch", hint: "...", retry: "rebuild-payment", x402Version: 2, resource: {}, accepts: [], extensions: {} }), 40)) === "slow-402",
-  "a FAST gate refusal in the mirrored shape (the header's error, our reason first) is still a rail verdict");
+// PAYMENT-REQUIRED header: a refusal with a hint carries no `error` at all, and
+// the offer's extensions can hold a `reason` of their own inside an example.
+ok(outcomeOf(R(402, JSON.stringify({ reason: "requirements-mismatch", hint: "...", retry: "rebuild-payment", x402Version: 2, resource: {}, accepts: [], extensions: {} }), 40)) === "slow-402",
+  "a FAST gate refusal in the mirrored shape (no error, our reason first, then the offer) is still a rail verdict");
 ok(outcomeOf(R(402, JSON.stringify({ x402Version: 2, error: "Payment required", resource: {}, accepts: [], extensions: { bazaar: { info: { output: { example: { reason: "requirements-mismatch" } } } } } }), 40)) === "fast-402",
   "a fast mirrored unpaid 402 whose only `reason` is nested in an extension example is still fast-402");
 ok(outcomeOf(R(402, JSON.stringify({ error: "Payment rail temporarily unavailable", reason: "facilitator-quota", retry: "other-network" }), 40)) === "fast-402",

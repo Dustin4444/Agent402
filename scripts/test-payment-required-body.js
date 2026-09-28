@@ -8,16 +8,25 @@
 // The header stays authoritative, and the two must never disagree.
 //
 // Part 1 (offline) pins the merge: header keys win, our keys are kept and stay
-// first, anything undecodable or non-JSON goes out byte-identical, and the
-// mount precedes every middleware that can patch the body into an MPP problem.
+// first, a body that explains itself (a hint, or a problem's detail) carries
+// the offer but no `error`, anything undecodable or non-JSON goes out
+// byte-identical, and the mount precedes every middleware that can patch the
+// body into an MPP problem.
 //
 // Part 2 boots a PAID server against a stub facilitator and reads real 402s:
 // the unpaid ask on a proof-of-work tool, a GET and its HEAD, a retired
 // converter, a per-request metered quote, a gate refusal, both facilitator
 // verify-refusal shapes, an MPP refusal as problem+json, and a settle refusal
-// (which carries no PAYMENT-REQUIRED header, so it must carry no offer). Two
-// controls prove nothing a buyer does changed: an unmodified x402 client and
-// an mppx client both still pay.
+// (which carries no PAYMENT-REQUIRED header, so it must carry no offer). Every
+// refusal is also read the way an `error`-first client reads it (the OpenAI
+// SDK's message rule, and agent402-client's failure text): the message must be
+// our explanation, never the header's one-line error. Two controls prove
+// nothing a buyer does changed: an unmodified x402 client and an mppx client
+// both still pay.
+//
+// Part 3 boots the same server with PAYMENT_REQUIRED_BODY=off and requires the
+// PAYMENT-REQUIRED header to be byte-identical for the same requests: the
+// mirror writes the body and never the header.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -25,6 +34,7 @@ import { isDeepStrictEqual } from "node:util";
 import { getFreePorts } from "./lib/free-port.js";
 import {
   decodePaymentRequired,
+  explainsItself,
   mergePaymentRequiredBody,
   paymentRequiredBodyMiddleware,
   withoutPaymentRequired,
@@ -32,6 +42,7 @@ import {
   PAYMENT_REQUIRED_OFFER_KEYS,
 } from "../src/payment-required-body.js";
 import { REJECTION_REASONS } from "../src/payment-reject.js";
+import { Agent402 } from "../client/index.js";
 
 let pass = 0, proc = null, facilitator = null;
 const serverLog = [];
@@ -69,21 +80,41 @@ const mirrors = (body, pr) => Object.keys(pr).every((k) => isDeepStrictEqual(bod
   ok(mirrors(out, PR), "U2 every decoded header key is in the body, deep-equal");
   ok(out.altPayment?.protocol === "proof-of-work" && Object.keys(out)[0] === "altPayment", "U2 altPayment is kept and stays the first key");
 }
-// U3 a gate refusal: our explanatory keys first, the header's error wins
+// The offer keys of the header, i.e. every key but `error`.
+const { error: _prError, ...PR_OFFER } = PR;
+const mirrorsOffer = (body, pr) => Object.keys(pr).filter((k) => k !== "error").every((k) => isDeepStrictEqual(body[k], pr[k]));
+// U3 a gate refusal: our explanation first, the offer after it, and NO error
+// (neither the header's nor our "Payment rejected" fallback), so an
+// error-first client reads the hint rather than a one-line sentence.
 {
   const body = { error: "Payment rejected", reason: "requirements-mismatch", hint: "Echo the accepts entry verbatim.", retry: "rebuild-payment" };
   const out = parse(mergePaymentRequiredBody(JSON.stringify(body), HDR));
-  ok(out.error === PR.error, `U3 body.error is the header's error (got ${out.error})`);
+  ok(!("error" in out), `U3 a body with a hint carries no error (got ${JSON.stringify(out.error)})`);
   ok(out.reason === body.reason && out.hint === body.hint && out.retry === body.retry, "U3 reason, hint and retry are kept");
-  ok(isDeepStrictEqual(Object.keys(out).slice(0, 4), ["error", "reason", "hint", "retry"]), `U3 key order keeps our fields first (${Object.keys(out).slice(0, 5).join(",")})`);
-  ok(mirrors(out, PR), "U3 and every header key is mirrored");
+  ok(isDeepStrictEqual(Object.keys(out), ["reason", "hint", "retry", ...Object.keys(PR_OFFER)]), `U3 our fields first, then the offer (${Object.keys(out).join(",")})`);
+  ok(mirrorsOffer(out, PR), "U3 every other header key is mirrored, deep-equal");
 }
-// U4 an RFC 9457 problem document
+// U3b the verify hint's shape (hint, retry, a balance, no error of its own)
+{
+  const body = { hint: "The wallet holds too little USDC on Base; fund it.", retry: "fund-wallet", payerUsdcOnBase: 0 };
+  const out = parse(mergePaymentRequiredBody(JSON.stringify(body), HDR));
+  ok(!("error" in out) && out.hint === body.hint && out.payerUsdcOnBase === 0 && mirrorsOffer(out, PR), "U3b a verify hint gets the offer and no error");
+}
+// U3c a blank hint explains nothing: the header's error is mirrored
+{
+  const out = parse(mergePaymentRequiredBody(JSON.stringify({ hint: "  ", retry: "x" }), HDR));
+  ok(out.error === PR.error && mirrors(out, PR), "U3c a blank hint is not an explanation: every header key, error included, is mirrored");
+  ok(explainsItself({ hint: "h" }) && explainsItself({ detail: "d" }) && !explainsItself({ hint: "" }) && !explainsItself({ detail: 7 }) && !explainsItself({ altPayment: { info: "x" } }) && !explainsItself(null) && !explainsItself([]), "U3c explainsItself: a non-empty hint or detail string, nothing else");
+}
+// U4 an RFC 9457 problem document explains itself through `detail`
 {
   const problem = { type: "https://paymentauth.org/problems/malformed-credential", title: "Malformed Credential", status: 402, detail: "Credential is malformed.", hint: "Use a supported wallet." };
   const out = parse(mergePaymentRequiredBody(JSON.stringify(problem), HDR));
   ok(["type", "title", "status", "detail", "hint"].every((k) => out[k] === problem[k]), "U4 the problem members are kept");
-  ok(mirrors(out, PR) && isDeepStrictEqual(Object.keys(out).slice(0, 4), ["type", "title", "status", "detail"]), "U4 the protocol keys are mirrored after the problem members");
+  ok(!("error" in out), "U4 a problem document carries no error");
+  ok(mirrorsOffer(out, PR) && isDeepStrictEqual(Object.keys(out).slice(0, 4), ["type", "title", "status", "detail"]), "U4 the offer is mirrored after the problem members");
+  const noDetail = parse(mergePaymentRequiredBody(JSON.stringify({ type: problem.type, title: problem.title, status: 402 }), HDR));
+  ok(noDetail.error === PR.error, "U4 a problem with no detail and no hint mirrors the header's error");
 }
 // U5 a stale body offer never survives
 {
@@ -192,19 +223,31 @@ facilitator = createServer((req, res) => {
 });
 await new Promise((r) => facilitator.listen(FAC_PORT, "127.0.0.1", r));
 
-proc = spawn(process.execPath, ["src/server.js"], {
-  env: {
-    ...process.env, PORT: String(PORT), FREE_MODE: "",
-    WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", PAYMENT_NETWORKS: "base",
-    FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`,
-    CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: SECRET, PAYMENT_REQUIRED_BODY: "",
-    X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
-    STATS_ALLOW_EPHEMERAL: "true", OPENROUTER_TTS_ENABLED: "true",
-  },
-  stdio: ["ignore", "pipe", "pipe"],
-});
+// A fixed BASE_URL, so the resource URL in the header does not depend on the
+// port and Part 3 can compare headers from two boots byte for byte.
+const BASE_URL = "http://agent402.test";
 const keepLog = (chunk) => { for (const line of String(chunk).split("\n")) { if (line.trim()) serverLog.push(line.slice(0, 400)); } if (serverLog.length > 120) serverLog.splice(0, serverLog.length - 120); };
-proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
+const bootServer = (port, extraEnv = {}) => {
+  const child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env, PORT: String(port), FREE_MODE: "", BASE_URL,
+      WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD", NETWORK: "base", PAYMENT_NETWORKS: "base",
+      FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`,
+      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: SECRET, PAYMENT_REQUIRED_BODY: "",
+      X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
+      STATS_ALLOW_EPHEMERAL: "true", OPENROUTER_TTS_ENABLED: "true",
+      ...extraEnv,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", keepLog); child.stderr.on("data", keepLog);
+  return child;
+};
+const waitUp = async (base) => {
+  for (let i = 0; i < 120; i++) { try { if ((await fetch(`${base}/health`)).ok) return true; } catch { /* booting */ } await sleep(500); }
+  return false;
+};
+proc = bootServer(PORT);
 
 let parsePaymentRequired;
 try { ({ parsePaymentRequired } = await import("@x402/core/schemas")); } catch (e) { fail(`@x402/core/schemas is not installed: ${e?.message || e}`); }
@@ -213,20 +256,59 @@ const decodeHeader = (res) => {
   const h = res.headers.get("payment-required");
   return h ? JSON.parse(Buffer.from(h, "base64").toString("utf8")) : null;
 };
+// The keys a PaymentRequired header may carry. Anything else in the decoded
+// header would be one of OUR body fields written back into the challenge a
+// buyer pays from.
+const PROTOCOL_KEYS = new Set(["x402Version", "error", "resource", "accepts", "extensions"]);
+const BODY_ONLY_KEYS = ["altPayment", "replacement", "reason", "hint", "retry", "payerUsdcOnBase", "type", "title", "detail", "status"];
+/** The header carries protocol keys only, none of ours. */
+const assertHeaderUntouched = (label, decoded) => {
+  const extra = Object.keys(decoded).filter((k) => !PROTOCOL_KEYS.has(k));
+  ok(extra.length === 0 && BODY_ONLY_KEYS.every((k) => !(k in decoded)), `${label}: the header carries protocol keys only (${Object.keys(decoded).join(",")})`);
+};
 /** The body carries every key the header carries, deep-equal, and parses as a
- *  PaymentRequired under the protocol's own schema. Returns [body, decoded]. */
-const assertMirror = (label, res, text) => {
+ *  PaymentRequired under the protocol's own schema. A body that explains
+ *  itself (`explained`: a hint or a problem detail) carries every key but
+ *  `error`, and no `error` at all. Returns [body, decoded]. */
+const assertMirror = (label, res, text, { explained = false } = {}) => {
   const decoded = decodeHeader(res);
   ok(!!decoded, `${label}: PAYMENT-REQUIRED is present`);
+  assertHeaderUntouched(label, decoded);
   let body;
   try { body = JSON.parse(text); } catch { fail(`${label}: the body is not JSON: ${String(text).slice(0, 200)}`); }
+  const expectExplained = explained === "auto" ? explainsItself(body) : explained;
+  ok(explainsItself(body) === expectExplained, `${label}: the body ${expectExplained ? "explains itself (hint or detail)" : "carries no hint or detail"}`);
   for (const k of Object.keys(decoded)) {
+    if (expectExplained && k === "error") continue;
     if (!isDeepStrictEqual(body[k], decoded[k])) fail(`${label}: body.${k} differs from the header's (${JSON.stringify(body[k])?.slice(0, 160)} vs ${JSON.stringify(decoded[k])?.slice(0, 160)})`);
   }
-  ok(true, `${label}: every header key (${Object.keys(decoded).join(",")}) is in the body, deep-equal`);
+  if (expectExplained) {
+    ok(typeof decoded.error === "string" && !("error" in body), `${label}: every header key but error (${Object.keys(decoded).filter((k) => k !== "error").join(",")}) is in the body, deep-equal, and the body carries no error (the header's is "${decoded.error}")`);
+  } else {
+    ok(true, `${label}: every header key (${Object.keys(decoded).join(",")}) is in the body, deep-equal`);
+  }
   const parsed = parsePaymentRequired(body);
   ok(parsed.success, `${label}: the body parses as a PaymentRequired (${parsed.success ? "ok" : parsed.error?.issues?.[0]?.message})`);
   return [body, decoded];
+};
+// How an `error`-first client turns a failed response into a message. The
+// OpenAI SDK's rule (client.makeStatusError + APIError.makeMessage, unchanged
+// across its 7.x releases): a body with a top-level `error` is described by
+// that key alone; a body without one is stringified whole.
+const errorFirstMessage = (status, text) => {
+  let j; try { j = JSON.parse(text); } catch { return `${status} ${text}`; }
+  const normalized = j && typeof j === "object" && j.error == null ? { error: j } : j;
+  const e = normalized?.error;
+  const msg = e?.message ? (typeof e.message === "string" ? e.message : JSON.stringify(e.message)) : e ? JSON.stringify(e) : undefined;
+  return `${status} ${msg}`;
+};
+/** The two error-first readers both lead with our explanation, never with the
+ *  header's one-line error. */
+const assertErrorFirstReaders = async (label, status, text, decoded, explanation) => {
+  const m = errorFirstMessage(status, text);
+  ok(m !== `${status} ${JSON.stringify(decoded.error)}` && m.slice(0, 600).includes(JSON.stringify(explanation).slice(1, -1)), `${label}: an error-first SDK message leads with our explanation, not the header's "${decoded.error}" (${m.slice(0, 120)}...)`);
+  const sdk = await new Agent402({ baseUrl: B, cache: false })._failureDetail("t", new Response(text, { status }));
+  ok(sdk === `call "t" failed: HTTP ${status} - ${explanation}`, `${label}: agent402-client's failure text is the explanation (${sdk.slice(0, 160)})`);
 };
 let nonceN = 0;
 const credential = (accepted, payer = PAYER) => b64({
@@ -235,9 +317,7 @@ const credential = (accepted, payer = PAYER) => b64({
 });
 
 try {
-  let up = false;
-  for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { up = true; break; } } catch { /* booting */ } await sleep(500); }
-  ok(up, "the paid server booted within 60 s");
+  ok(await waitUp(B), "the paid server booted within 60 s");
 
   // B1 unpaid POST on a proof-of-work tool
   const HASH = { path: "/api/hash", method: "POST", body: JSON.stringify({ text: "x" }) };
@@ -295,12 +375,12 @@ try {
     const r = await call(WALLET_ONLY, { "payment-signature": header });
     ok(r.status === 402, `B5 an unsupported scheme -> 402 (got ${r.status})`);
     const text = await r.text();
-    const [body, decoded] = assertMirror("B5", r, text);
+    const [body, decoded] = assertMirror("B5", r, text, { explained: true });
     ok(fac.verify === before, "B5 refused by the gate: no facilitator verify");
-    ok(body.error === decoded.error, `B5 body.error is the header's error (${body.error})`);
     ok(REJECTION_REASONS.some((x) => x.reason === body.reason), `B5 body.reason is a published refusal class (${body.reason})`);
     ok(typeof body.hint === "string" && body.hint && typeof body.retry === "string" && body.retry, "B5 hint and retry are present");
-    ok(isDeepStrictEqual(Object.keys(body).slice(0, 4), ["error", "reason", "hint", "retry"]), `B5 the first four keys are error, reason, hint, retry (${Object.keys(body).join(",")})`);
+    ok(isDeepStrictEqual(Object.keys(body).slice(0, 3), ["reason", "hint", "retry"]), `B5 the first three keys are reason, hint, retry (${Object.keys(body).join(",")})`);
+    await assertErrorFirstReaders("B5", r.status, text, decoded, body.hint);
     console.log("   B5 body (the /x402-test sample):", JSON.stringify({ ...body, resource: "...", accepts: "...", extensions: "..." }));
   }
 
@@ -317,12 +397,15 @@ try {
     const before = fac.verify;
     const first = await call(HASH, { "payment-signature": cred });
     ok(first.status === 402 && fac.verify === before + 1, `${label}: 402 after one facilitator verify (got ${first.status}, verifies ${fac.verify - before})`);
-    assertMirror(`${label} first`, first, await first.text());
+    assertMirror(`${label} first`, first, await first.text(), { explained: "auto" });
     const again = await call(HASH, { "payment-signature": cred });
     ok(again.status === 402, `${label}: the same credential again -> 402`);
-    const [body, decoded] = assertMirror(`${label} retried`, again, await again.text());
+    const againText = await again.text();
+    const [body, decoded] = assertMirror(`${label} retried`, again, againText, { explained: true });
     ok(body.retry === "fund-wallet" && typeof body.hint === "string" && body.payerUsdcOnBase === 0, `${label}: hint, retry and payerUsdcOnBase are kept (retry=${body.retry})`);
-    ok(body.error === decoded.error, `${label}: body.error is the header's (${String(body.error).slice(0, 60)})`);
+    const keys = Object.keys(body);
+    ok(keys.indexOf("hint") > -1 && keys.indexOf("hint") < keys.indexOf("x402Version"), `${label}: the hint comes before the offer (${keys.join(",")})`);
+    await assertErrorFirstReaders(label, again.status, againText, decoded, body.hint);
   }
   verifyMode = "ok";
 
@@ -331,8 +414,10 @@ try {
     const r = await fetch(`${B}/api/uuid`, { headers: { Authorization: "Payment !!!not-base64url!!!" } });
     ok(r.status === 402, `B8 malformed MPP credential -> 402 (got ${r.status})`);
     ok(/^application\/problem\+json/.test(r.headers.get("content-type") || ""), `B8 content-type stays application/problem+json (${r.headers.get("content-type")})`);
-    const [body] = assertMirror("B8", r, await r.text());
+    const text = await r.text();
+    const [body, decoded] = assertMirror("B8", r, text, { explained: true });
     ok(/\/malformed-credential$/.test(body.type || "") && body.status === 402 && typeof body.detail === "string" && body.detail, `B8 the problem members are kept (${body.type})`);
+    await assertErrorFirstReaders("B8", r.status, text, decoded, body.detail);
     ok(/^Payment /i.test(r.headers.get("www-authenticate") || ""), "B8 fresh MPP challenges are still on WWW-Authenticate");
   }
 
@@ -372,6 +457,41 @@ try {
     const r = await mppFetch(`${B}/api/uuid`);
     ok(r.status === 200 && fac.settle === s + 1, `B11 control: an mppx evm.charge client buys GET /api/uuid (got ${r.status}, settles ${fac.settle - s})`);
     ok(!!r.headers.get("payment-receipt"), "B11 and gets its Payment-Receipt");
+  }
+
+  // Part 3: the mirror writes the body, never the header. The same requests
+  // against a boot with PAYMENT_REQUIRED_BODY=off get a byte-identical
+  // PAYMENT-REQUIRED header, and there the body is the paywall's own.
+  const capture = async (base) => {
+    const at = (path, init = {}) => fetch(`${base}${path}`, init);
+    const out = {};
+    const keep = async (label, r) => { out[label] = { status: r.status, header: r.headers.get("payment-required"), text: await r.text() }; };
+    await keep("unpaid POST /api/hash", await at(HASH.path, { method: "POST", headers: { "content-type": "application/json" }, body: HASH.body }));
+    await keep("unpaid GET /api/uuid", await at("/api/uuid"));
+    await keep("gate refusal", await at(WALLET_ONLY.path, { headers: { "payment-signature": b64({ x402Version: 2, accepted: { scheme: "lightning", network: "eip155:8453" }, payload: {} }) } }));
+    const acc = (decodePaymentRequired(out["unpaid POST /api/hash"].header)?.accepts || []).find((a) => a.network === "eip155:8453");
+    verifyMode = "graceful";
+    const cred = credential(acc);
+    await at(HASH.path, { method: "POST", headers: { "content-type": "application/json", "payment-signature": cred }, body: HASH.body }).then((r) => r.text());
+    await keep("verify refusal", await at(HASH.path, { method: "POST", headers: { "content-type": "application/json", "payment-signature": cred }, body: HASH.body }));
+    verifyMode = "ok";
+    await keep("MPP problem", await at("/api/uuid", { headers: { Authorization: "Payment !!!not-base64url!!!" } }));
+    return out;
+  };
+  const on = await capture(B);
+  proc.kill("SIGKILL");
+  await new Promise((r) => (proc.exitCode !== null || proc.signalCode !== null ? r() : proc.once("exit", r)));
+  const [OFF_PORT] = await getFreePorts(1);
+  const OFF_B = `http://127.0.0.1:${OFF_PORT}`;
+  proc = bootServer(OFF_PORT, { PAYMENT_REQUIRED_BODY: "off" });
+  ok(await waitUp(OFF_B), "P3 the PAYMENT_REQUIRED_BODY=off server booted within 60 s");
+  const off = await capture(OFF_B);
+  for (const [label, a] of Object.entries(on)) {
+    const b = off[label];
+    ok(a.status === 402 && b.status === 402 && typeof a.header === "string" && a.header.length > 0 && a.header === b.header,
+      `P3 ${label}: the PAYMENT-REQUIRED header is byte-identical with the mirror on and off (${a.header?.length} bytes)`);
+    const offBody = JSON.parse(b.text || "{}");
+    ok(PAYMENT_REQUIRED_OFFER_KEYS.every((k) => !(k in offBody)) && "x402Version" in JSON.parse(a.text), `P3 ${label}: only the mirror puts the offer in the body (off: ${Object.keys(offBody).join(",") || "{}"})`);
   }
 
   console.log(`\nPASS - ${pass} checks (the 402 body carries the header's PaymentRequired object)`);

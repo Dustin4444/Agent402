@@ -18,7 +18,9 @@ which is where the x402 v2 spec puts them and where clients should keep reading 
 header is authoritative. The JSON body carries the same PaymentRequired object (`x402Version`,
 `error`, `resource`, `accepts`, `extensions`) beside our own fields (`altPayment` on tools that
 take proof-of-work, and `reason`, `hint` and `retry` when a payment was refused), so a reader of
-either finds the offer and the two never disagree. Every route's challenge is
+either finds the offer and the two never disagree. A refused payment's body leaves out the
+header's one-line `error`: its `hint` (or, for an MPP credential, the problem's `detail`) says
+what went wrong, and a client that reads `error` first reads that instead. Every route's challenge is
 valid under `@x402/core`'s own schemas (CI runs all 500+ routes through the official parser),
 and it carries a typed output schema twice: inside the `bazaar` discovery extension (with the
 input schema and an example) and as `accepts[0].outputSchema` on the first accept, so a client

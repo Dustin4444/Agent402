@@ -69,8 +69,9 @@ export const isUpstreamOutage = (status, body) =>
 //
 // Read as parsed JSON, keyed on the reason the classifier publishes. The 402
 // body also carries the full offer (it mirrors the PAYMENT-REQUIRED header),
-// so its `error` is the header's sentence rather than "Payment rejected", and
-// a substring match could hit a `reason` nested in an extension's example.
+// and a refusal that explains itself carries no `error` at all (not "Payment
+// rejected", not the header's sentence), and a substring match could hit a
+// `reason` nested in an extension's example.
 // facilitator-quota is left out: it comes from a SETTLE refusal, which was
 // never a gate refusal.
 const GATE_REASONS = new Set(REJECTION_REASONS.map((r) => r.reason).filter((r) => r !== "facilitator-quota"));

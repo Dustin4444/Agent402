@@ -57,9 +57,8 @@ export function x402TestPage(baseUrl) {
 
 <section style="max-width:1180px;margin:0 auto;padding:36px 30px 0;">
   <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 16px;color:var(--ink);">2. Pay it, and read the refusal</h2>
-  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Retry with your client's <code>PAYMENT-SIGNATURE</code> header. If it is wrong, the 402 body carries a <code>reason</code>, a <code>hint</code> in words, and a <code>retry</code> telling you what kind of change is needed, ahead of the same offer the header carries. Here is a real one, with the offer trimmed. A route that also takes proof-of-work puts an <code>altPayment</code> pointer first.</p>
+  <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 18px;">Retry with your client's <code>PAYMENT-SIGNATURE</code> header. If it is wrong, the 402 body carries a <code>reason</code>, a <code>hint</code> in words, and a <code>retry</code> telling you what kind of change is needed, ahead of the same offer the header carries. The header's one-line <code>error</code> is left out of a refusal's body, so a client that reads <code>error</code> first reads the hint instead. Here is a real one, with the offer trimmed. A route that also takes proof-of-work puts an <code>altPayment</code> pointer first.</p>
   ${pre(`{
-  "error": "No matching payment requirements",
   "reason": "unsupported-scheme",
   "hint": "Scheme \\"lightning\\" is not offered on this route. Offered: exact.",
   "retry": "choose-offered-option",

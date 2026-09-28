@@ -157,9 +157,10 @@ export function hintForCredential(key, { now = Date.now } = {}) {
  *  Retry-After that slows a loop. Requests with no payment header, a
  *  different credential, and every non-402 pass through byte-identical. The
  *  offer is never touched here: the 402 body mirror
- *  (src/payment-required-body.js) merges the PAYMENT-REQUIRED object in after
- *  these fields, and its `error` replaces the "Payment rejected" fallback
- *  whenever the header is present. */
+ *  (src/payment-required-body.js) merges the PAYMENT-REQUIRED offer in after
+ *  these fields, and because each of these bodies carries a hint it drops
+ *  `error` (the "Payment rejected" fallback and the header's sentence alike),
+ *  so a client that reads `error` first reads the hint instead. */
 export function verifyHintMiddleware() {
   return function verifyHint(req, res, next) {
     const header = req.headers["payment-signature"] || req.headers["x-payment"];

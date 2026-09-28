@@ -13,6 +13,21 @@
 // keep their place at the front of the body (a log line that shows the first
 // hundred characters still shows the reason).
 //
+// ONE EXCEPTION, `error`, on a body that explains itself. A refusal this server
+// explained (a verify or gate `hint`, or an RFC 9457 problem's `detail`) keeps
+// its explanation where an `error`-first client reads it: such a body carries
+// the offer (x402Version, resource, accepts, extensions) and NO `error` at all,
+// neither the header's one-line sentence nor our own "Payment rejected"
+// fallback. OpenAI-compatible SDK clients build their message from a top-level
+// `error` whenever one exists (and from the whole body otherwise), and
+// agent402-client reads `error` before `detail`, so a mirrored `error` showed
+// "insufficient_funds" or "Payment required" in place of the hint that says
+// the wallet holds too little USDC, or the problem detail that names the bad
+// credential. `error` is optional in the protocol's PaymentRequired schema, so
+// the body still parses as one, and a key that is absent does not disagree
+// with the header. An unpaid 402 (no hint, no detail) carries the header's
+// `error` like every other key.
+//
 // WHY A SEND-LEVEL WRAPPER. The MPP problem patch (markMppProblem in
 // src/mpp-problem.js) replaces the body at res.send, after every res.json
 // wrapper has run. A merge at res.json would be thrown away on an MPP refusal,
@@ -47,6 +62,14 @@ export const MIRRORED_STATUSES = Object.freeze(new Set([402, 412]));
 export const PAYMENT_REQUIRED_OFFER_KEYS = Object.freeze(["x402Version", "resource", "accepts", "extensions"]);
 
 const isPlainObject = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+const nonEmptyString = (v) => typeof v === "string" && v.trim() !== "";
+
+/** True when a 402 body already says in words what went wrong: our verify or
+ *  gate `hint`, or an RFC 9457 problem's `detail`. Such a body is mirrored
+ *  without `error` (see the header comment). */
+export function explainsItself(body) {
+  return isPlainObject(body) && (nonEmptyString(body.hint) || nonEmptyString(body.detail));
+}
 
 /** The PaymentRequired object in a PAYMENT-REQUIRED header value, or null when
  *  it is absent, undecodable, or not shaped like one. */
@@ -59,7 +82,8 @@ export function decodePaymentRequired(value) {
 }
 
 /** The body with the header's object merged in (header keys win), as a JSON
- *  string, or null when the body should go out unchanged. */
+ *  string, or null when the body should go out unchanged. A body that
+ *  explains itself gets the offer without any `error` key. */
 export function mergePaymentRequiredBody(bodyText, headerValue) {
   try {
     if (typeof bodyText !== "string" || !bodyText.trimStart().startsWith("{")) return null;
@@ -67,7 +91,10 @@ export function mergePaymentRequiredBody(bodyText, headerValue) {
     if (!pr) return null;
     const body = JSON.parse(bodyText);
     if (!isPlainObject(body)) return null;
-    return JSON.stringify({ ...body, ...pr });
+    if (!explainsItself(body)) return JSON.stringify({ ...body, ...pr });
+    const { error: _headerError, ...offer } = pr;
+    const { error: _ownError, ...ours } = body;
+    return JSON.stringify({ ...ours, ...offer });
   } catch {
     return null;
   }
