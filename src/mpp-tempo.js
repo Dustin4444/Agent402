@@ -17,6 +17,13 @@
 // hold a Tempo signing key: the relay broadcasts on our behalf, we only
 // supply a receiving address.
 //
+// A buyer whose connection closes before the handler's answer could be sent
+// is never broadcast (src/hangup-settlement.js): the gate checks for it after
+// the handler and before the broadcast, answers 499, and keeps the credential
+// spent so it cannot buy a second run. Only a close that lands while the
+// broadcast itself is in flight is charged; that one is booked as owed in the
+// refund ledger by server.js.
+//
 // Scope: the one-shot `tempo.charge()` method only. Tempo also has a
 // stateful session/channel protocol (TIP-1034, for pay-per-token streaming)
 // — deliberately out of scope here; see the approved plan.

@@ -8338,7 +8338,7 @@ if (FREE_MODE) {
         if (resolved) return;
         resolved = true;
         if (res.statusCode === 200) replayGuard.settle(replayKey).catch(() => {});
-        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored, client aborted)
+        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored)
       };
       res.on("finish", finishGuard);
       // Client left before the response finished. On a close before the first

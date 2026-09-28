@@ -9,6 +9,9 @@
 //   never re-shows the key).
 // - The gate AUTHORIZES before the handler (balance >= the route's list price)
 //   and DEBITS only on a final 200 (res "finish"); a 4xx/5xx is never charged.
+//   A buyer whose connection closes before the first response byte is not
+//   charged either (the hold is released, the same rule as every other rail,
+//   src/hangup-settlement.js); a stream that already began is settled.
 //   Balances are integer micro-dollars (sub-cent prices like $0.001 are exact).
 // - Keys are stored HASHED (sha256); the plaintext exists only in the claim
 //   response / email. Per-key files under /data/credits, atomic tmp+rename.
