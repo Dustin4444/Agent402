@@ -187,7 +187,8 @@ const rowsFor = (hash) => ledger.listRefunds({ status: "all", limit: 1000 }).fil
   // Controls: never a row that is being sent, paid or void; never a finalize-refused row.
   const hs = hashFor(11);
   await post(pushCred(hs), {});
-  ok(ledger.claimRefundForSend(rowsFor(hs)[0].id, "test"), "setup: claimed for sending");
+  // Claimed with its note unchanged, so only the status guard stands between it and a rewrite.
+  ok(ledger.claimRefundForSend(rowsFor(hs)[0].id, PUSH_INPUT_REFUSED_NOTE), "setup: claimed for sending, note unchanged");
   ok(debts.hungUp(hs, "no ticket") === false && rowsFor(hs)[0].status === "sending" && rowsFor(hs)[0].httpStatus === 400, "a row being sent is never rewritten");
   const hv = hashFor(12);
   const cv = pushCred(hv);
