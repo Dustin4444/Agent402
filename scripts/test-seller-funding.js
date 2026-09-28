@@ -170,11 +170,11 @@ ok(ev[LOOP].grossCallsSettled === 62 && ev[LOOP].selfFundedCalls === 60 && ev[LO
   "FUNDED FLEET: 60 of 62 payments were paid with the seller's own $0.13 per wallet -> net 2 calls / 2 payers, circular");
 ok(ev[ECHO].selfFundedCalls === 20 && ev[ECHO].callsSettled === 1 && ev[ECHO].circular === true, "ECHO LOOP: a seller that returns each payment as it lands is netted every time (the return funds the next payment)");
 ok(s1.ranked.find((r) => r.wallets.includes(LOOP)).callsSettled === 62, "the public row stays gross (router input only; the self-transfer is skipped as a buyer)");
-ok(ev[HONEST].grossCallsSettled === 106 && ev[HONEST].selfFundedCalls === 1 && ev[HONEST].callsSettled === 105 && ev[HONEST].uniqueBuyers === 11 && ev[HONEST].circular === false,
-  "HONEST SELLER WITH REFUNDS: a $0.01 refund covers ONE later $0.01 payment, not every later payment (106 gross, 105 net, 11 payers, not circular)");
+ok(ev[HONEST].grossCallsSettled === 106 && ev[HONEST].selfFundedCalls === 0 && ev[HONEST].callsSettled === 106 && ev[HONEST].uniqueBuyers === 11 && ev[HONEST].circular === false,
+  "HONEST SELLER WITH REFUNDS: a $0.01 refund to a payer that had already paid gives back its own money, so the payment after it is not netted (106 gross, 106 net, 11 payers, not circular)");
 {
   const pair20 = state1.wallets.get(HONEST).pairs.get(P(20));
-  ok(pair20 && pair20.pool === usd(0.01) && pair20.recs.length === 0, "a refund AFTER a payer's payments never makes those payments self-funded (P20: pool 0.01 unspent, nothing netted)");
+  ok((!pair20 || (pair20.pool === 0 && pair20.recs.length === 0)) && state1.wallets.get(HONEST).known.get(P(20))[4] === usd(0.09), "a refund AFTER a payer's payments never makes those payments self-funded, and adds no pool (P20: the $0.01 refund offsets its $0.10 of genuine payments, $0.09 of room left)");
   ok(!state1.wallets.get(HONEST).pairs.has(P(22)), "a ZERO-VALUE transfer log is never funding (anyone can emit one from any wallet)");
   ok(!state1.wallets.get(HONEST).pairs.has(P(40)) && ev[HONEST].uniqueBuyers === 11, "a payer funded by ANOTHER seller's wallet still counts for this seller");
 }
@@ -208,8 +208,8 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   ok(s2.ev[LOOP].selfFundedCalls === 65 && s2.ev[LOOP].grossCallsSettled === 67, "payments worked through in the first scan keep their verdict in the second (60 remembered + 5 new, from the persisted pools)");
   // Round trip through the volume's format: the same state, the same answer.
   const re = parseFundingState(serializeFundingState(state1), USDC);
-  ok(re.wallets.get(LOOP).cursor === 1400 && re.wallets.get(LOOP).pairs.get(P(1)).recs.length === state1.wallets.get(LOOP).pairs.get(P(1)).recs.length && re.wallets.get(HONEST).pairs.get(P(20)).pool === usd(0.01),
-    "the state round-trips through its persisted form (cursors, pools, remembered payments)");
+  ok(re.wallets.get(LOOP).cursor === 1400 && re.wallets.get(LOOP).pairs.get(P(1)).recs.length === state1.wallets.get(LOOP).pairs.get(P(1)).recs.length && re.wallets.get(HONEST).known.get(P(20))[4] === usd(0.09) && re.wallets.get(LOOP).known.get(P(1)).length === 4,
+    "the state round-trips through its persisted form (cursors, pools, remembered payments, refund room; a payer with none keeps the four-field form)");
   ok(parseFundingState(serializeFundingState(state1), "0x" + "9".repeat(40)).wallets.size === 0 && parseFundingState("{not json", USDC).wallets.size === 0 && parseFundingState(serializeFundingState(state1).replace('"v":2', '"v":1'), USDC).wallets.size === 0,
     "a state for another token, of another version, or an unreadable file, starts empty (every payer's history is read again)");
   ok(re.wallets.get(LOOP).known.has(P(90)) && re.wallets.get(LOOP).known.size === state1.wallets.get(LOOP).known.size, "...the known payers round-trip too");
@@ -260,11 +260,11 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   o2.push(log(W2, F, usd(0.5), 500_000));
   for (let k = 0; k < 50; k++) p2.push({ wallet: W2, payer: F, usd: 0.01, pos: posOf(900_000 + k, 0) });
   const r2 = await scanOnce({ sellers: [seller(W2, "seller-b.example")], pays: p2, outs: o2, state: st, latest: 1_000_000, span: 200_000 });
-  ok(r2.ev[W2].selfFundedCalls === 50 && r2.stats.history.payers === 0 && r2.stats.history.creditReads === 1 && r2.calls.filter(isOutbound).length === 1, `a KNOWN payer funded later is caught by the incremental read (one call over the blocks since the cursor; its own earlier transfers read once as credit, ${r2.stats.history.calls} call)`);
+  ok(r2.ev[W2].selfFundedCalls === 49 && r2.stats.history.payers === 0 && r2.stats.history.creditReads === 1 && r2.calls.filter(isOutbound).length === 1, `a KNOWN payer funded later is caught by the incremental read (the $0.50 less the $0.01 it had genuinely paid nets 49; one call over the blocks since the cursor; its own earlier transfers read once as credit, ${r2.stats.history.calls} call)`);
   // A wallet whose state was dropped for being idle: every payer is new again.
   const dropped = createFundingState(USDC);
   const r3 = await scanOnce({ sellers: [seller(W2, "seller-b.example")], pays: p2, outs: o2, state: dropped, latest: 1_000_000, span: 200_000 });
-  ok(r3.ev[W2].selfFundedCalls === 50 && r3.stats.history.payers === 1, "...and a wallet whose state was dropped reads its payers' history again: the same 50 netted");
+  ok(r3.ev[W2].selfFundedCalls === 49 && r3.stats.history.payers === 1, "...and a wallet whose state was dropped reads its payers' history again: the same 49 netted");
 }
 {
   // THE BUDGET, on the shape the review measured: one wallet sending over
@@ -933,7 +933,7 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const behind = await scanOnce({ sellers: SELLERS, pays, outs, state: parseFundingState(serializeFundingState(state1), USDC), latest: 1600, span: 1500, readOpts: { maxCalls: 0 } });
   ok(behind.stats.behind === 6 && behind.stats.calls === 0 && behind.ev[LOOP].fundingRead === false, "no budget: every paid wallet is behind this scan");
   ok(behind.ev[LOOP].callsSettled === 0 && behind.ev[LOOP].uniqueBuyers === 0 && behind.ev[LOOP].fundingPending === true, "a CIRCULAR wallet whose reads are behind is credited nothing until they catch up (its gross 62 is never credited)");
-  ok(behind.ev[HONEST].callsSettled === 105 && behind.ev[HONEST].fundingPending === undefined, "a wallet that is not circular keeps what is known netted and counts the rest (absence of evidence never refuses)");
+  ok(behind.ev[HONEST].callsSettled === 106 && behind.ev[HONEST].fundingPending === undefined, "a wallet that is not circular keeps what is known netted and counts the rest (absence of evidence never refuses)");
 }
 
 // --- 5. The verdict: carried 30 days, and the operator's clearance ------------------
@@ -996,8 +996,9 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
 
 {
   // THE REVIEW'S HONEST SELLER: 100 calls from 10 payers, one $0.01 refund to
-  // a repeat buyer who then buys again. One payment is netted; the seller stays
-  // eligible, and the dossier must not present its history as self-funded.
+  // a repeat buyer who then buys again. The refund gives back a payment the
+  // buyer genuinely made, so nothing is netted; the seller stays eligible, and
+  // the dossier must not present its history as self-funded.
   const W = addr("f3");
   const sp = [], so = [log(W, P(701), usd(0.01), 205, 50)];
   for (let i = 1; i <= 10; i++) for (let k = 0; k < 10; k++) sp.push({ wallet: W, payer: P(700 + i), usd: 0.01, pos: posOf(200 + k * 10, i) });
@@ -1005,9 +1006,9 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, circularWallets: circularWalletsFrom(r.ev, { now: NOW }), ...FLOORS }).get("https://seller-h.example");
   const d = dossierOf("https://seller-h.example", W, bind);
   const sf = d.wallets.base.selfFunded;
-  ok(r.ev[W].callsSettled === 99 && r.ev[W].uniqueBuyers === 10 && label(new Map([["https://seller-h.example", bind]]), "https://seller-h.example", W).eligible === true, "(one payment netted: 99 / 10, eligible)");
-  ok(sf && sf.nettedCalls === 1 && sf.nettedUsd === 0.01 && sf.mostlySelfFunded === false && sf.changesRouterVerdict === false, "HONEST SELLER DOSSIER: publishes the one netted payment ($0.01), not mostly self-funded, verdict unchanged");
-  ok(!(d.flags || []).some((f) => SELF_FLAG.test(f)) && !/"settled":100\b/.test(JSON.stringify(d.wallets)), "...raises no flag, and nowhere presents its 100 calls as self-funded");
+  ok(r.ev[W].callsSettled === 100 && r.ev[W].selfFundedCalls === 0 && r.ev[W].uniqueBuyers === 10 && label(new Map([["https://seller-h.example", bind]]), "https://seller-h.example", W).eligible === true, "(a refund of a genuine payment nets nothing: 100 / 10, eligible)");
+  ok(!sf || (sf.nettedCalls === 0 && sf.mostlySelfFunded === false && sf.changesRouterVerdict === false), "HONEST SELLER DOSSIER: nothing netted to publish, not mostly self-funded, verdict unchanged");
+  ok(!(d.flags || []).some((f) => SELF_FLAG.test(f)) && !/"settled":100\b/.test(JSON.stringify(sf || {})), "...raises no flag, and nowhere presents its 100 calls as self-funded");
 }
 
 // --- 6c. Third-party counts of a wallet are netted by what its own scan found ----
@@ -1072,7 +1073,8 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
 // --- 7. Refunds and cheap calls cannot be turned against an honest seller ----------
 {
   // A seller refunds its main repeat buyer $0.01 once; the buyer then makes 60
-  // more purchases. Only what the refund covers is netted.
+  // more purchases. The refund gives back one of its 40 genuine payments, so
+  // nothing is netted.
   const W = addr("a1");
   const sp = [], so = [];
   const main = P(500), others = [P(501), P(502), P(503)];
@@ -1085,8 +1087,8 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   const bz = [["https://seller-r.example", { calls30d: 400, payers30d: 12, payTos: [W] }]];
   const circ = circularWalletsFrom(r.ev, { now: NOW });
   const bind = buildEvidenceBinding({ leaderboardRows: r.ranked, walletEvidence: r.ev, bazaarQuality: bz, circularWallets: circ, ...FLOORS });
-  ok(r.ev[W].selfFundedCalls === 1 && r.ev[W].callsSettled === 159 && r.ev[W].circular === false && !circ.has(W), "ONE $0.01 REFUND to the main buyer nets one later $0.01 payment, not its 60 (159 of 160 counted, not circular)");
-  ok(label(bind, "https://seller-r.example", W).eligible === true && bind.get("https://seller-r.example").byWallet.get(W).settled === 399 && bind.get("https://seller-r.example").byWallet.get(W).payers === 12 && rankingPayersOf(bz[0][1], circ) === 12, "...eligible: its Bazaar figures lose only the one payment the refund paid for (399 / 12), and its tie-break payers are kept");
+  ok(r.ev[W].selfFundedCalls === 0 && r.ev[W].callsSettled === 160 && r.ev[W].circular === false && !circ.has(W), "ONE $0.01 REFUND to the main buyer after it had paid nets none of its 60 later payments (160 of 160 counted, not circular)");
+  ok(label(bind, "https://seller-r.example", W).eligible === true && bind.get("https://seller-r.example").byWallet.get(W).settled === 400 && bind.get("https://seller-r.example").byWallet.get(W).payers === 12 && rankingPayersOf(bz[0][1], circ) === 12, "...eligible: its Bazaar figures lose nothing (400 / 12), and its tie-break payers are kept");
 }
 {
   // Wallets the seller once refunded, each paying the seller's cheapest price
@@ -1112,6 +1114,52 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   for (let k = 0; k < 100; k++) sp.push({ wallet: W, payer: P(950), usd: 0.001, pos: posOf(1200 + k, 0) });
   const r = await scanOnce({ sellers: [seller(W, "seller-u.example")], pays: sp, outs: so, state: createFundingState(USDC), latest: 2000, span: 2000 });
   ok(r.ev[W].selfFundedCalls === 100 && r.ev[W].circular === false && r.ev[W].callsSettled === 20 && r.ev[W].uniqueBuyers === 4, "100 refunded $0.001 calls against 20 genuine $0.10 ones: netted, but the seller is not circular ($0.10 of $2.10 self-funded)");
+}
+
+// --- 7b. Refund-and-retry: a refund gives back genuine payments first -------------
+{
+  const run = async (pays0, outs0, w) => {
+    const st = createFundingState(USDC);
+    const r = await scanOnce({ sellers: [seller(w, "seller-rr.example")], pays: pays0, outs: outs0, state: st, latest: 2000, span: 2000 });
+    return { ev: r.ev[w], st };
+  };
+  {
+    // A flaky tool: P pays, the seller refunds, P retries; twice.
+    const W = addr("b1"), p = P(1500);
+    const sp = [{ wallet: W, payer: p, usd: 0.05, pos: posOf(1000, 0) }, { wallet: W, payer: p, usd: 0.05, pos: posOf(1010, 0) }, { wallet: W, payer: p, usd: 0.05, pos: posOf(1020, 0) }];
+    const so = [log(W, p, usd(0.05), 1005), log(W, p, usd(0.05), 1015)];
+    const { ev: e, st } = await run(sp, so, W);
+    ok(e.selfFundedCalls === 0 && e.callsSettled === 3 && e.circular === false, "REFUND AND RETRY twice: the retries are the payer's own money, counted (3 of 3), not circular");
+    // The room survives the volume's format and an old four-field state still parses.
+    const text = serializeFundingState(st);
+    const back = parseFundingState(text, USDC);
+    ok(JSON.stringify(back.wallets.get(W).known.get(p)) === JSON.stringify(st.wallets.get(W).known.get(p)) && st.wallets.get(W).known.get(p)[4] === usd(0.05), "refund room round-trips ($0.05 of genuine payments not yet refunded)");
+    const legacy = JSON.parse(text); legacy.wallets[W].k[p] = legacy.wallets[W].k[p].slice(0, 4);
+    const old = parseFundingState(JSON.stringify(legacy), USDC);
+    ok(old.wallets.get(W).known.get(p).length === 4 && (old.wallets.get(W).known.get(p)[4] || 0) === 0, "a state file written before refund room existed parses, reading as no room");
+  }
+  {
+    // Fund first, then pay: still the seller's money.
+    const W = addr("b2"), p = P(1501);
+    const { ev: e } = await run([{ wallet: W, payer: p, usd: 0.05, pos: posOf(1010, 0) }, { wallet: W, payer: p, usd: 0.05, pos: posOf(1020, 0) }], [log(W, p, usd(0.1), 1000)], W);
+    ok(e.selfFundedCalls === 2 && e.callsSettled === 0, "FUNDED FIRST, THEN PAID: both payments netted (no genuine payment came before the funding)");
+  }
+  {
+    // fund -> pay -> fund -> pay: a netted payment gives no refund room.
+    const W = addr("b3"), p = P(1502);
+    const sp = [{ wallet: W, payer: p, usd: 0.05, pos: posOf(1010, 0) }, { wallet: W, payer: p, usd: 0.05, pos: posOf(1030, 0) }];
+    const { ev: e } = await run(sp, [log(W, p, usd(0.05), 1000), log(W, p, usd(0.05), 1020)], W);
+    ok(e.selfFundedCalls === 2 && e.callsSettled === 0 && e.circular === true, "CYCLE fund -> pay -> fund -> pay: fully netted (a netted payment earns no refund room)");
+  }
+  {
+    // A refund larger than what the payer genuinely paid: only the excess is pool.
+    const W = addr("b4"), p = P(1503), q = P(1504);
+    const sp = [{ wallet: W, payer: p, usd: 0.05, pos: posOf(1000, 0) }];
+    for (let k = 0; k < 3; k++) sp.push({ wallet: W, payer: p, usd: 0.05, pos: posOf(1100 + k, 0) });
+    for (let k = 0; k < 4; k++) sp.push({ wallet: W, payer: q, usd: 0.05, pos: posOf(1200 + k, 0) });
+    const { ev: e } = await run(sp, [log(W, p, usd(0.15), 1050)], W);
+    ok(e.selfFundedCalls === 2 && e.callsSettled === 6, "a $0.15 'refund' of $0.05 genuinely paid nets only the $0.10 excess: two of the three later payments");
+  }
 }
 
 // --- 8. The ranking tie-break -------------------------------------------------------

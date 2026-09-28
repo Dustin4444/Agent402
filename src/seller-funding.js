@@ -17,12 +17,18 @@
 //     W: it first pays back the pool, and what is left is P's "credit", which
 //     a later W -> P transfer spends before it adds to the pool (the refund of
 //     a payment that was never counted is P's own money coming back, not the
-//     seller's). A COUNTED payment earns no credit: refunding it and having it
-//     spent again would count the same dollars twice.
+//     seller's).
+//   - a COUNTED payment P made with its own money (not netted) is refund
+//     ROOM (2026-09-28): a later W -> P transfer first gives back that room
+//     (a refund of a payment P genuinely made, which P may then spend on a
+//     retry) and only the excess adds to the pool. Each genuine payment gives
+//     room once; a NETTED payment gives none, so fund -> pay -> fund -> pay
+//     stays netted end to end. Before this, a flaky tool that refunded twice
+//     and was retried twice read 2/3 self-funded and could be marked circular.
 // So a refund (W -> P after P paid) never makes the earlier payment
-// self-funded, and it can cover later payments only up to its own amount; a
-// seller that funds a buyer once is netted until that buyer has spent the
-// money, and never after. Judged by DOLLARS: a wallet is "circular" when more
+// self-funded, and it covers later payments only by what it exceeds P's
+// unrefunded genuine payments; a seller that funds a buyer once is netted
+// until that buyer has spent the money, and never after. Judged by DOLLARS: a wallet is "circular" when more
 // than half of the dollars it received (of what has been read) were
 // self-funded. Counting calls or payers instead would let anyone flip an
 // honest seller with a few cheap calls from wallets the seller once refunded.
@@ -243,7 +249,9 @@ function newWalletState(windowStartBlock, now) {
   // been worked through against the payments the scan counted. `known`: payer
   // -> [addedAt, lastOwnMoneyPos, lastSellerMoneyPos, preWindowEnd] (positions,
   // -1 for never; preWindowEnd is the last block before the window when it
-  // became known).
+  // became known), and optionally a fifth: refund room, the payer's counted
+  // payments made with its own money not yet offset by a refund (micro-units;
+  // absent when 0, so a state written before it existed reads as none).
   // `netted`: day bucket -> payments netted.
   // `retryAt`: a wallet whose history or gap reads went past its share waits
   // until then (ms) before they are tried again. The read accounting (see ONE
@@ -334,7 +342,7 @@ export function serializeFundingState(state, { now = Date.now() } = {}) {
   for (const [w, ws] of state.wallets) {
     const p = {}, k = {}, b = {};
     for (const [payer, pair] of ws.pairs) p[payer] = [pair.pool, pair.recs.flat(), pair.pend.flat(), pair.credit, pair.at, pair.h ? 1 : 0];
-    for (const [payer, e] of ws.known) k[payer] = e;
+    for (const [payer, e] of ws.known) k[payer] = e[4] > 0 ? e : e.slice(0, 4);
     for (const [day, n] of ws.netted) b[day] = n;
     wallets[w] = {
       c: ws.cursor, t: ws.through, s: ws.since, x: ws.truncated ? 1 : 0, seen: ws.lastSeenAt, lc: ws.lastCircularAt || null,
@@ -386,7 +394,7 @@ export function parseFundingState(text, token) {
     const ws = { cursor: e.c, through: e.t, since: e.s, truncated: e.x === 1, lastSeenAt: Number(e.seen) || 0, lastCircularAt: typeof e.lc === "string" ? e.lc : null, retryAt: int(e.ra) !== null && e.ra > 0 ? e.ra : 0, ep, st: int(e.st) !== null && e.st > 0 ? e.st : 0, hp, td: td.length ? td : null, oh: int(e.oh) !== null && e.oh > 0 ? e.oh : 0, pairs: new Map(), known: new Map(), netted: new Map() };
     for (const [p0, v] of Object.entries(e.k || {})) {
       const p = lower(p0);
-      if (EVM.test(p) && Array.isArray(v) && v.length === 4 && v.every((x) => int(x) !== null && x >= -1)) ws.known.set(p, v.slice());
+      if (EVM.test(p) && Array.isArray(v) && (v.length === 4 || (v.length === 5 && v[4] >= 0)) && v.every((x) => int(x) !== null && x >= -1)) ws.known.set(p, v.slice());
     }
     for (const [p0, v] of Object.entries(e.p || {})) {
       const p = lower(p0);
@@ -1554,7 +1562,12 @@ export function processSellerFunding(state, byWallet, { throughFor = () => Infin
           const pair = ws.pairs.get(p);
           // Money of its own the payer sent before it became known: with no
           // funding before then its pool was empty, so all of it is credit.
-          for (const [, m] of hist.credits.get(p) || []) if (classify(w, m) !== 1) pair.credit += m;
+          // Its counted payments then were its own money too: refund room.
+          const k = ws.known.get(p);
+          for (const [, m] of hist.credits.get(p) || []) {
+            if (classify(w, m) !== 1) pair.credit += m;
+            else if (k) k[4] = (k[4] || 0) + m;
+          }
           pair.h = 1;
         }
         workPools(ws, row, limit, { fresh, freshPayers: new Set(freshPayers), maxPairsPerWallet, total, gapIns: gap?.ins || null, classify: (micro) => classify(w, micro), coveredShareToNet, bucketBlocks });
@@ -1598,13 +1611,15 @@ function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(),
       ws.netted.set(day, (ws.netted.get(day) || 0) + 1);
     } else k[1] = Math.max(k[1], pos);
   };
+  // A counted payment made with the payer's own money: room a refund may give back.
+  const addRoom = (p, m) => { const k = ws.known.get(p); if (k && m > 0) k[4] = (k[4] || 0) + m; };
   const byPayer = new Map();
   for (const [p0, v] of row.perPayer || []) {
     const p = lower(p0);
     const pays = paymentsOf(v).filter(inRange(p));
     if (!pays.length) continue;
     if (ws.pairs.has(p)) byPayer.set(p, pays);
-    else for (const [pos] of pays) note(p, pos, false); // never funded: its own money
+    else for (const [pos, m] of pays) { note(p, pos, false); addRoom(p, m); } // never funded: its own money
   }
   // Uncounted money a KNOWN payer sent this wallet: its credit, kept even
   // before the wallet has sent that payer anything (a refund can come later).
@@ -1640,14 +1655,21 @@ function workPools(ws, row, limit, { fresh = new Map(), freshPayers = new Set(),
     for (const [pos, kind, amt] of events) {
       pair.at = Math.max(pair.at || 0, pos);
       if (kind === 0) {
-        // The seller sends: first give back the payer's own uncounted money.
+        // The seller sends: first give back the payer's own uncounted money,
+        // then refund its unrefunded genuine payments; only the rest is pool.
         const refund = Math.min(pair.credit || 0, amt);
         pair.credit = (pair.credit || 0) - refund;
-        pair.pool += amt - refund;
+        const k = ws.known.get(p);
+        const offset = k ? Math.min(k[4] || 0, amt - refund) : 0;
+        if (k && offset > 0) k[4] -= offset;
+        pair.pool += amt - refund - offset;
       } else if (kind === 1) {
         const covered = Math.min(pair.pool, amt);
         if (covered > 0) { pair.pool -= covered; pair.recs.push([pos, covered, amt]); }
-        note(p, pos, covered > 0 && covered >= amt * coveredShareToNet);
+        const netted = covered > 0 && covered >= amt * coveredShareToNet;
+        note(p, pos, netted);
+        // A netted payment gives no room: its refund would launder the loop.
+        if (!netted) addRoom(p, amt - covered);
       } else {
         // Uncounted money from the payer: it pays back the pool first, the
         // rest is the payer's credit.

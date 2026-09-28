@@ -271,7 +271,7 @@ export function composeSellerDossier(a) {
         ? [...evidenceBinding.withheld.byWallet].map(([wallet, v]) => ({ wallet, settled: Number(v?.settled) || 0, payers: v?.payers === undefined ? null : Number(v.payers) }))
         : [],
       selfFunded: nettedCalls > 0 || mostlySelfFunded
-        ? { nettedCalls, nettedUsd, mostlySelfFunded, changesRouterVerdict, note: "payments the router's scan found paid with USDC this seller's own wallet had sent the payer earlier (a refund that pays for a later call counts here, up to its own amount); they are not counted as settlement. Summed over the scan window and this origin's wallets" }
+        ? { nettedCalls, nettedUsd, mostlySelfFunded, changesRouterVerdict, note: "payments the router's scan found paid with USDC this seller's own wallet had sent the payer earlier (a refund counts here only by what it exceeds the payer's own earlier payments it gives back); they are not counted as settlement. Summed over the scan window and this origin's wallets" }
         : null,
       inheritedFrom: inherited.length ? inherited : [],
       inheritedNote: inherited.length ? "evidence counted for this origin came partly from wallets other listings also name; the router requires the live 402 to pay one of them" : null,
