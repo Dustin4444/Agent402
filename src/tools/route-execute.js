@@ -474,13 +474,15 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             }
             paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
-            // The exposure DELIBERATELY stands. It is tempting to clear it here
-            // ("the buy failed, so we never spent"), but payExternal can throw
-            // after signing and broadcasting - a network error on the response,
-            // a timeout - and clearing on those is exactly the case that lets a
-            // spend disappear from the ledger. It ages out on its own within
-            // the stale window, so an honest buyer caught by a seller outage
-            // waits, while a spend we cannot account for keeps counting.
+            // WHAT STAYS BOOKED IS WHAT MAY HAVE LEFT THE WALLET. The payer
+            // stamps `committed:true` on every failure after the payment
+            // header left us (a seen response, or a request that got no
+            // answer) unless the chain showed the credential expired unused.
+            // Those bookings stand at the worst case, per payer and on the
+            // chain's 24 h ledger. Anything else provably spent nothing - the
+            // seller was unreachable, its 402 was unusable or over the cap,
+            // nothing was signed, or the chain said so - and is lowered to $0
+            // below, so failed candidates cannot fill the chain's day.
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             lastErr = bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
             // FALL THROUGH TO THE NEXT SELLER only on a 5xx (their own upstream
@@ -510,8 +512,16 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // it would let two cheap misses starve a legitimate retry. `committed`
             // is payX402's own stamp for "the authorization left".
             const spentMaybe = e?.committed === true;
-            if (spentMaybe) __paidAttempts++;
-            if (hasNext && !spentMaybe && chain !== "tempo") {
+            // A paid request that got no answer is never followed by another
+            // seller in the same request, even once the chain shows it unused.
+            // "No answer" is the outcome a caller's own params can produce (a
+            // scrape seller handed a URL that never responds), and waiting
+            // for the chain's answer has already spent most of the request's
+            // time. The chain's answer decides the booking, not a fallthrough.
+            const unanswered = e?.paidUnanswered === true;
+            if (spentMaybe || unanswered) __paidAttempts++;
+            if (!spentMaybe) adjustSpend(spendHandle, 0);
+            if (hasNext && !spentMaybe && !unanswered && chain !== "tempo") {
               console.warn(e?.refused
                 ? `[sor] seller ${ext.seller} refused the payment and the chain shows no debit - trying next candidate, nothing spent`
                 : `[sor] seller ${ext.seller} failed pre-payment (${sc}) - trying next candidate, nothing spent`);

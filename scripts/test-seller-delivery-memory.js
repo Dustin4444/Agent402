@@ -282,7 +282,7 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
      "and the CLEAR needs a settle receipt, so the memo cannot be bought off through a route the seller knows works");
   ok(/deliveryFailures\.delete\(key\);\n  if \(deliveryFailures\.size >= DELIVERY_FAIL_MAX\)/.test(buyer),
      "eviction deletes before it sets, so a repeat strike moves to the tail and the most-broken seller is not the first one evicted");
-  ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("const evmAuth = chain === \"base\""),
+  ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("if (chainCheckable) {"),
      "recorded BEFORE the Base/Solana chain-truth checks, so a Tempo or Algorand seller that fails after payment is recorded too");
 }
 

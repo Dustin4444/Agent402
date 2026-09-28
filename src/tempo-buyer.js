@@ -183,20 +183,30 @@ export async function payTempo(url, {
   const mint = createCredential || (await defaultCredentialFactory());
   const credential = await mint(new Response(null, { status: 402, headers: { "WWW-Authenticate": Challenge.serialize(ch) } }));
   if (typeof credential !== "string" || !/^Payment\s/i.test(credential)) throw bad("Could not create an MPP credential", 502);
-  const paid = await fetch(url, init({ Authorization: credential }));
-  if (paid.status === 402 || paid.status === 401) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
-  if (paid.status >= 400) throw bad(`Seller failed after payment (HTTP ${paid.status})`, paid.status >= 500 ? 502 : 502);
-  let reference = null;
-  const receiptHdr = paid.headers.get("payment-receipt");
-  if (receiptHdr) {
-    try { const { Receipt } = await import("mppx"); reference = Receipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+  // From here the credential has been handed to the seller, and nothing on
+  // this rail can prove afterwards that it was not broadcast: every failure
+  // below is stamped `committed`, so a caller keeps the spend booked against
+  // the wallet (route-execute) instead of treating it as nothing spent.
+  try {
+    const paid = await fetch(url, init({ Authorization: credential }));
+    if (paid.status === 402 || paid.status === 401) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
+    if (paid.status >= 400) throw bad(`Seller failed after payment (HTTP ${paid.status})`, paid.status >= 500 ? 502 : 502);
+    let reference = null;
+    const receiptHdr = paid.headers.get("payment-receipt");
+    if (receiptHdr) {
+      try { const { Receipt } = await import("mppx"); reference = Receipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+    }
+    recordUpstreamSpend("tempo-buyer", Number(quotedAtomic) / 1e6);
+    return {
+      result: await readCapped(paid, maxBytes),
+      quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: TEMPO_CAIP2 },
+      receipt: { transaction: reference, network: TEMPO_CAIP2, wire: "mpp" },
+    };
+  } catch (err) {
+    const e = err && typeof err === "object" ? err : bad(String(err), 502);
+    e.committed = true;
+    throw e;
   }
-  recordUpstreamSpend("tempo-buyer", Number(quotedAtomic) / 1e6);
-  return {
-    result: await readCapped(paid, maxBytes),
-    quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: TEMPO_CAIP2 },
-    receipt: { transaction: reference, network: TEMPO_CAIP2, wire: "mpp" },
-  };
 }
 
 async function defaultCredentialFactory() {

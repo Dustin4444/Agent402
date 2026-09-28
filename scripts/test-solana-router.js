@@ -263,7 +263,7 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   await new Promise((r) => refuser.listen(0, "127.0.0.1", r));
   const refuserUrl = `http://127.0.0.1:${refuser.address().port}/v1/chat/completions`;
   const refuserOrigin = `http://127.0.0.1:${refuser.address().port}`;
-  const buy = (notDebited) => payX402(refuserUrl, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25, notDebited }).then(() => null, (e) => e);
+  const buy = (notDebited) => payX402(refuserUrl, { maxAtomic: "10000", chain: "solana", trusted: true, sellerProof: async () => 25, notDebited, memoizeDelivery: true }).then(() => null, (e) => e);
 
   let asked = null;
   const heldBefore = _spentThisWindow();

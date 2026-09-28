@@ -131,7 +131,7 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
     const v2challenge = (accepts) => ({ status: 402, headers: { get: (n) => (String(n).toLowerCase() === "payment-required" ? Buffer.from(JSON.stringify({ x402Version: 2, accepts })).toString("base64") : null) }, json: async () => ({}), text: async () => "" });
     globalThis.fetch = async () => v2challenge([v2("USDC")]);
     let wd = null;
-    try { await payX402("https://wrongdomain.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base" }); } catch (e) { wd = e; }
+    try { await payX402("https://wrongdomain.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true }); } catch (e) { wd = e; }
     ok(wd && /EIP-712 name "USDC"/.test(wd.message) && /"USD Coin"/.test(wd.message) && /Nothing was signed/.test(wd.message), "wrong domain: a Base accept naming \"USDC\" is refused before signing, naming both names");
     ok(wd && wd.refused === true && wd.statusCode === 502, "wrong domain: the error is marked refused (route-execute falls through) with a 502");
     ok(_spentThisWindow() === 0n, "wrong domain: no budget held");
@@ -239,7 +239,7 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
     try { sentPayload = JSON.parse(Buffer.from(paid, "base64").toString("utf8")); } catch { sentPayload = null; }
     return { status: 402, headers: { get: () => "application/json" }, json: async () => ({ error: "payment_verification_failed" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }) };
   };
-  const buy = (notDebited, extra = {}) => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", notDebited, ...extra }).then(() => null, (e) => e);
+  const buy = (notDebited, extra = {}) => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited, ...extra }).then(() => null, (e) => e);
   const held0 = _spentThisWindow();
   const t0 = Math.floor(Date.now() / 1000);
   const r1 = await buy(async (q) => { asked = q; return { debited: false, observed: 1, expired: true }; }, { refusalMaxWaitMs: 12345 });

@@ -213,7 +213,7 @@ const A = "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01";
     "route-execute books the tier cap as the worst-case exposure, against the chain wallet too");
   ok(/adjustSpend\(\s*spendHandle\s*,\s*underlyingUsd\s*\)/.test(src),
     "route-execute corrects the exposure down to the amount actually quoted");
-  ok(src.indexOf("adjustSpend(spendHandle") > src.indexOf("const underlyingUsd"),
+  ok(src.indexOf("adjustSpend(spendHandle, underlyingUsd)") > src.indexOf("const underlyingUsd"),
     "the correction happens AFTER the real quote is known, never before");
   ok(/allowed\.code\s*===\s*"wallet_daily_ceiling"/.test(src) && /paused for everyone/.test(src),
     "route-execute tells the buyer a wallet_daily_ceiling refusal is a global pause, not their own limit");

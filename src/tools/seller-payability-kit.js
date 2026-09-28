@@ -308,7 +308,8 @@ export function buildSellerPayabilityTool({
         // rejected the credential a stock client produces, which is the
         // single most useful thing this check can tell a seller.
         payError = String(e?.message || e).slice(0, 300);
-        paid = { status: e?.statusCode === 402 || /refused the payment/i.test(payError) ? 402 : (e?.statusCode ?? null) };
+        // A paid request that got no answer has no status to report.
+        paid = { status: e?.paidUnanswered === true ? null : e?.statusCode === 402 || /refused the payment/i.test(payError) ? 402 : (e?.statusCode ?? null) };
         settled = false;
         // Nothing was signed unless the payer says it committed, so give the
         // day's budget back rather than holding the worst case for the window.

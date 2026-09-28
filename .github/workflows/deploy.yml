@@ -1374,6 +1374,8 @@ jobs:
           t node scripts/test-signing-halt.js
           # A paid seller's rejection is logged with its reason, and none of their body reaches our buyer (source assertions, offline)
           t node scripts/test-buyer-rejection-diagnostics.js
+          # A paid request with no answer keeps its hold and ends the request; a candidate that spent nothing leaves no booking on the chain's day; only the router's own purchase refused with 402/401 writes the refusal memo (offline, controls beside each rule)
+          t node scripts/test-router-paid-outcomes.js
           # Seller-written and caller-chosen bodies are read as capped streams: reading stops at the cap instead of buffering the whole body first (offline, pull-counted streams)
           t node scripts/test-capped-body-reads.js
 
