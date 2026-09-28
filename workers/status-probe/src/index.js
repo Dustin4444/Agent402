@@ -12,8 +12,12 @@
 // GitHub outage and a Cloudflare outage are not the same event.
 //
 // PAID-CALL, AND WHAT IT STILL DOES NOT HOLD: this Worker also walks the
-// proof-of-work path a wallet-less buyer takes (challenge, solve, call, check
-// the payload), and it does so WITHOUT POW_SECRET. The heartbeat marks its own
+// proof-of-work path end to end (challenge, solve, call, check the payload),
+// and it does so WITHOUT POW_SECRET. It walks a probe challenge, NOT the one a
+// buyer is issued: lower difficulty, shorter TTL, a marked token with its own
+// verify branch. The GitHub heartbeat walks the buyer's, and /status judges
+// paid-call per observer, so this Worker's success never clears a failure the
+// heartbeat saw on the buyer's path (stateFromSources in src/status-store.js). The heartbeat marks its own
 // call as internal by minting an X-Heartbeat-Token from that secret; copying it
 // onto a second platform would widen what a leak of this Worker can forge, so
 // it stays on GitHub. Instead the Worker presents STATUS_PROBE_TOKEN - the

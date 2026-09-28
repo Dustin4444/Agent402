@@ -1,7 +1,8 @@
 // The status Worker's paid-call challenge (2026-09-28).
 //
 // The Cloudflare status Worker (workers/status-probe) observes the paid-call
-// path by walking the proof-of-work path a wallet-less buyer takes. It is
+// path by walking the proof-of-work path end to end, on a probe challenge of
+// its own rather than the buyer's (the heartbeat walks the buyer's). It is
 // sized to the tightest Workers CPU limit, which a normal 16-bit solve would
 // blow many times over, and it deliberately does not hold POW_SECRET, so it
 // cannot mark its own call as ours with a heartbeat token. So the server hands

@@ -21,9 +21,17 @@ GitHub incident and a Cloudflare incident are not the same event.
 
 `api` (health), `catalog` (route count above the floor), `mcp` (connector
 handshake), `paywall` (an unpaid call still 402s), `rails` (Base still in the
-402 offer), and `paid-call` (the proof-of-work path a buyer without a wallet
-takes: challenge, solve, call `/api/hash`, check the answer is the hash of what
-it sent).
+402 offer), and `paid-call` (the proof-of-work path end to end: challenge,
+solve, call `/api/hash`, check the answer is the hash of what it sent).
+
+The paid-call check walks a low-difficulty **probe** challenge, not the one a
+buyer is issued: its difficulty, TTL and token shape all differ. The GitHub
+heartbeat walks the buyer's. Because the two paths differ, `/status` judges
+paid-call per observer rather than by the newest row: a failure either one
+records stands until that same observer sees the path work again, or its own
+reading goes stale (45 minutes for this Worker, 3 hours for the heartbeat). So
+this Worker's success every 5 minutes cannot clear a failure only the buyer's
+path has (`stateFromSources` in `src/status-store.js`).
 
 The paid-call check does **not** use `POW_SECRET`. The heartbeat marks its call
 as internal with an `X-Heartbeat-Token` minted from that secret, and copying it

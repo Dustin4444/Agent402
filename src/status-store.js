@@ -125,6 +125,25 @@ export function latestByComponent() {
     .all();
 }
 
+/** The newest observation of ONE component from EACH source that has observed
+ *  it. Same MAX(ts) rule as latestByComponent, taken per (component, source).
+ *  Read by the components whose observers walk different paths (see
+ *  stateFromSources), where one source's newest row says nothing about the
+ *  path another source walks. */
+export function latestBySource(component) {
+  const d = open();
+  if (!d) return [];
+  return d
+    .prepare(
+      `SELECT source, ts, ok, detail, url FROM status_probes p
+       WHERE component = ?
+         AND ts = (SELECT MAX(ts) FROM status_probes q WHERE q.component = p.component AND q.source = p.source)
+       GROUP BY source
+       ORDER BY source ASC`,
+    )
+    .all(String(component));
+}
+
 export function earliestObservation() {
   const d = open();
   if (!d) return null;
@@ -206,6 +225,41 @@ export function stateFrom(latest, { nowMs, staleAfterMs = 45 * 60_000 }) {
   const age = nowMs - latest.ts;
   if (age > staleAfterMs) return { state: "unknown", reason: "no recent observation", ageMs: age };
   return { state: latest.ok ? "operational" : "outage", ageMs: age, detail: latest.detail || null };
+}
+
+/** Current state of a component whose observers walk DIFFERENT paths, from the
+ *  newest observation of each source (latestBySource).
+ *
+ *  Newest-row-wins (stateFrom over latestByComponent) is right when every
+ *  source checks the same thing: a newer success is evidence of recovery. It
+ *  is wrong when they do not. A newer success on one path says nothing about
+ *  the other, so letting it overwrite a failure hides that failure for as long
+ *  as the first source keeps reporting - every few minutes, indefinitely.
+ *
+ *  So each source is judged on its own row against its own staleness bound
+ *  (`sourceStaleAfterMs[source]`, else `staleAfterMs`, which must track that
+ *  observer's cadence), and then:
+ *    - any source whose current reading is a failure makes it an outage;
+ *    - else any operational source makes it operational;
+ *    - else it is unknown (every source stale, or none ever observed).
+ *  A stale source does not vote either way: silence is neither health nor a
+ *  failure. `sources` carries each source's own reading, so the reason the
+ *  component reads as it does is visible rather than inferred. */
+export function stateFromSources(rows, { nowMs, staleAfterMs = 45 * 60_000, sourceStaleAfterMs = {} } = {}) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!list.length) return { state: "unknown", reason: "never observed", sources: [] };
+  const sources = list
+    .map((r) => {
+      const bound = Object.hasOwn(sourceStaleAfterMs, r.source) ? sourceStaleAfterMs[r.source] : staleAfterMs;
+      return { source: r.source, ts: r.ts, ...stateFrom(r, { nowMs, staleAfterMs: bound }) };
+    })
+    .sort((a, b) => b.ts - a.ts);
+  const view = sources.map(({ ts, ...s }) => s);
+  const failing = sources.find((s) => s.state === "outage");
+  if (failing) return { state: "outage", ageMs: failing.ageMs, detail: failing.detail, source: failing.source, sources: view };
+  const up = sources.find((s) => s.state === "operational");
+  if (up) return { state: "operational", ageMs: up.ageMs, detail: null, source: up.source, sources: view };
+  return { state: "unknown", reason: "no recent observation", ageMs: sources[0].ageMs, sources: view };
 }
 
 export function _resetForTest() {

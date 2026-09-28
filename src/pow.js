@@ -408,10 +408,14 @@ function leadingZeroBits(buf) {
 
 // --- Status-probe challenge ---------------------------------------------------
 // The Cloudflare status Worker (workers/status-probe) observes the paid-call
-// path by walking it the way a wallet-less buyer does. It is sized to the
+// path end to end: challenge, solve, unlock, payload. It is sized to the
 // tightest Workers CPU limit (10 ms per invocation), which a normal 16-bit solve
 // would blow many times over, and it deliberately does not hold POW_SECRET, so
-// it cannot mark its call as ours with a heartbeat token.
+// it cannot mark its call as ours with a heartbeat token. What it walks is
+// therefore NOT the buyer's challenge (difficulty, TTL and token shape all
+// differ below); the GitHub heartbeat still walks the buyer's, and /status
+// judges paid-call per observer so a success here cannot clear a failure
+// there (stateFromSources in src/status-store.js).
 //
 // So a caller presenting STATUS_PROBE_TOKEN (checked in server.js, the only
 // reader of that variable) is issued, for PROBE_POW_SLUG ONLY, a challenge at
