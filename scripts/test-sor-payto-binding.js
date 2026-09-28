@@ -115,12 +115,19 @@ ok(!buildEvidenceBinding({ bazaarQuality: [[ATTACKER, { calls30d: 900, payers30d
   ok(fromFold.get(HONEST).byWallet.get(V).settled === 2 && gateFor(fromFold.get(HONEST), V).ok === false && gateFor(fromFold.get(HONEST), W).ok === true, "an origin whose Bazaar figures span W and V clears only where W is paid");
 }
 
-// --- 5. The committed seed (a count with no wallet) ---------------------------
+// --- 5. The committed seed is NOT evidence (2026-09-28) ------------------------
+// It named origins with counts attributable to no wallet, so a seeded origin
+// cleared the floor with no binding and no payer figure. Passing it now changes
+// nothing: a seed-only origin has no evidence at all.
+const seedOnly = buildEvidenceBinding({ seedOrigins: { [ATTACKER]: 500 } });
+ok(!seedOnly.has(ATTACKER), "a seed-only origin has no entry in the evidence map (the seed input is ignored)");
+const seedLabel = dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: seedOnly.get(ATTACKER)?.settled || 0, payers: seedOnly.get(ATTACKER)?.payers, spendChains: ["base"], ...FLOORS, evidence: seedOnly.get(ATTACKER), livePayTo: X });
+ok(seedLabel.eligible === false && seedLabel.reason === "settlement_required", "SEED-ONLY ORIGIN NO LONGER CLEARS: it reads settlement_required");
 const seeded = buildEvidenceBinding({ seedOrigins: { [ATTACKER]: 500 }, leaderboardRows: [row] });
-ok(seeded.get(ATTACKER).seedSettled === 500 && baseLiveGate({ networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0.01, ...FLOORS, binding: seeded.get(ATTACKER), livePayTo: X }).ok === true, "an origin the committed seed carries above the floor is not bound (the seed names no wallet)");
-ok(baseLiveGate({ networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0.01, ...FLOORS, binding: seeded.get(ATTACKER), livePayTo: X }).evidenceWallets === null, "...and hands the payer no wallet list (nothing wallet-bound decided it)");
-const seededLow = buildEvidenceBinding({ seedOrigins: { [ATTACKER]: 10 }, leaderboardRows: [row] });
-ok(baseLiveGate({ networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0.01, ...FLOORS, binding: seededLow.get(ATTACKER), livePayTo: X }).ok === false, "a seed BELOW the floor does not unbind: the gate was cleared by a wallet's count, so the binding applies");
+ok(seeded.get(ATTACKER).settled === 5000 && !("seedSettled" in seeded.get(ATTACKER)), "beside real evidence the seed adds nothing");
+const seededGate = baseLiveGate({ networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0.01, ...FLOORS, binding: seeded.get(ATTACKER), livePayTo: X });
+ok(seededGate.ok === false && seededGate.detail === "evidence_payto_mismatch", "a seeded origin is bound like any other: its 402 paying X is refused (the seed once skipped this check)");
+ok(JSON.stringify(baseLiveGate({ networks: ["eip155:8453"], settled: 5000, payers: 40, priceUsd: 0.01, ...FLOORS, binding: seeded.get(ATTACKER), livePayTo: W }).evidenceWallets) === JSON.stringify([W]), "...and paid at W it hands the payer [W], never null");
 
 // --- 6. The public label: same function, the crawled address standing in -------
 const label = (livePayTo) => dispatchEligibility({ routable: true, networks: ["eip155:8453"], settled: 5000, payers: 40, spendChains: ["base", "solana"], ...FLOORS, evidence: binding.get(ATTACKER), livePayTo });
@@ -149,6 +156,7 @@ ok(typeof DISPATCH_DETAILS.evidence_payto_mismatch === "string" && dispatchLegen
   const de = server.slice(server.indexOf("function dispatchEvidence()"), server.indexOf("function spendChainsConfigured()"));
   ok(/for \(const \[origin, e\] of binding\)/.test(de) && /settled\.set\(origin, e\.settled\)/.test(de) && /payers\.set\(origin, e\.payers\)/.test(de) && !/bazaarQualityEntries|getLeaderboardSnapshot/.test(de), "settled and payers are projections of the binding, never a separate MAX over the raw sources");
   ok(!/function buildSettledByOrigin\(|function buildPayersByOrigin\(/.test(server), "the old per-source MAX builders are gone, so nothing can read the unbound maps");
+  ok(!/seed/i.test(builder) && server.split("\n").filter((l) => /SOR_SEED_ORIGINS/.test(l) && !/^\s*\/\//.test(l)).length === 2 && /const seedHint = Object\.hasOwn\(SOR_SEED_ORIGINS, norm\(r\.seller\)\);/.test(server), "the seed reaches nothing but the operator diagnostic's seedHint (never the binding)");
   const index = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
   ok(/foldBazaarQuality\(qualityByOrigin, origin, item\.quality, t\?\.payToByNetwork\?\.\["eip155:8453"\]/.test(index), "the Bazaar quality fold keeps each counted resource's Base payTo beside the counts");
 }

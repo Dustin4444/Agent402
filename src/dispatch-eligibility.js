@@ -85,9 +85,9 @@ const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.
  * paid at any other wallet it had been credited with, however thin that
  * wallet's own history. "Unreadable live payTo" is not a match either.
  *
- * @param {object} o.evidence   { byWallet: Map(wallet -> { settled, payers }),
- *                              seedSettled } (undefined/null = no binding
- *                              information: the gate result stands as before)
+ * @param {object} o.evidence   { byWallet: Map(wallet -> { settled, payers }) }
+ *                              (undefined/null = no binding information: the
+ *                              gate result stands as before)
  * @param {string|null} o.livePayTo  the Base address the origin's own 402
  *                              asks to be paid at (live probe at resolve
  *                              time; the crawled advertised address at label
@@ -96,9 +96,9 @@ const evmKey = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.
  */
 export function evidencePayToVerdict({ evidence, livePayTo, minSettled = 50, minPayers = 3 } = {}) {
   if (!evidence || typeof evidence !== "object") return { bound: false, ok: true, verdict: "no_binding_information" };
-  // The committed seed is a count with no wallet; clearing the floor on it
-  // alone skips the binding.
-  if (meetsRouterGate({ settled: Number(evidence.seedSettled || 0), payers: undefined, minSettled, minPayers }).ok) return { bound: false, ok: true, verdict: "own_evidence_clears_the_gate" };
+  // No evidence skips the binding: every figure the gate reads is kept against
+  // a wallet (the committed seed, a count with no wallet, stopped counting on
+  // 2026-09-28).
   const byWallet = evidence.byWallet instanceof Map ? evidence.byWallet : new Map();
   const payTos = [];
   for (const [w0, v] of byWallet) {

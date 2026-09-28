@@ -2,7 +2,6 @@
 // per wallet since 2026-09-28).
 //
 // The router's Base gate reads these kinds of evidence per origin:
-//   - the committed seed (SOR_SEED_ORIGINS): origin -> count, no wallet;
 //   - the chain join on the origin's OWN advertised Base address
 //     (provenByChain), kept against that address;
 //   - the x402 leaderboard, whose rows are keyed by operator and carry the
@@ -10,6 +9,10 @@
 //     the scan's per-wallet evidence beside them (getLeaderboardWalletEvidence);
 //   - the Bazaar's per-resource quality counts, measured on the origin's own
 //     URLs and split by the Base payTo each resource declares.
+// NOT evidence: the committed seed (src/sor-seed-sellers.json). It is a list
+// of origin NAMES with counts attributable to no wallet, so it could clear the
+// floor with no binding and no payer figure at all (2026-09-28). The
+// leaderboard warm-starts from the volume, so no measured history is lost.
 // A wallet the operator LISTS as shared (a split or settlement contract many
 // sellers are paid through, src/shared-paytos.js) credits nobody with its
 // leaderboard or chain-join history: those figures count payments forwarded
@@ -90,26 +93,20 @@ export function rowWalletFigures(row, walletEvidence = null) {
  *   payTos       Set(wallet)  every wallet with evidence
  *   ownSettled, ownPayers    the chain join alone (evidence on the origin's own
  *                             advertised address), for reporting
- *   seedSettled              the committed seed's count for the origin (no wallet)
  *   withheld     { byWallet, payTos }  leaderboard / chain-join figures at wallets
  *                             the operator lists as shared: credited to nobody
  * }
  *
  * `sharedWallets`: anything with has(wallet) (src/shared-paytos.js), or null.
  */
-export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, sharedWallets = null, minSettled = 50, minPayers = 3 } = {}) {
+export function buildEvidenceBinding({ leaderboardRows = [], walletEvidence = null, bazaarQuality = [], chainProven = null, sharedWallets = null, minSettled = 50, minPayers = 3 } = {}) {
   const m = new Map();
   const ent = (o) => {
     const k = norm(o);
-    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), ownSettled: 0, ownPayers: undefined, seedSettled: 0 });
+    if (!m.has(k)) m.set(k, { byWallet: new Map(), heldByWallet: new Map(), ownSettled: 0, ownPayers: undefined });
     return m.get(k);
   };
   const isShared = (w) => !!(sharedWallets && typeof sharedWallets.has === "function" && sharedWallets.has(w));
-  for (const [o, c] of Object.entries(seedOrigins || {})) {
-    if (!o) continue;
-    const e = ent(o);
-    e.seedSettled = Math.max(e.seedSettled, Number(c) || 0);
-  }
   for (const row of Array.isArray(leaderboardRows) ? leaderboardRows : []) {
     const origins = Array.isArray(row?.origins) ? row.origins : (row?.homepage ? [row.homepage] : []);
     const figures = rowWalletFigures(row, walletEvidence);
@@ -150,18 +147,14 @@ export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], w
         best = v; bestClears = clears;
       }
     }
-    // The seed carries a count and no wallet. It stands in the projection only
-    // where no wallet clears on its own, with no payer figure of its own.
-    const useSeed = !bestClears && e.seedSettled > (best ? best.settled : 0);
     out.set(o, {
       byWallet: e.byWallet,
       clearing,
-      settled: useSeed ? e.seedSettled : (best ? best.settled : 0),
-      payers: useSeed ? undefined : (best ? best.payers : undefined),
+      settled: best ? best.settled : 0,
+      payers: best ? best.payers : undefined,
       payTos: new Set(e.byWallet.keys()),
       ownSettled: e.ownSettled,
       ownPayers: e.ownPayers,
-      seedSettled: e.seedSettled,
       withheld: { byWallet: e.heldByWallet, payTos: new Set(e.heldByWallet.keys()) },
     });
   }
@@ -176,7 +169,8 @@ export function buildEvidenceBinding({ seedOrigins = {}, leaderboardRows = [], w
  *   { ok: true, livePayTo, evidenceWallets }      - pay it; when the binding decided it,
  *                                                   the payer must sign only to one of
  *                                                   evidenceWallets (the wallets whose OWN
- *                                                   evidence clears), else null
+ *                                                   evidence clears); null only when no
+ *                                                   binding was passed
  *   { ok: false, detail, livePayTo, payTos }      - skip it, and why
  *
  * `livePayTo` may be passed decoded, or read from the probe's `header` / `body`.

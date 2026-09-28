@@ -1081,13 +1081,13 @@ const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
 // behaviour - same rule as the payTo match: refuse on positive evidence
 // against, never on absence of evidence.
 const SOR_MIN_DISTINCT_PAYERS = Number(process.env.SOR_MIN_DISTINCT_PAYERS || "3");
-// Durable proven-seller FLOOR for the reliability gate (scripts/gen-sor-seed.js).
-// The live leaderboard snapshot is empty for the minutes its first on-chain scan
-// takes after a boot, and /data warm-start only helps once a file exists — so on
-// a fresh clone / wiped volume / very first deploy the resolver would still go
-// blind. This committed seed (origin -> callsSettled, from a real scan) is the
-// baseline the live/persisted snapshot is layered onto, so a proven seller is
-// ALWAYS resolvable. Loaded once; empty object if the file is somehow missing.
+// The committed seed of once-proven origins (scripts/gen-sor-seed.js): a
+// DISCOVERY HINT, NOT EVIDENCE (2026-09-28). It used to be the gate's floor, a
+// map of origin NAMES to counts attributable to no wallet, so a seeded origin
+// cleared the Base floor with no binding to where the money goes and no payer
+// figure at all. The leaderboard warm-starts from the volume, so a boot is not
+// blind without it. Read only by the operator diagnostic below, which says
+// whether a candidate is on the list. Loaded once; empty if the file is missing.
 const SOR_SEED_ORIGINS = (() => {
   try { return JSON.parse(readFileSync(new URL("./sor-seed-sellers.json", import.meta.url), "utf8")).origins || {}; }
   catch { return {}; }
@@ -1108,8 +1108,8 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 //   - the Bazaar's per-origin quality: measured on the origin's own URLs, split
 //     by the payTo those resources declare;
 //   - the chain join (provenByChain, the busiest Base merchants we observed
-//     settling), kept against the origin's own advertised address;
-//   - the committed seed: a count with no wallet.
+//     settling), kept against the origin's own advertised address.
+// The committed seed is not evidence (see SOR_SEED_ORIGINS above).
 // `settled` and `payers` are projections of the binding: the best single
 // wallet's figures, never a MAX of one wallet's calls beside another wallet's
 // payers.
@@ -1157,10 +1157,9 @@ function buildProvenPayToByOrigin(chainProven) {
   }
   return m;
 }
-// origin -> { byWallet, clearing, settled, payers, payTos, ownSettled, ownPayers, seedSettled }.
+// origin -> { byWallet, clearing, settled, payers, payTos, ownSettled, ownPayers, withheld }.
 function buildEvidenceBindingByOrigin({ chainProven }) {
   return buildEvidenceBinding({
-    seedOrigins: SOR_SEED_ORIGINS,
     leaderboardRows: getLeaderboardSnapshot()?.leaderboard || [],
     walletEvidence: getLeaderboardWalletEvidence(),
     bazaarQuality: bazaarQualityEntries(),
@@ -1622,7 +1621,6 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
             // candidate, and the payer refuses an accept naming any other
             // address - never the union of every wallet the origin was credited
             // with, which would let a thin wallet ride on a busy one's history.
-            // Evidence that binds no wallet (the seed) hands over null.
             evidenceWallets = gate.evidenceWallets;
           }
         }
@@ -1709,7 +1707,10 @@ async function diagnoseExternalSeller(task, { cap }) {
         probe = { status: p.status, live: p.status === 402 };
       } catch (e) { probe = { error: String(e?.message || e).slice(0, 120) }; }
     }
-    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, payers: payers ?? null, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, meetsBreadth, passesFilters, probe });
+    // On the committed seed list: a discovery hint for the operator, never
+    // evidence (it counts toward nothing above).
+    const seedHint = Object.hasOwn(SOR_SEED_ORIGINS, norm(r.seller));
+    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, payers: payers ?? null, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, meetsBreadth, passesFilters, probe, seedHint });
   }
   return { task, cap, threshold: SOR_MIN_SETTLED_TX, minDistinctPayers: SOR_MIN_DISTINCT_PAYERS, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
 }
