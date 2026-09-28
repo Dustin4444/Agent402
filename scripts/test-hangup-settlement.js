@@ -34,7 +34,12 @@
 //   j. no hang-up feeds the settle breaker or the composite guard;
 //   k. (runs after h) with the wallet's budget spent, a close during verify
 //      runs nothing and charges nothing, on the generic binder and on the
-//      memory family.
+//      memory family;
+//   l. (runs before h) a route whose effect outlives the answer is never
+//      forgiven: a hang-up after the handler ran on a memory write, attest,
+//      feedback or route-execute settles and is booked as owed, with budget
+//      to spare, while the same hang-up on an ordinary tool is not settled.
+// Part 2 also checks the lasting-effect list against the booted catalog.
 import { spawn } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -42,7 +47,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, CLIENT_GONE_TEXT } from "../src/hangup-settlement.js";
-import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
+import { reserveHangupForgiveness, settleHangupTicket, hangupForgiven, hangupForgivenessStatus, hangupForgivenessConfig, hangupTicketDenial, hasLastingEffect, LASTING_EFFECT_SLUG_LIST, _resetHangupForgiveness } from "../src/hangup-forgiveness.js";
 import { createCredits } from "../src/credits.js";
 import { getFreePorts } from "./lib/free-port.js";
 let pass = 0, proc = null, facilitator = null, orStub = null;
@@ -258,6 +263,33 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   _resetHangupForgiveness();
 }
 
+// 1g. A route whose effect outlives the answer never takes a ticket, whatever
+// budget is left, and spends none of it. One slug per class, then the readers
+// in the same families, which follow the budget like any other route.
+{
+  _resetHangupForgiveness();
+  const classes = [
+    ["memory-write", "the memory family's writers"], ["memory-remember", "the memory family's writers"], ["memory-forget", "the memory family's writers"],
+    ["attest", "an attestation on Base"], ["feedback", "a verdict stored against a sale"],
+    ["route-execute", "a purchase from an outside seller"], ["route-execute-pro", "a purchase from an outside seller"], ["seller-payability", "a purchase from an outside seller"],
+  ];
+  for (const [slug, why] of classes) {
+    const req = { __a402ClientGoneAt: Date.now() };
+    reserveHangupForgiveness(req, { keys: [`0x${slug}`, `ip:${slug}`], priceUsd: 0.001, slug });
+    ok(!hangupForgiven(req) && !chargeCancelledForClientGone(req) && hangupTicketDenial(req) === "lasting effect", `${slug} (${why}): gone with budget to spare, the ticket is denied for a lasting effect, so the charge stands (${hangupTicketDenial(req)})`);
+  }
+  const st = hangupForgivenessStatus();
+  ok(st.inflightUsd === 0 && st.abandonedInWindow === 0 && st.neverForgiven.includes("attest"), `a denied lasting-effect ticket holds no budget, and the operator surface lists the routes (${JSON.stringify(st)})`);
+  for (const slug of ["uuid", "memory-read", "memory-recall", "memory-log", "memory-grants", "feedback-summary", null]) {
+    const req = { __a402ClientGoneAt: Date.now() };
+    reserveHangupForgiveness(req, { keys: [`0xr-${slug}`, `ip:r-${slug}`], priceUsd: 0.001, slug });
+    ok(hangupForgiven(req) && chargeCancelledForClientGone(req) && hangupTicketDenial(req) === null, `${slug ?? "no slug"}: leaves nothing behind, so inside the budget the charge is cancelled`);
+  }
+  ok(!hasLastingEffect(undefined) && !hasLastingEffect({}) && !hasLastingEffect("Memory-Write") && hasLastingEffect("memory-write"), "hasLastingEffect matches exact catalog slugs only");
+  ok(Object.isFrozen(LASTING_EFFECT_SLUG_LIST), "the published list is frozen");
+  _resetHangupForgiveness();
+}
+
 // 1f. Source pins for the seams the booted test cannot isolate, and for the
 // vendor shape the x402 hook depends on.
 {
@@ -277,7 +309,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   // One post-paywall middleware reserves the ticket for EVERY paid catalog
   // route: after the last gate (the x402 dispatcher) and before any handler -
   // the memory family, the hand-written URL tools and the generic binder.
-  const reserve = server.indexOf("reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req) });");
+  const reserve = server.indexOf("reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });");
   const x402At = server.indexOf("return x402mw(req, res, next);");
   const firstHandler = Math.min(...['app.post("/api/extract"', 'app.post("/api/memory"', "for (const tool of ALL_KIT) {\n  const [method, path] = tool.route.split"].map((s) => server.indexOf(s)).filter((i) => i >= 0));
   ok(reserve > 0 && x402At > 0 && reserve > x402At && reserve < firstHandler, "the ticket is reserved after every payment gate and before every paid handler");
@@ -294,6 +326,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
     ok(check > 0 && src.indexOf(call) > check && src.indexOf(call) - check < 1200, `${name}: the cancelled-charge check precedes the ${call.includes("broadcast") ? "broadcast" : "capture"}`);
   }
   ok(/\} else if \(req\.creditsSettled && Number\(req\.creditsChargedOnClose\) > 0\) \{/.test(server), "the debt recorder books a credits hold settled on an abandoned run");
+  ok(/const denied = hangupTicketDenial\(req\);[\s\S]{0,400}\$\{denied \? `; not forgiven: \$\{denied\}` : ""\}/.test(server), "the owed line names why the run was not forgiven");
   ok(/priceFor: \(method, path, req\) => \{[\s\S]{0,700}longRunning: isLongRunningSlug\(def\.slug\) \} : null;\s*\n\s*\},\s*\n\s*\/\/ Input check before the relay round trip/.test(server), "the Tempo GATE's priceFor carries longRunning (not only the challenge appender)");
   // The composite's client-gone signal aborts only when the charge is cancelled.
   ok(/\? await runInAbortableScope\(\(\) => tool\.handler\(input, req\), \{ signal: clientGoneCtl\.signal \}\)/.test(server), "the dispatcher runs a composite with the client-gone signal ({ signal })");
@@ -370,7 +403,7 @@ await new Promise((r) => orStub.listen(OR_PORT, "127.0.0.1", r));
 // $0.40 for the service, over a day. The nano tier is $0.003, the image tiers
 // $0.02 (fast) and $0.05 (pro). The breaker and composite-guard thresholds
 // stay at 3 so the test would show it if a hang-up still fed either of them.
-proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "src/server.js"], {
+proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "--import", "./scripts/lib/hold-json-preload.js", "src/server.js"], {
   env: { ...process.env, PORT: String(PORT), FREE_MODE: "", WALLET_ADDRESS: TREASURY, NETWORK: "base",
     FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`, AGENT402_BASE_RPC: `http://127.0.0.1:${FAC_PORT}/rpc`, PAYMENT_NETWORKS: "base",
     CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", MPP_SECRET_KEY: "", TEMPO_API_KEY: "", STRIPE_SECRET_KEY: "", POSTHOG_API_KEY: "",
@@ -379,14 +412,17 @@ proc = spawn("node", ["--import", "./scripts/lib/openrouter-stub-preload.js", "s
     COMPOSITE_GUARD_MAX_FAILS: "3", COMPOSITE_GUARD_GLOBAL_MAX_FAILS: "3",
     HANGUP_FORGIVE: "", HANGUP_FORGIVE_KEY_USD: "0.1", HANGUP_FORGIVE_GLOBAL_USD: "0.4", HANGUP_FORGIVE_WINDOW_MS: "86400000",
     X402_INDEX_CRAWL: "off", MPP_INDEX_CRAWL: "off", MONITOR_SCHEDULER: "off", FREE_ALERTS: "off", FOLLOWUPS: "off", WALLET_DIGEST: "off",
-    AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: TMP },
+    AGENT402_OPERATOR_TOKEN: OP, REFUND_DB_DIR: TMP, SALES_LEDGER_DB: join(TMP, "sales.db"), HANGUP_TEST_HOLD_JSON: "1" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 const keepLog = (chunk) => { for (const line of String(chunk).split("\n")) { if (line.trim()) serverLog.push(line.slice(0, 500)); } };
 proc.stdout.on("data", keepLog); proc.stderr.on("data", keepLog);
 const logSince = (i) => serverLog.slice(i).join("\n");
 
-const refundsDoc = async () => (await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}` } })).json();
+// The operator surface is rate limited per client IP (30 a minute); this test
+// reads it after almost every case, so each read names its own address.
+let opReads = 0;
+const refundsDoc = async () => (await fetch(`${B}/__operator/refunds.json?status=all`, { headers: { Authorization: `Bearer ${OP}`, "x-forwarded-for": `10.254.${Math.floor(++opReads / 250) % 250}.${opReads % 250}` } })).json();
 const refunds = async () => (await refundsDoc()).refunds || [];
 
 // Crafted credentials: the stub facilitator is the only verifier, so a
@@ -428,6 +464,23 @@ try {
   let up = false;
   for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { up = true; break; } } catch { /* booting */ } await sleep(500); }
   ok(up, "paid server booted with the OpenRouter stub preload");
+
+  // The lasting-effect list against the BOOTED catalog: every slug on it is a
+  // live route, every route-execute tier is on it, and every memory route is
+  // classified - a writer on the list or a known reader here. A new memory
+  // route, or a new router tier, fails until someone decides which it is.
+  {
+    const MEMORY_READERS = new Set(["memory-read", "memory-grants", "memory-log", "memory-recall"]);
+    const slugs = new Set(((await (await fetch(`${B}/api/pricing`)).json()).endpoints || []).map((e) => e.slug));
+    const missing = LASTING_EFFECT_SLUG_LIST.filter((sl) => !slugs.has(sl));
+    ok(slugs.size > 100 && missing.length === 0, `every lasting-effect slug is a live catalog route (missing: ${JSON.stringify(missing)})`);
+    const tiers = [...slugs].filter((sl) => sl.startsWith("route-execute"));
+    ok(tiers.length >= 4 && tiers.every(hasLastingEffect), `every route-execute tier is on the list (${JSON.stringify(tiers)})`);
+    const memory = [...slugs].filter((sl) => sl.startsWith("memory-"));
+    const unclassified = memory.filter((sl) => !hasLastingEffect(sl) && !MEMORY_READERS.has(sl));
+    ok(memory.length >= 11 && unclassified.length === 0 && [...MEMORY_READERS].every((sl) => slugs.has(sl) && !hasLastingEffect(sl)), `every memory route is a listed writer or a known reader (unclassified: ${JSON.stringify(unclassified)})`);
+    ok(["attest", "feedback", "seller-payability"].every((sl) => slugs.has(sl) && hasLastingEffect(sl)) && slugs.has("feedback-summary") && !hasLastingEffect("feedback-summary"), "attest, feedback and seller-payability are listed; feedback-summary (a read) is not");
+  }
   const [{ privateKeyToAccount, generatePrivateKey }, { x402Client }, { registerExactEvmScheme }, { wrapFetchWithPayment }] =
     await Promise.all([import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch")]);
 
@@ -579,12 +632,107 @@ try {
     or.imagesDelayMs = 0;
   }
 
+  // l. A route whose effect outlives the answer is never forgiven. The
+  // hold-json preload keeps each fast handler's answer back for 900 ms after it
+  // RAN, and the buyer closes inside that hold: the work is done, no byte has
+  // gone out, nothing has settled. Every request comes from a fresh wallet on
+  // a fresh IP with the service budget far from spent, so only the slug can
+  // decide. The ordinary tool is forgiven; the four lasting-effect classes
+  // settle, are booked as owed, and spend no budget.
+  {
+    const Database = (await import("better-sqlite3")).default;
+    const sales = new Database(join(TMP, "sales.db"));
+    const saleRow = (tx) => sales.prepare("SELECT id, slug, payer, response_sha256 FROM sales WHERE tx = ?").get(tx);
+    const waitForAsync = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(100); } return fn(); };
+    const HOLD = "900";
+    const UUID = { path: "/api/uuid", method: "GET", body: undefined };
+    // A connected paid call whose sale the feedback and attest cases rate.
+    const buyUuid = async (payer, ip) => {
+      const r = await pay(UUID, payer, ip);
+      const tx = JSON.parse(Buffer.from(r.headers.get("payment-response") || "", "base64").toString("utf-8") || "{}").transaction;
+      ok(r.status === 200 && !!tx && await waitForAsync(() => !!saleRow(tx)), `l. a connected paid call from ${payer.slice(0, 8)}… settled and its sale is on the ledger (${tx})`);
+      return tx;
+    };
+    // Hang up while the handler's answer is held: after the work, before any byte.
+    const heldHangUp = async (t, payer, ip) => {
+      const logAt = serverLog.length;
+      const held = waitFor(() => serverLog.slice(logAt).some((line) => line.includes(`[hold-json] holding ${t.method} ${t.path.split("?")[0]}`)), 8000);
+      const headers = { ...(await headersFor(t, payer, ip)), "x-test-hold-json-ms": HOLD };
+      await hangUp(`${B}${t.path}`, { method: t.method, headers, body: t.body, abortWhen: held.then(() => sleep(100)) });
+      return logAt;
+    };
+
+    // l0. Control: an ordinary tool, same shape of hang-up, inside the budget.
+    {
+      const s0 = fac.settle, owed0 = (await refunds()).length;
+      const logAt = await heldHangUp(UUID, wallet(0x9a0), "10.0.9.1");
+      await sleep(1_500);
+      ok(fac.settle === s0 && (await refunds()).length === owed0, `l0. an ordinary tool whose buyer left after the handler ran, inside the budget: NOT settled, nothing owed (settles +${fac.settle - s0})`);
+      ok(/\[hangup\] NOT CHARGED: [^\n]*GET \/api\/uuid[^\n]*within the hang-up forgiveness budget/.test(logSince(logAt)), "l0. the log says NOT CHARGED within the forgiveness budget");
+    }
+    const budgetBefore = (await refundsDoc()).hangupForgiveness;
+    const lasting = async (label, t, payer, ip, slug) => {
+      const s0 = fac.settle, owed0 = (await refunds()).length;
+      const logAt = await heldHangUp(t, payer, ip);
+      // Wait on the server's own line, not by polling the operator surface
+      // (it is rate limited).
+      const lineOf = () => logSince(logAt).split("\n").find((l) => /\[hangup\] (CHARGED-BUT-NOT-SERVED|NOT CHARGED)/.test(l) && l.includes(`${t.method} ${t.path.split("?")[0]} `)) || "";
+      await waitFor(() => !!lineOf(), 6000);
+      await sleep(100);
+      ok(fac.settle === s0 + 1, `${label}. ${slug}: the buyer left after the handler ran, with budget to spare, and the payment SETTLED (settles +${fac.settle - s0})`);
+      const all = await refunds();
+      const rows = all.filter((row) => row.slug === slug);
+      ok(all.length === owed0 + 1 && rows.length === 1 && rows[0].httpStatus === 499 && rows[0].status === "owed" && rows[0].evidence === fac.lastTx, `${label}. ${slug}: the undelivered answer is booked as owed once (${all.length - owed0} new; ${JSON.stringify(rows)})`);
+      const line = lineOf();
+      ok(/not forgiven: lasting effect/.test(line), `${label}. ${slug}: the log says it was not forgiven for a lasting effect (...${line.slice(-60)})`);
+    };
+
+    // l1. The memory family: the write happened, so the charge stands.
+    {
+      const key = `hangup-l1-${Date.now()}`;
+      const MEMW = { path: "/api/memory", method: "POST", body: JSON.stringify({ key, value: "kept" }) };
+      await lasting("l1", MEMW, wallet(0x9a1), "10.0.9.2", "memory-write");
+      const read = await pay({ path: `/api/memory?key=${key}`, method: "GET", body: undefined }, wallet(0x9a1), "10.0.9.3");
+      const doc = await read.json();
+      ok(read.status === 200 && doc.value === "kept", `l1. ... and the value it wrote is there for the wallet that paid (${read.status} ${JSON.stringify(doc).slice(0, 120)})`);
+    }
+    // l2. feedback: the verdict is stored against the sale.
+    {
+      const tx = await buyUuid(wallet(0x9a2), "10.0.9.4");
+      const FB = { path: "/api/feedback", method: "POST", body: JSON.stringify({ tx, verdict: "good" }) };
+      await lasting("l2", FB, wallet(0x9a2), "10.0.9.5", "feedback");
+      const verdict = sales.prepare("SELECT verdict FROM sale_feedback WHERE tx = ?").get(tx);
+      ok(verdict?.verdict === "good", `l2. ... and the verdict is on the ledger (${JSON.stringify(verdict)})`);
+    }
+    // l3. attest. This test has no chain, so the sale is marked as already
+    // attested (what a written attestation leaves on the row) and the handler
+    // answers with the existing UID - still a 200 on the attest route, which
+    // is all the forgiveness decision reads.
+    {
+      const tx = await buyUuid(wallet(0x9a3), "10.0.9.6");
+      const row = saleRow(tx);
+      ok(/^[0-9a-f]{64}$/.test(String(row?.response_sha256 || "")), "l3. the sale carries the response digest attest binds to");
+      sales.prepare("UPDATE sales SET attest_uid = ?, attest_tx = ? WHERE id = ?").run(`0x${"ab".repeat(32)}`, `0x${"cd".repeat(32)}`, row.id);
+      const AT = { path: "/api/attest", method: "POST", body: JSON.stringify({ tx }) };
+      await lasting("l3", AT, wallet(0x9a3), "10.0.9.7", "attest");
+    }
+    // l4. route-execute: the router pays outside sellers from our wallet.
+    {
+      const RX = { path: "/api/route/execute", method: "POST", body: JSON.stringify({ slug: "uuid" }) };
+      await lasting("l4", RX, wallet(0x9a4), "10.0.9.8", "route-execute");
+    }
+    const budgetAfter = (await refundsDoc()).hangupForgiveness;
+    ok(budgetAfter.abandonedInWindow === budgetBefore.abandonedInWindow && Math.abs(budgetAfter.abandonedUsdInWindow - budgetBefore.abandonedUsdInWindow) < 1e-9 && budgetAfter.inflightUsd === 0, `l. the lasting-effect hang-ups spent no forgiveness budget (${budgetBefore.abandonedInWindow} -> ${budgetAfter.abandonedInWindow})`);
+    sales.close();
+  }
+
   // h. Rotating wallets AND IPs: bounded by the service-wide budget ($0.40).
   // Forgiven so far: $0.001 (b) + $0.003 (d) + $0.10 (e) + $0.10 (f) + $0.10
-  // (g) = $0.304, so one more $0.05 run fits and the next does not.
+  // (g) + $0.001 (l0) = $0.305, so one more $0.05 run fits and the next does
+  // not. The lasting-effect hang-ups in l took no ticket and add nothing.
   {
     const st = (await refundsDoc()).hangupForgiveness;
-    ok(Math.abs(st.abandonedUsdInWindow - 0.304) < 1e-9 && st.inflightUsd === 0 && st.perKeyBudgetUsd === 0.1 && st.globalBudgetUsd === 0.4, `h. the operator surface reports the budget in use (${JSON.stringify(st)})`);
+    ok(Math.abs(st.abandonedUsdInWindow - 0.305) < 1e-9 && st.inflightUsd === 0 && st.perKeyBudgetUsd === 0.1 && st.globalBudgetUsd === 0.4, `h. the operator surface reports the budget in use (${JSON.stringify(st)})`);
     or.imagesDelayMs = 1_500;
     const s0 = fac.settle, owed0 = (await refunds()).length, e0 = or.imagesClosedEarly;
     await hangUpMidRun(PRO, wallet(0x71), "10.0.4.1"); await sleep(2_300);

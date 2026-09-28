@@ -13,7 +13,9 @@
 //     every key the request carries (the verified payer AND the client IP) and
 //     the whole service stay inside their budgets for the window, counting
 //     both runs still in flight and runs already abandoned. In-flight runs
-//     count, so a burst of concurrent hang-ups cannot all be granted.
+//     count, so a burst of concurrent hang-ups cannot all be granted. A route
+//     whose effect outlives the answer (a memory write, an attestation, a
+//     stored verdict, a purchase from an outside seller) never gets one.
 //   - A run whose buyer left before the first byte is recorded as ABANDONED
 //     under every key it carried and globally. Nothing clears that record
 //     except time: a paid success does not, because a success is exactly what
@@ -48,6 +50,36 @@ const MAX_KEYS = 20_000;
 // HANGUP_FORGIVE_GLOBAL_USD override them.
 export const DEFAULT_KEY_BUDGET_USD = 0.25;
 export const DEFAULT_GLOBAL_BUDGET_USD = 2;
+
+// Routes whose effect persists whether or not the answer is delivered. Not
+// settling an abandoned run is only right when the run left nothing behind
+// but spent compute; on these the handler has already changed something that
+// a hang-up does not undo, so they never take a ticket: a hang-up is settled
+// and the undelivered answer booked as owed, as before the rule existed.
+//   - the memory family's writers: the wallet's namespace (keys, counters,
+//     grants, remembered documents) has changed;
+//   - attest: an attestation on Base is permanent and paid for in gas;
+//   - feedback: the verdict is stored against the sale;
+//   - the route-execute tiers and seller-payability: they pay outside sellers
+//     from our own wallet, and that payment is not returned.
+// Readers in the same families (memory-read, memory-grants, memory-log,
+// memory-recall, feedback-summary) leave nothing behind and follow the budget.
+// scripts/test-hangup-settlement.js checks this list against the booted
+// catalog: every slug must exist, every route-execute tier must be listed, and
+// every memory route must be classified as a writer here or as a known reader.
+const LASTING_EFFECT_SLUGS = new Set([
+  "memory-write", "memory-incr", "memory-cas", "memory-grant", "memory-revoke", "memory-remember", "memory-forget",
+  "attest",
+  "feedback",
+  "route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro",
+  "seller-payability",
+]);
+export const LASTING_EFFECT_SLUG_LIST = Object.freeze([...LASTING_EFFECT_SLUGS]);
+
+/** True for a slug whose effect outlives an undelivered answer: never forgiven. */
+export function hasLastingEffect(slug) {
+  return typeof slug === "string" && LASTING_EFFECT_SLUGS.has(slug);
+}
 
 function envNumber(name, dflt) {
   const raw = String(process.env[name] ?? "").trim();
@@ -113,19 +145,32 @@ export function hangupForgiven(req) {
   return ticketOf(req)?.granted === true;
 }
 
+/** Why this request's ticket was denied ("lasting effect", "payer budget",
+ *  ...), or null when it holds a granted ticket or none at all. For the log
+ *  line that books an undelivered charge as owed. */
+export function hangupTicketDenial(req) {
+  const t = ticketOf(req);
+  return t && t.granted !== true && typeof t.reason === "string" ? t.reason : null;
+}
+
 /**
  * Reserve a forgiveness ticket for a paid request whose handler is starting.
  * `keys` are the verified identities it carries (falsy entries dropped);
- * `priceUsd` is what it would be charged. Always stores a ticket on the
- * request (granted or not, with the reason) and returns it.
+ * `priceUsd` is what it would be charged; `slug` is the catalog route, and a
+ * slug with a lasting effect (hasLastingEffect) is always denied. Always
+ * stores a ticket on the request (granted or not, with the reason) and
+ * returns it.
  */
-export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, now = Date.now() } = {}) {
+export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = null, now = Date.now() } = {}) {
   const cfg = hangupForgivenessConfig();
   const uniq = [...new Set(keys.filter((k) => typeof k === "string" && k))];
   const micro = Math.max(0, Math.round(Number(priceUsd) * MICRO) || 0);
   const ticket = { granted: false, keys: uniq, micro, state: "denied", reason: null };
   const store = (t) => { if (req && typeof req === "object") Object.defineProperty(req, "__a402HangupTicket", { value: t, writable: true, configurable: true, enumerable: false }); return t; };
   if (!cfg.enabled) { ticket.reason = "disabled"; return store(ticket); }
+  // Before any budget is read: a route that leaves something behind is never
+  // forgiven, however much budget is left, and spends none of it.
+  if (hasLastingEffect(slug)) { ticket.reason = "lasting effect"; return store(ticket); }
   if (!(micro > 0)) { ticket.reason = "no price"; return store(ticket); }
   // Every request carries at least the IP key; one that carries none is not
   // bounded per key, so it is never forgiven.
@@ -189,6 +234,8 @@ export function hangupForgivenessStatus(now = Date.now()) {
     abandonedUsdInWindow: sumOf(globalAbandoned) / MICRO,
     inflightUsd: globalInflight / MICRO,
     keysTracked: abandonedByKey.size,
+    // Routes a hang-up is never forgiven on (their effect outlives the answer).
+    neverForgiven: LASTING_EFFECT_SLUG_LIST,
   };
 }
 

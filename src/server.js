@@ -116,7 +116,9 @@ function cardPriceUsd(def, req) {
 // byte was sent, AFTER the rail had already settled it (src/hangup-settlement.js).
 // A rail declines to settle such a request only while it holds a granted
 // forgiveness ticket (src/hangup-forgiveness.js), so this is: a run with no
-// ticket (the budget is spent, or the route never reserved one), a Tempo push
+// ticket (the budget is spent, the route's effect outlives the answer - a
+// memory write, an attestation, a verdict, a purchase from an outside seller -
+// or the route never reserved one), a Tempo push
 // credential (finalized before the handler), and the residual window - a close
 // that landed while the settle, broadcast or capture call was itself in
 // flight. Records a refund-ledger debt on the same evidence rules as the
@@ -163,7 +165,10 @@ function recordHangupDebt(req, res) {
   }
   if (!row) return null;
   const created = recordRefundOwed({ slug: def.slug, ...row, httpStatus: 499, synthetic });
-  console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}`);
+  // Why it was not forgiven, when a ticket was refused ("lasting effect",
+  // "payer budget", ...); nothing for the residual window, where it was.
+  const denied = hangupTicketDenial(req);
+  console.warn(`[hangup] CHARGED-BUT-NOT-SERVED: client disconnected before the settled response was delivered (${req.method} ${req.path} rail=${row.wire} tx=${row.tx || "?"}) - ${created ? "recorded as owed in the refund ledger" : "already on the books"}${denied ? `; not forgiven: ${denied}` : ""}`);
   return row;
 }
 // Every close-before-the-first-byte on a paid request ends here (the hang-up
@@ -599,7 +604,7 @@ function trialClientKey(ip) {
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY} per day per client`;
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort } from "./hangup-settlement.js";
-import { hangupForgiven, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus } from "./hangup-forgiveness.js";
+import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus } from "./hangup-forgiveness.js";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
@@ -8642,8 +8647,11 @@ app.use((req, res, next) => {
 //     charge, against the wallet's, the IP's and the service's budget. Only a
 //     request holding a granted ticket is left unsettled when its buyer leaves
 //     before the first byte; any other is settled and the undelivered charge
-//     booked as owed. Reserved here, before the handler can spend, so a burst
-//     of concurrent runs cannot all be forgiven. The close listener
+//     booked as owed. A route whose effect outlives the answer (a memory
+//     write, attest, feedback, the route-execute tiers, seller-payability) is
+//     always denied, by slug (hasLastingEffect in src/hangup-forgiveness.js).
+//     Reserved here, before the handler can spend, so a burst of concurrent
+//     runs cannot all be forgiven. The close listener
 //     (registered after the hang-up hook's own, so the request is already
 //     marked) records the run as abandoned or returns the reservation; a paid
 //     success never clears an abandoned record.
@@ -8664,7 +8672,7 @@ if (!FREE_MODE) {
     // is owed, so it takes no ticket and spends none of the budget.
     req.__a402HandlerStarted = Date.now();
     if (req.tempoSettled) return next();
-    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req) });
+    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });
     res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
     next();
   });

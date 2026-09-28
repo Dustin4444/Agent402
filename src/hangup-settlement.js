@@ -22,8 +22,10 @@
 //     the broadcast / capture, and answers 499 with nothing spent;
 //   - credits: the gate decides when the abandoned response ends, releasing
 //     the hold (a stream that already began is settled, as before).
-// A request WITHOUT a granted ticket (the budget is spent, or the route never
-// reserved one) is settled exactly as before this rule existed, and the charge
+// A request WITHOUT a granted ticket (the budget is spent, the route's effect
+// outlives the answer - a memory write, an attestation, a stored verdict, a
+// purchase from an outside seller - or the route never reserved one) is
+// settled exactly as before this rule existed, and the charge
 // the buyer never received is booked as owed (server.js recordHangupDebt).
 // So is a Tempo push credential, whose transfer is already on chain before the
 // request arrives: the gate finalizes it before the handler, and any answer
