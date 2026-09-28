@@ -19,9 +19,11 @@
 // Every other route has no floor. Short windows are an honest pattern there -
 // this server's own router signs 30 s authorizations - and a fast handler
 // settles well inside them. A handler that pays an outside seller before the
-// buyer settles (route-execute's external leg, seller-payability) bounds that
-// work by the buyer's own authorization instead (evmCredentialBudgetMs), so a
-// short window gets a shorter run rather than a refusal.
+// buyer settles (route-execute's external leg, seller-payability) pays only
+// while the buyer's authorization keeps EVM_SELLER_ALLOWANCE_MS of settleable
+// life, and bounds its waits (and seller-payability its paid leg) by
+// evmCredentialBudgetMs, so a short window gets a shorter run rather than a
+// refusal, and a window too short to settle pays nobody.
 //
 // NEVER ABOVE WHAT A STOCK CLIENT CARRIES. The stock x402 EVM client signs
 // validBefore = now + maxTimeoutSeconds (300 s on every route here) at the

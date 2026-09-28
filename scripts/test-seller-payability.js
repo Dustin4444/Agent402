@@ -21,17 +21,30 @@ for (const r of []) void r;
 const hdr = (m) => ({ get: (k) => m.get(k.toLowerCase()) ?? null });
 const wrap = (r) => ({ ...r, headers: hdr(r.headers) });
 
-/** A tool wired to stubs; `spent` records what the guard was asked for. */
-function toolWith({ bare, pay, spendOk = true } = {}) {
+/** Waits `ms` of real time, or rejects the way fetch does when `signal` aborts first. */
+const delay = (ms, signal) => new Promise((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("The operation was aborted due to timeout")); }, { once: true });
+});
+
+/** A tool wired to stubs; `spent` records what the guard was asked for. The
+ *  unpaid call may take `bareDelayMs` of real time (honouring its abort
+ *  signal) and move the tool's clock on by `bareAdvanceMs`. */
+function toolWith({ bare, pay, spendOk = true, bareDelayMs = 0, bareAdvanceMs = 0 } = {}) {
   const spent = { may: [], note: [], adjust: [], payOpts: [] };
+  let clock = 1_757_000_000_000;
   const tool = buildSellerPayabilityTool({
     pay: pay || (async (u, o) => { spent.payOpts.push(o); return { result: { ok: true }, quote: { usd: 0.01, atomic: "10000" }, receipt: { network: "eip155:8453", payer: "0xpayer", transaction: "0xtx", success: true } }; }),
-    fetchImpl: async () => wrap(bare || res402([accept()])),
+    fetchImpl: async (u, init) => {
+      if (bareDelayMs) await delay(bareDelayMs, init?.signal);
+      clock += bareAdvanceMs;
+      return wrap(bare || res402([accept()]));
+    },
     assertPublicUrl: async () => {},
     maySpend: (p, usd, o) => { spent.may.push({ usd, chain: o?.chain, payer: p }); return spendOk ? { ok: true } : { ok: false, code: "wallet_daily_ceiling" }; },
     noteSpend: (p, usd, o) => { spent.note.push({ usd, chain: o?.chain, payer: p }); return { handle: 1 }; },
     adjustSpend: (h, usd) => spent.adjust.push(usd),
-    now: () => 1_757_000_000_000,
+    now: () => clock,
   });
   return { tool, spent };
 }
@@ -216,6 +229,17 @@ function toolWith({ bare, pay, spendOk = true } = {}) {
   const tiny = toolWith();
   let eTiny = null; try { await tiny.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 8)); } catch (x) { eTiny = x; }
   ok(eTiny?.statusCode === 504 && /Nothing was spent/.test(eTiny.message) && tiny.spent.payOpts.length === 0 && tiny.spent.adjust.at(-1) === 0, `an 8 s authorization: no seller is paid, the day's booking is given back, 504 uncharged (${eTiny?.statusCode})`);
+  // Only the PAID leg is bounded by the buyer's authorization. The unpaid
+  // call spends nothing, so it keeps its own timeout: a seller that takes 3 s
+  // to answer it under a 12 s window is checked in full, and the paid leg
+  // still ends inside the window.
+  const slowProbe = toolWith({ bareDelayMs: 3_000 });
+  const rSlow = await slowProbe.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 12));
+  ok(rSlow.unpaidCall.status === 402 && !rSlow.unpaidCall.error && rSlow.payable === true && slowProbe.spent.payOpts[0]?.timeoutMs === 2_000, `a 12 s authorization and a seller that answers the unpaid call in 3 s: checked in full, the paid leg bounded by the window (unpaid ${rSlow.unpaidCall.status ?? rSlow.unpaidCall.error}, payable ${rSlow.payable}, paid timeout ${slowProbe.spent.payOpts[0]?.timeoutMs})`);
+  // Control: an unpaid call that uses up the window still pays nobody.
+  const spentProbe = toolWith({ bareAdvanceMs: 5_000 });
+  let eSpent = null; try { await spentProbe.tool.handler({ url: "https://s.example" }, evmReq(NOW_S + 12)); } catch (x) { eSpent = x; }
+  ok(eSpent?.statusCode === 504 && spentProbe.spent.payOpts.length === 0 && spentProbe.spent.adjust.at(-1) === 0, `control: a 12 s authorization whose unpaid call took 5 s pays no seller, 504 uncharged, booking given back (${eSpent?.statusCode})`);
 
   ok(LONG_RUNNING_SLUGS.has("seller-payability"),
     "and the slug is long-running, so the paywall offers EVM exact only - the short-lived rails cannot settle a 55 s handler that already paid a seller");

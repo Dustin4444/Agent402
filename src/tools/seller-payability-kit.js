@@ -223,11 +223,13 @@ export function buildSellerPayabilityTool({
     if (spendHandle && req && typeof req === "object") req.__externalSpend = spendHandle;
 
     const t0 = now();
-    // The check's deadline is DEADLINE_MS, or sooner when the buyer's own EVM
-    // authorization ends first (its validBefore less the facilitator's settle
-    // rule and a margin, src/evm-validity.js): a check that outlives it has
-    // paid a seller for a payment that can no longer settle. A short window
-    // gets a shorter check; a stock client (300 s) keeps the full 55 s.
+    // The paid leg's deadline is DEADLINE_MS, or sooner when the buyer's own
+    // EVM authorization ends first (its validBefore less the facilitator's
+    // settle rule and a margin, src/evm-validity.js): a paid leg that outlives
+    // it has paid a seller for a payment that can no longer settle. A short
+    // window gets a shorter paid leg; a stock client (300 s) keeps the full
+    // 55 s. The unpaid call spends nothing and keeps its own timeout, and the
+    // seller is paid only if enough of the window is left after it (below).
     const credentialMs = evmCredentialBudgetMs(req, { nowMs: t0 });
     const deadlineMs = credentialMs != null && credentialMs < DEADLINE_MS ? Math.max(0, credentialMs) : DEADLINE_MS;
     // LEG 1: the bare call. What a buyer's client sees before it pays.
@@ -239,7 +241,7 @@ export function buildSellerPayabilityTool({
         headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
         ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
         redirect: "manual",
-        signal: AbortSignal.timeout(Math.max(1_000, Math.min(PROBE_TIMEOUT_MS, deadlineMs))),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       const text = await res.text().catch(() => "");
       bare = { status: res.status, contentType: (res.headers.get("content-type") || "").slice(0, 80) || null, error: null };
