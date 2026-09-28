@@ -7,6 +7,12 @@
 //
 // The body under test is 24 MB; a capped reader pulls the cap plus at most one
 // chunk of it.
+//
+// A capped read is still an honest read of an honest body: text is decoded the
+// way Response.text() decodes it (a leading byte-order mark dropped), and the
+// payer's two readers keep their character ceiling (a large non-ASCII answer
+// under it is delivered whole). Each such case runs beside the cap it lives
+// under.
 import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +31,8 @@ const ok = (c, m) => { if (c) { pass++; origLog(`ok - ${m}`); } else { fail++; c
 console.warn = () => {}; console.log = () => {};
 
 const MB = 1024 * 1024;
+const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+const withBom = (text) => Buffer.concat([BOM, Buffer.from(text, "utf8")]);
 const HUGE = 24 * MB;
 const CHUNK = 64 * 1024;
 /** A body of `size` bytes that is only produced as the reader pulls it. */
@@ -74,6 +82,12 @@ if (cb) {
   let threw = null;
   try { await readBytesCapped(new Response(new ReadableStream({ pull(c) { c.error(new Error("socket reset")); } })), 1024); } catch (e) { threw = e; }
   ok(threw && /socket reset/.test(threw.message), "a stream error mid-body rejects, as text() would");
+  // Decoding matches Response.text(): a UTF-8 byte-order mark is dropped.
+  const bomJson = () => new Response(Buffer.concat([BOM, Buffer.from('{"a":1}')]));
+  const viaText = await bomJson().text();
+  const viaCapped = await readTextCapped(bomJson(), 1024);
+  ok(viaCapped === viaText && viaCapped === '{"a":1}' && JSON.parse(viaCapped).a === 1, "a body opening with a byte-order mark decodes exactly as Response.text() decodes it");
+  ok(typeof cb.decodeUtf8 === "function" && cb.decodeUtf8(Buffer.concat([BOM, Buffer.from("x")])) === "x" && cb.decodeUtf8(Buffer.from("x\ufeffy")) === "x\ufeffy", "decodeUtf8 drops only a LEADING mark");
 }
 
 const buyer = await import("../src/x402-buyer.js");
@@ -86,7 +100,7 @@ const buyer = await import("../src/x402-buyer.js");
   let e = null;
   try { await buyer.payX402("https://free.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (x) { e = x; }
   ok(e && e.statusCode === 502 && /size cap/.test(e.message), "payX402 bare 200 over the cap -> 502 size cap");
-  ok(bounded(m.pulled(), 512 * 1024), `payX402 bare 200: pulled ${m.pulled()} bytes of 24 MB (cap 512 KB)`);
+  ok(bounded(m.pulled(), 4 * 512 * 1024), `payX402 bare 200: pulled ${m.pulled()} bytes of 24 MB (byte ceiling 2 MB for a 512K-character cap)`);
   // A declared Content-Length over the cap is refused without reading.
   const m2 = metered();
   globalThis.fetch = async () => new Response(m2.stream, { status: 200, headers: { "content-type": "application/json", "content-length": String(HUGE) } });
@@ -97,6 +111,22 @@ const buyer = await import("../src/x402-buyer.js");
   globalThis.fetch = async () => new Response(JSON.stringify({ free: true }), { status: 200, headers: { "content-type": "application/json" } });
   const out = await buyer.payX402("https://free.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} });
   ok(out?.result?.free === true && out.quote === null, "CONTROL: a normal free endpoint still returns its JSON with no spend");
+  // A free answer opening with a byte-order mark parses, as it did through text().
+  globalThis.fetch = async () => new Response(withBom(JSON.stringify({ price: 1.23 })), { status: 200, headers: { "content-type": "application/json" } });
+  const bom = await buyer.payX402("https://free.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }).catch((x) => ({ err: x }));
+  ok(bom?.result?.price === 1.23, `a free JSON answer with a byte-order mark is parsed${bom?.err ? ` (threw ${bom.err.message})` : ""}`);
+  // The ceiling is on characters: 200,000 CJK characters are 600 KB of UTF-8
+  // and well under 512K characters, so they are delivered whole.
+  const cjk = "\u6f22".repeat(200_000);
+  globalThis.fetch = async () => new Response(JSON.stringify({ text: cjk }), { status: 200, headers: { "content-type": "application/json" } });
+  const big = await buyer.payX402("https://free.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }).catch((x) => ({ err: x }));
+  ok(big?.result?.text?.length === 200_000, `a 600 KB non-ASCII free answer under the character ceiling is delivered whole${big?.err ? ` (threw ${big.err.message})` : ""}`);
+  // ...and the ceiling still holds on characters: 600K ASCII characters
+  // (600 KB, under the byte ceiling) are over it.
+  globalThis.fetch = async () => new Response(JSON.stringify({ text: "a".repeat(600_000) }), { status: 200, headers: { "content-type": "application/json" } });
+  e = null;
+  try { await buyer.payX402("https://free.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (x) { e = x; }
+  ok(e && e.statusCode === 502 && /size cap/.test(e.message), "a free answer over 512K characters is refused, as before");
 }
 
 // payX402: the 402 body, the paid result (readAfterSpend), the refusal log and
@@ -116,7 +146,28 @@ const buyer = await import("../src/x402-buyer.js");
     : new Response("{}", { status: 402, headers: { "payment-required": challengeHdr } });
   const out2 = await buyer.payX402("https://s.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} });
   ok(out2?.result?._truncated === true && out2.receipt?.transaction, "a huge paid 200 is relayed truncated (never a throw after we paid), receipt kept");
-  ok(bounded(paidBody.pulled(), 512 * 1024), `the paid result: pulled ${paidBody.pulled()} bytes of 24 MB (cap 512 KB)`);
+  ok(bounded(paidBody.pulled(), 4 * 512 * 1024), `the paid result: pulled ${paidBody.pulled()} bytes of 24 MB (byte ceiling 2 MB for a 512K-character cap)`);
+
+  // Paid answers an honest seller writes, delivered as they were through text().
+  const paidWith = (body) => async (url, init) => isPaid(init)
+    ? new Response(body, { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } })
+    : new Response("{}", { status: 402, headers: { "payment-required": challengeHdr } });
+  globalThis.fetch = paidWith(withBom(JSON.stringify({ answer: 42 })));
+  const bomPaid = await buyer.payX402("https://s.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} });
+  ok(bomPaid?.result?.answer === 42 && !("raw" in (bomPaid?.result || {})), "a paid JSON answer with a byte-order mark is delivered parsed, not as raw text");
+  globalThis.fetch = paidWith(JSON.stringify({ text: "\u6f22".repeat(200_000) }));
+  const cjkPaid = await buyer.payX402("https://s.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} });
+  ok(cjkPaid?.result?.text?.length === 200_000 && cjkPaid.result._truncated === undefined, "a 600 KB non-ASCII paid answer under the character ceiling is delivered whole, not truncated");
+  // A v1 seller carries its challenge in the 402 body; a mark in front of it
+  // does not make the challenge unreadable.
+  let v1Paid = 0;
+  const v1Body = { x402Version: 1, accepts: [{ ...accept, network: "base", maxAmountRequired: "1000", resource: "https://v1.example/x", description: "", mimeType: "application/json" }] };
+  globalThis.fetch = async (url, init) => {
+    if (isPaid(init)) { v1Paid++; return new Response(JSON.stringify({ ok: 1 }), { status: 200, headers: { "content-type": "application/json", "x-payment-response": receipt } }); }
+    return new Response(withBom(JSON.stringify(v1Body)), { status: 402, headers: { "content-type": "application/json" } });
+  };
+  const v1 = await buyer.payX402("https://v1.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }).catch((x) => ({ err: x }));
+  ok(v1?.result?.ok === 1 && v1Paid === 1, `a v1 402 body with a byte-order mark is read, paid once and delivered${v1?.err ? ` (threw ${v1.err.message})` : ""}`);
 
   const refusal = metered(HUGE, 0x78);
   globalThis.fetch = async (url, init) => isPaid(init)
@@ -148,6 +199,9 @@ const buyer = await import("../src/x402-buyer.js");
   globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
   const small = await payTempo("https://tempo.example/x", { method: "POST", body: {}, maxAtomic: 5000n, trusted: true, createCredential: async () => "Payment x" });
   ok(small?.result?.ok === true, "Tempo CONTROL: a normal JSON body is parsed");
+  globalThis.fetch = async () => new Response(withBom(JSON.stringify({ ok: true })), { status: 200, headers: { "content-type": "application/json" } });
+  const bomT = await payTempo("https://tempo.example/x", { method: "POST", body: {}, maxAtomic: 5000n, trusted: true, createCredential: async () => "Payment x" });
+  ok(bomT?.result?.ok === true, "Tempo: a JSON body with a byte-order mark is parsed");
 }
 
 // Seller payability: the unpaid leg reads a URL the CALLER chose.
@@ -172,6 +226,18 @@ const buyer = await import("../src/x402-buyer.js");
   });
   const out2 = await tool2.handler({ url: "https://caller-chosen.example/x" }, {});
   ok(out2?.challenge?.readable === true && out2.payable === true && bounded(m2.pulled(), 256 * 1024), `payability CONTROL: a header challenge beside a huge body is decoded and paid (pulled ${m2.pulled()})`);
+  // An honest v1 seller whose 402 body opens with a byte-order mark: the check
+  // reads its challenge and pays it, as it did through text().
+  const v1 = { x402Version: 1, accepts: [{ ...accept, network: "base", maxAmountRequired: "1000", resource: "https://v1.example/x", description: "", mimeType: "application/json" }] };
+  let v1Pays = 0;
+  const tool3 = buildSellerPayabilityTool({
+    pay: async () => { v1Pays++; return { result: { ok: 1 }, quote: { usd: 0.001 }, receipt: { transaction: "0xtx", success: true } }; },
+    fetchImpl: async () => new Response(withBom(JSON.stringify(v1)), { status: 402, headers: { "content-type": "application/json" } }),
+    assertPublicUrl: async () => {},
+    maySpend: () => ({ ok: true }), noteSpend: () => null, adjustSpend: () => {},
+  });
+  const out3 = await tool3.handler({ url: "https://v1.example/x" }, {});
+  ok(out3?.challenge?.readable === true && out3.payment?.attempted === true && out3.payable === true && v1Pays === 1, `payability: a v1 challenge body with a byte-order mark is readable and paid (readable=${out3?.challenge?.readable}, reason=${out3?.challenge?.reason || "-"})`);
 }
 
 // The index crawler's live-402 read of a seller route.
@@ -183,6 +249,13 @@ const buyer = await import("../src/x402-buyer.js");
   await enrichLiveQuotes(rows, "https://example.com", { ignoreBudget: true });
   ok(rows[0].price === 0.001, `the crawler still learns the header quote beside a huge body (price ${rows[0].price})`);
   ok(bounded(m.pulled(), 64_000), `the crawler: pulled ${m.pulled()} bytes of 24 MB from the seller route (cap 64 KB)`);
+  // A 402 whose accepts ride in a body that opens with a byte-order mark
+  // still yields its quote.
+  const inBody = JSON.stringify({ x402Version: 2, accepts: [{ ...accept, amount: "2000" }] });
+  globalThis.fetch = async () => new Response(withBom(inBody), { status: 402, headers: { "content-type": "application/json" } });
+  const rows2 = [{ seller: "example.com", route: "/bom", method: "POST", slug: "bom", price: null, networks: [] }];
+  await enrichLiveQuotes(rows2, "https://example.com", { ignoreBudget: true });
+  ok(rows2[0].price === 0.002, `the crawler learns a body quote that opens with a byte-order mark (price ${rows2[0].price})`);
 }
 
 // Source pins where a behavioural drive needs a booted router.
@@ -199,6 +272,8 @@ const buyer = await import("../src/x402-buyer.js");
   ok(/dispatcher: ssrfDispatcher,/.test(payFn) && /freshSsrfDispatcher\(\)/.test(payFn), "payX402 still pins both legs to the SSRF dispatcher");
   const tempo = readFileSync(new URL("../src/tempo-buyer.js", import.meta.url), "utf8");
   ok(!/arrayBuffer\(\)/.test(tempo) && /readBytesCapped\(res, maxBytes\)/.test(tempo), "the Tempo buyer reads bodies through the capped stream");
+  const readers = [pay, tempo, readFileSync(new URL("../src/capped-body.js", import.meta.url), "utf8")].map((t) => t.replace(/\/\/[^\n]*/g, "")).join("\n");
+  ok(!/\.toString\(\s*["']utf-?8["']\s*\)/i.test(readers.replace(/Buffer\.from\([^)]*\)\.toString\("utf8"\)/g, "")), "no capped seller body is decoded with Buffer#toString (which keeps a byte-order mark); decodeUtf8 decodes them all");
 }
 
 console.warn = origWarn; console.log = origLog;

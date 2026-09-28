@@ -20,7 +20,7 @@ import { recordUpstreamSpend } from "./stats.js";
 import { provenPayToMatches } from "./settlement-proof.js";
 import { usdcDomainVerdict, unsignableByStockBuyer } from "./evm-usdc-domain.js";
 import { disableVendorSpendControls } from "./x402-spend-controls.js";
-import { readBytesCapped, readTextCapped, declaredLength, discardBody } from "./capped-body.js";
+import { readBytesCapped, readTextCapped, declaredLength, discardBody, decodeUtf8 } from "./capped-body.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -199,13 +199,21 @@ export async function avmBuyerStatus() {
 
 // Pre-payment read (bare 200 = free tool, no spend yet): a bad body can throw
 // safely because nothing was paid.
-// Both readers stream and stop at `maxBytes` (src/capped-body.js): a seller's
-// body is never held in full before its size is known.
+// Both readers stream (src/capped-body.js): a seller's body is never held in
+// full before its size is known. The size rule is on the DECODED text: at most
+// `maxBytes` characters (UTF-16 units), which is what these two readers have
+// always delivered. No character takes more than 3 UTF-8 bytes, so reading
+// stops at 4x that many bytes: a body past the byte ceiling is past the
+// character ceiling too, and every body under it is decoded and judged whole.
+const byteCeilingFor = (maxChars) => Math.max(0, Number(maxChars) || 0) * 4;
 async function readCapped(res, maxBytes) {
-  if ((declaredLength(res) ?? 0) > maxBytes) { discardBody(res); throw bad("Upstream response exceeded the size cap", 502); }
-  const { bytes, truncated } = await readBytesCapped(res, maxBytes);
+  const byteCap = byteCeilingFor(maxBytes);
+  if ((declaredLength(res) ?? 0) > byteCap) { discardBody(res); throw bad("Upstream response exceeded the size cap", 502); }
+  const { bytes, truncated } = await readBytesCapped(res, byteCap);
   if (truncated) throw bad("Upstream response exceeded the size cap", 502);
-  try { return JSON.parse(bytes.toString("utf8")); } catch { throw bad("Upstream returned non-JSON", 502); }
+  const text = decodeUtf8(bytes);
+  if (text.length > maxBytes) throw bad("Upstream response exceeded the size cap", 502);
+  try { return JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
 }
 // F3: POST-payment read. Once we've spent, throwing a 4xx/5xx would cancel the
 // BUYER's settlement (@x402/express settles after the handler) — so we'd pay
@@ -214,9 +222,10 @@ async function readCapped(res, maxBytes) {
 // The buyer gets a 200 (is charged, covering our spend) with a best-effort body.
 export async function readAfterSpend(res, maxBytes) {
   let read;
-  try { read = await readBytesCapped(res, maxBytes); } catch { return { relayError: "upstream body unreadable" }; }
-  const truncated = read.truncated;
-  const body = read.bytes.toString("utf8");
+  try { read = await readBytesCapped(res, byteCeilingFor(maxBytes)); } catch { return { relayError: "upstream body unreadable" }; }
+  const text = decodeUtf8(read.bytes);
+  const truncated = read.truncated || text.length > maxBytes;
+  const body = truncated ? text.slice(0, maxBytes) : text;
   try { const j = JSON.parse(body); return truncated ? { ...(j && typeof j === "object" && !Array.isArray(j) ? j : { value: j }), _truncated: true } : j; }
   catch { return { raw: body.slice(0, 4000), ...(truncated ? { _truncated: true } : {}) }; }
 }

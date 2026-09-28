@@ -26,7 +26,7 @@ import { assertSigningAllowed } from "./signing-halt.js";
 import { ROUTER_UA } from "./x402-buyer.js";
 import { recordUpstreamSpend } from "./stats.js";
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
-import { readBytesCapped } from "./capped-body.js";
+import { readBytesCapped, decodeUtf8 } from "./capped-body.js";
 
 export const TEMPO_CHAIN_ID = 4217;
 export const TEMPO_CAIP2 = "eip155:4217";
@@ -222,7 +222,7 @@ async function defaultCredentialFactory() {
 // that is a prefix.
 async function readCapped(res, maxBytes) {
   const { bytes: buf, truncated } = await readBytesCapped(res, maxBytes);
-  const text = buf.toString("utf8");
+  const text = decodeUtf8(buf);
   const ct = res.headers.get("content-type") || "";
   if (/json/i.test(ct)) { try { return JSON.parse(text); } catch { /* fall through */ } }
   return { text, truncated, contentType: ct, sha256: createHash("sha256").update(buf).digest("hex") };

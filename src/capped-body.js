@@ -85,7 +85,16 @@ export async function readBytesCapped(res, maxBytes) {
   return { bytes: Buffer.alloc(0), truncated: false };
 }
 
-/** The first `maxBytes` of a body as UTF-8 text (a split character decodes to U+FFFD). */
+// Bytes become text the way Response.text() makes them: UTF-8, a leading
+// byte-order mark dropped, a malformed or split sequence read as U+FFFD. A
+// seller whose JSON opens with a BOM parses here exactly as it does through
+// text() or json().
+const UTF8 = new TextDecoder("utf-8");
+export function decodeUtf8(bytes) {
+  return UTF8.decode(bytes);
+}
+
+/** The first `maxBytes` of a body as text, decoded as Response.text() decodes. */
 export async function readTextCapped(res, maxBytes) {
-  return (await readBytesCapped(res, maxBytes)).bytes.toString("utf8");
+  return decodeUtf8((await readBytesCapped(res, maxBytes)).bytes);
 }
