@@ -86,4 +86,12 @@ jobs:
           REFUND_EVM_KEY: ${{ secrets.REFUND_EVM_KEY != '' && secrets.REFUND_EVM_KEY || secrets.BURNER_KEY }}
           REFUND_STELLAR_SECRET: ${{ secrets.REFUND_STELLAR_SECRET != '' && secrets.REFUND_STELLAR_SECRET || secrets.STELLAR_BURNER_SECRET }}
           REFUND_ALGORAND_MNEMONIC: ${{ secrets.REFUND_ALGORAND_MNEMONIC != '' && secrets.REFUND_ALGORAND_MNEMONIC || secrets.ALGORAND_BURNER_MNEMONIC }}
+          # The router tiers settle to our spending wallets, not the treasury
+          # (src/payments.js), so the pre-send proof must count those public
+          # addresses as ours (ourPayToSet in scripts/refund-run.js). Repository
+          # VARIABLES, the same ones deploy.yml passes: addresses only, no key.
+          # scripts/test-refund-run-self-funding.js keeps this list in step
+          # with payments.js.
+          X402_UPSTREAM_BUYER_ADDRESS: ${{ vars.X402_UPSTREAM_BUYER_ADDRESS }}
+          ALGORAND_UPSTREAM_BUYER_ADDRESS: ${{ vars.ALGORAND_UPSTREAM_BUYER_ADDRESS }}
         run: node scripts/refund-run.js
