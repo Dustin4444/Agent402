@@ -921,6 +921,10 @@ export const MODEL_COST = [
   // does not fit the base tier's bound, so on base it still walks the chain;
   // the metered tier is its real home. Live endpoints 2026-09-24.
   ["qwen/qwen3.8-max-prime", { prompt: 4, completion: 12 }],
+  // qwen3.7-max: one endpoint lists both units above the family row and still
+  // inside the base tier's bound, so the family row under-priced it on the
+  // base and metered tiers alike (live endpoints 2026-09-27).
+  ["qwen/qwen3.7-max", { prompt: 2.5, completion: 7.5 }],
   ["qwen/", { prompt: 2, completion: 6.4 }], // live 2026-08-19
   ["poolside/", { prompt: 0.15, completion: 0.3 }],
   // Stealth listing: priced zero on the live catalog (verified 2026-08-22).
