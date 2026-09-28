@@ -29,13 +29,14 @@
 //     INFLIGHT_COVER_UNREAD_MAX runs in flight (default 4) and refuses beyond.
 //   - A run leaves the ledger when its settlement SUCCEEDS (the x402
 //     afterSettle hook with a success result, markCoveredRunSettled in
-//     src/payments.js): its payment is then off the wallet, so the balance
-//     reflects it and counting it too would ask the wallet for it twice. A
-//     slow response body after that (a large report to a slow client) must
-//     not hold a run the balance already covers. A run whose settlement
-//     failed, or that settled by a path that fires no afterSettle hook (a
-//     recovered fallback settle), leaves when its response ends, however it
-//     ends (src/hangup-settlement.js onResponseEnd). Whichever comes first
+//     src/payments.js; a settlement recovered through the PAYMENT_SETTLE_
+//     FALLBACK chain fires no afterSettle, so that chain calls the same
+//     release, releaseCoverOnSettled): its payment is then off the wallet, so
+//     the balance reflects it and counting it too would ask the wallet for it
+//     twice. A slow response body after that (a large report to a slow
+//     client) must not hold a run the balance already covers. A run whose
+//     settlement failed leaves when its response ends, however it ends
+//     (src/hangup-settlement.js onResponseEnd). Whichever comes first
 //     releases; the second is a no-op.
 //   - Between its handler's return and its response's end a run is SETTLING:
 //     its payment may already be taken on chain, so a balance read then can
