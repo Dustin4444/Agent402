@@ -48,6 +48,7 @@ import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 import Stripe from "stripe";
 import { REPORT_TIERS } from "./report-tiers.js";
 import { verifyHintMiddleware } from "./verify-hint.js";
+import { paymentRequiredBodyMiddleware } from "./payment-required-body.js";
 import { avmSubcentOfferStatus } from "./avm-sponsorship.js";
 import { translateV1Accepts, v1AcceptsTranslationEnabled } from "./x402-v1-accepts.js";
 import { mountShortlinks } from "./shortlinks.js";
@@ -7678,6 +7679,15 @@ if (!FREE_MODE) {
   // Telemetry may only record product keys we actually sell (see knownProduct
   // in posthog.js): on a refusal the value is whatever the caller sent.
   setKnownProductKeys([...Object.keys(HUMAN_PRODUCTS), ...Object.keys(MONITOR_PRODUCTS || {})]);
+  // The 402 body carries the same PaymentRequired object as the header
+  // (src/payment-required-body.js). MOUNT ORDER MATTERS: this wraps res.send,
+  // and it must be mounted BEFORE every middleware that can call
+  // markMppProblem (the MPP shim, the Tempo gate and the Stripe gate below).
+  // The problem patch then delegates to this wrapper, so an MPP refusal's
+  // problem document is merged too; mounted after them, this wrapper would
+  // be outer and its merge replaced. It is inner to every res.json wrapper
+  // regardless, because res.json always ends in this.send.
+  if (process.env.PAYMENT_REQUIRED_BODY !== "off") app.use(paymentRequiredBodyMiddleware());
   app.use(verifyHintMiddleware());
 
   const mppShim = createMppShim({

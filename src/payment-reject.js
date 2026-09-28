@@ -22,8 +22,10 @@
 // the facilitator's own hint (src/verify-hint.js) is the better answer whenever
 // the payment actually reached it.
 
-/** Decode a base64(url) JSON header. Null on anything unreadable. */
-function decodeB64Json(value) {
+/** Decode a base64(url) JSON header. Null on anything unreadable. Shared
+ *  with src/payment-required-body.js, so the 402 body mirror reads the header
+ *  with the same decoder the classifier uses. */
+export function decodeB64Json(value) {
   try {
     const s = String(value || "").trim();
     if (!s) return null;
