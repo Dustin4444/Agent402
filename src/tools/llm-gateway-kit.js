@@ -48,6 +48,7 @@ import { payerFromRequest, paymentHeaderOf } from "../payer.js";
 // Settle-failure breaker: every gateway handler consults it FIRST (see the
 // module header) - refuses before any upstream call, arms the outcome listener.
 import { gatewaySettleBreakerCheck } from "../gateway-settle-breaker.js";
+import { clientGoneSignal } from "../drain-abort.js";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -2085,6 +2086,15 @@ export const OPENROUTER_ATTRIBUTION = Object.freeze({
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  // Inside a report composite, the buyer's connection closing before the first
+  // byte (src/hangup-settlement.js, src/drain-abort.js) means the payment will
+  // not settle: start no new paid call, and cut off the one in flight. The
+  // client-gone reason (a 499) is rethrown as is, so the dispatcher answers
+  // 499 and a chain walker does not treat it as a link failure. Outside such
+  // a scope this is null and nothing changes.
+  const gone = clientGoneSignal();
+  if (gone?.aborted) throw gone.reason;
+  const own = signal ?? AbortSignal.timeout(timeoutMs ?? 90_000);
   try {
     return await fetch(url, {
       method: "POST",
@@ -2094,9 +2104,10 @@ export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTE
         ...OPENROUTER_ATTRIBUTION,
       },
       body: JSON.stringify(body),
-      signal: signal ?? AbortSignal.timeout(timeoutMs ?? 90_000),
+      signal: gone ? AbortSignal.any([own, gone]) : own,
     });
   } catch (e) {
+    if (gone?.aborted) throw gone.reason;
     throw bad(`Upstream request failed: ${e.message}`, 504);
   }
 }

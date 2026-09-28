@@ -8823,6 +8823,9 @@ for (const tool of ALL_KIT) {
     // recorder reads this to tell a cancelled charge from a request nothing
     // was accepted for). A free proof-of-work or trial call is not a charge.
     if (!(res.getHeader("X-Pow-Accepted") || res.getHeader("X-Trial-Accepted"))) req.__a402Dispatched = true;
+    // Set on a composite: aborted the moment the buyer's connection closes
+    // before the first byte, so its per-request upstream calls stop.
+    let clientGoneCtl = null;
     try {
       // The SAME object the quote was priced from (src/handler-input.js):
       // query merged, MCP-style {params|input|args} envelopes unwrapped once,
@@ -8930,8 +8933,18 @@ for (const tool of ALL_KIT) {
       // A composite runs in an abortable scope: on SIGTERM every upstream call
       // it is waiting on is cut off (503, never charged) instead of running to
       // the drain deadline with the money already spent - src/drain-abort.js.
+      // The scope also carries the buyer's client-gone signal: when the
+      // connection closes before the first byte, the payment will not settle
+      // (src/hangup-settlement.js), so no new paid upstream call starts and
+      // the one in flight is cut off. Registered after the hang-up hook's own
+      // close listener, so the request is already marked when this runs.
+      if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        const ctl = new AbortController();
+        clientGoneCtl = ctl;
+        res.once("close", () => { if (clientGoneBeforeFirstByte(req)) ctl.abort(clientGoneError()); });
+      }
       const result = EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)
-        ? await runInAbortableScope(() => tool.handler(input, req))
+        ? await runInAbortableScope(() => tool.handler(input, req), { signal: clientGoneCtl.signal })
         : await tool.handler(input, req);
       req.__a402HandlerStatus = 200;
 
@@ -9012,7 +9025,7 @@ for (const tool of ALL_KIT) {
       // The buyer left before the first byte (src/hangup-settlement.js): a 499
       // whatever shape the handler surfaced it in. >= 400, so every rail
       // cancels settlement; the hang-up recorder counts the strike.
-      if (isClientGoneAbort(err)) status = 499;
+      if (clientGoneCtl?.signal.aborted || isClientGoneAbort(err)) { status = 499; if (!isClientGoneAbort(err)) err = clientGoneError(); }
       req.__a402HandlerStatus = status;
       if (isClientGoneAbort(err)) {
         if (!res.headersSent) { try { res.status(499).json({ error: err.message, tool: tool.slug, charged: false }); } catch { /* socket already gone */ } }

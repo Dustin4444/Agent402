@@ -43,6 +43,7 @@
 // would expose our job ids.
 import { bad, fetchOpenRouter, throwUpstreamError, assertUpstreamBody, MARGIN, OPENROUTER_ATTRIBUTION, upstreamUserId, IMAGES_PATH, IMAGES_PRICE } from "./llm-gateway-kit.js";
 import { redactSecrets } from "./redact.js";
+import { clientGoneSignal } from "../drain-abort.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
 export const OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos";
@@ -310,12 +311,21 @@ export function validateVideosRequest(input) {
   return { prompt, aspect_ratio: aspect };
 }
 
+// The video poll and the content download are per-request paid reads: they
+// join the buyer's client-gone signal the same way fetchOpenRouter does, so a
+// buyer who left stops the poll loop. The price-listing read above
+// (listedEndpoints) deliberately does NOT: its result is cached for an hour
+// and shared by every buyer, and one buyer's disconnect must never poison it.
 async function openRouterGet(url, { timeoutMs = 30_000, accept } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  const gone = clientGoneSignal();
+  if (gone?.aborted) throw gone.reason;
+  const own = AbortSignal.timeout(timeoutMs);
   try {
-    return await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${key}`, ...OPENROUTER_ATTRIBUTION, ...(accept ? { Accept: accept } : {}) }, signal: AbortSignal.timeout(timeoutMs) });
+    return await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${key}`, ...OPENROUTER_ATTRIBUTION, ...(accept ? { Accept: accept } : {}) }, signal: gone ? AbortSignal.any([own, gone]) : own });
   } catch (e) {
+    if (gone?.aborted) throw gone.reason;
     throw bad(`Upstream request failed: ${e.message}`, 504);
   }
 }

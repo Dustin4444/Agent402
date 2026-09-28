@@ -22,6 +22,9 @@
 //      the spent credential cannot buy a second run;
 //   e. three such hang-ups from one wallet: the fourth call is refused 429
 //      before the handler; another wallet is unaffected;
+//   f. close during a report composite (the image tier): the upstream call in
+//      flight is cut off, no failover link starts, nothing settles; three of
+//      those block the wallet, and never pause the route for anyone else;
 //   g. close AFTER the whole answer arrived: an ordinary settled sale.
 import { spawn } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
@@ -160,6 +163,20 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   }
   ok(!/creditsChargedOnClose/.test(credits) && /if \(res\.headersSent\) \{ const c = settle\([^\n]*\n\s*else release\(a\.hash, a\.heldMicro\);/.test(credits), "credits: a close settles only a stream that began; otherwise the hold is released");
   ok(!/creditsChargedOnClose/.test(server), "the debt recorder no longer has a credits-on-close branch (unreachable)");
+  // The composite scope carries the buyer's client-gone signal, and only the
+  // per-request paid upstream helpers join it - never the shared price-listing
+  // read, whose failure would be cached for an hour for every buyer.
+  ok(/\? await runInAbortableScope\(\(\) => tool\.handler\(input, req\), \{ signal: clientGoneCtl\.signal \}\)/.test(server), "the dispatcher runs a composite with the client-gone signal ({ signal })");
+  ok(/res\.once\("close", \(\) => \{ if \(clientGoneBeforeFirstByte\(req\)\) ctl\.abort\(clientGoneError\(\)\); \}\);/.test(server), "the dispatcher aborts the composite's signal on a close before the first byte");
+  const gatewayKit = readFileSync(new URL("../src/tools/llm-gateway-kit.js", import.meta.url), "utf8");
+  const imagesKit = readFileSync(new URL("../src/tools/llm-images-fast-kit.js", import.meta.url), "utf8");
+  const fnBody = (src, sig) => { const i = src.indexOf(sig); if (i < 0) return ""; const j = src.indexOf("\n}\n", i); return src.slice(i, j); };
+  const fo = fnBody(gatewayKit, "export async function fetchOpenRouter(");
+  ok(/const gone = clientGoneSignal\(\);/.test(fo) && /AbortSignal\.any\(\[own, gone\]\)/.test(fo) && /if \(gone\?\.aborted\) throw gone\.reason;/.test(fo), "fetchOpenRouter joins the client-gone signal (refuses to start, cuts off in flight, rethrows the 499)");
+  const og = fnBody(imagesKit, "async function openRouterGet(");
+  ok(/const gone = clientGoneSignal\(\);/.test(og) && /AbortSignal\.any\(\[own, gone\]\)/.test(og), "openRouterGet (video poll + download) joins the client-gone signal");
+  const le = fnBody(imagesKit, "async function listedEndpoints(");
+  ok(le.length > 0 && !/clientGoneSignal/.test(le) && !/openRouterGet\(/.test(le), "listedEndpoints (the shared, cached price listing) does NOT join it");
   // Vendor shape: @x402/express hands the settle hooks `{ request: context, ... }`
   // where context.adapter is an ExpressAdapter holding the Express request. A
   // bump that moves it would silently revert to settle-then-owe; fail here.
@@ -374,6 +391,36 @@ try {
     const r2 = await pay(CHAT, wallet(0xe2));
     ok(r2.status === 200 && fac.settle === s0 + 1, `e. another wallet is served and settles (status ${r2.status}) - strikes never feed the global pause`);
     ok((await refunds()).length === 1, "e. still no debt for any cancelled charge");
+  }
+
+  // f. A report composite (the image tier): the buyer leaves while the paid
+  // upstream call is in flight. That call is cut off (the stub sees its own
+  // inbound request close), no failover link starts, nothing settles, nothing
+  // is owed. Three of those from one wallet block it; they never pause the
+  // route for anyone else (both global thresholds are 3 on this boot).
+  {
+    const IMG = { path: "/v1/images/pro", method: "POST", body: JSON.stringify({ prompt: "a red fox in the snow" }) };
+    const WF = wallet(0xf1);
+    or.imagesDelayMs = 3_000;
+    for (let i = 1; i <= 3; i++) {
+      const i0 = or.images, e0 = or.imagesClosedEarly, s0 = fac.settle, logAt = serverLog.length;
+      const upstreamSeen = waitFor(() => or.images > i0, 8000);
+      let abortedAt = 0;
+      await hangUp(`${B}${IMG.path}`, { method: "POST", headers: await headersFor(IMG, WF), body: IMG.body, abortWhen: upstreamSeen.then(() => sleep(150)).then(() => { abortedAt = Date.now(); }) });
+      const cut = await waitFor(() => or.imagesClosedEarly > e0, 3000);
+      ok(cut && or.imagesClosedAt - abortedAt < 1_000, `f${i}. the image call in flight is cut off within a second of the buyer leaving (${or.imagesClosedAt - abortedAt} ms)`);
+      await sleep(600);
+      ok(or.images - i0 === 1 && fac.settle === s0, `f${i}. exactly one upstream image POST (no failover link after the buyer left), nothing settled (POSTs +${or.images - i0}, settles +${fac.settle - s0})`);
+      if (i === 1) ok(/\[hangup\] NOT CHARGED: [^\n]*POST \/v1\/images\/pro rail=x402 after \d+ ms of work\) - payment not settled; counted by the composite guard and settle breaker/.test(logSince(logAt)), "f1. the log says NOT CHARGED on /v1/images/pro and counts the strike");
+    }
+    ok((await refunds()).length === 1, "f. no debt for any cancelled composite charge");
+    or.imagesDelayMs = 0;
+    const i0 = or.images, s0 = fac.settle;
+    const blocked = await pay(IMG, WF);
+    ok(blocked.status === 429 && or.images === i0 && fac.settle === s0, `f. after three hang-ups the fourth composite call from that wallet is 429 before any upstream work (status ${blocked.status}, POSTs +${or.images - i0})`);
+    const other = await pay(IMG, wallet(0xf2));
+    const ob = await other.json().catch(() => ({}));
+    ok(other.status === 200 && Array.isArray(ob.data) && fac.settle === s0 + 1, `f. another wallet's composite call is served and settles, not paused (status ${other.status}) - hang-ups never feed the global pauses`);
   }
 
   // g. Control: the buyer reads the WHOLE answer, then drops the socket. An
