@@ -16,7 +16,8 @@
 //             Base unless SOR_TEMPO_FROM_BASE opts them into Tempo fallthrough
 import { createServer } from "node:http";
 import { tempoCatalog, rankTempoResources } from "../src/tempo-sellers.js";
-import { payTempo, __testResetProofCache, tempoInboundCount, TEMPO_USDC, TEMPO_CAIP2 } from "../src/tempo-buyer.js";
+import { payTempo, __testResetProofCache, tempoInboundCount, tempoInboundEvidence, tempoEvidenceFromLogs, primeTempoInboundCount, TEMPO_USDC, TEMPO_CAIP2 } from "../src/tempo-buyer.js";
+import { sellerDeliveryFailingRecently, sellerDeliveryMemoEntries, __resetSellerDeliveryFailuresForTest, noteSellerDeliveryFailure } from "../src/x402-buyer.js";
 import { buyerPaymentNetwork, externalChainsFor, EXTERNAL_CHAIN_BY_NETWORK, buildRouteExecuteTool, EXEC_TIERS } from "../src/tools/route-execute.js";
 import { Challenge } from "mppx";
 
@@ -100,6 +101,10 @@ const seller = createServer((req, res) => {
     if (auth && /^Payment /.test(auth)) {
       paidHits++; lastAuth = auth;
       if (sellerMode === "reject-paid") { res.writeHead(402, { "www-authenticate": challengeHeader() }); return res.end("{}"); }
+      const rcpt = Buffer.from(JSON.stringify({ method: "tempo", status: "success", reference: "0xbeef", timestamp: new Date().toISOString() })).toString("base64url");
+      if (sellerMode === "fail-500") { res.writeHead(500, { "content-type": "text/plain" }); return res.end("boom"); }
+      if (sellerMode === "fail-400") { res.writeHead(400, { "content-type": "application/json" }); return res.end("{}"); }
+      if (sellerMode === "fail-400-receipt") { res.writeHead(400, { "content-type": "application/json", "payment-receipt": rcpt }); return res.end("{}"); }
       res.writeHead(200, { "content-type": "application/json", "payment-receipt": Buffer.from(JSON.stringify({ method: "tempo", status: "success", reference: "0xfeed", timestamp: new Date().toISOString() })).toString("base64url") });
       return res.end(JSON.stringify({ scraped: true, echo: body ? JSON.parse(body) : null }));
     }
@@ -139,6 +144,71 @@ await refuse("ok", { proof: proofDown }, /refusing to spend/, "proof RPC down (f
 sellerMode = "reject-paid";
 let rej = null; try { await payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, proof: proofOk }); } catch (e) { rej = e; }
 ok(rej && /rejected the paid retry/.test(rej.message) && rej.statusCode === 502, "seller 402 after payment -> 502 (buyer's settlement cancels; our exposure is bounded by cap)");
+
+// ---- the distinct-payer floor at pay time (2026-09-28) ----
+// The count alone was cheap to reach from wallets the seller holds. A proof
+// naming payers is held to the Base floor's rule; a bare count is judged as before.
+sellerMode = "ok";
+await refuse("ok", { proof: async () => ({ count: 4000, payers: 2 }) }, /distinct recent payers on Tempo \(floor 3\)/, "4,000 transfers from TWO payers is below the payer floor");
+{
+  const before = minted;
+  const r = await payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, proof: async () => ({ count: 4000, payers: 3 }) });
+  ok(r.result?.scraped === true && minted === before + 1, "control: the same count from three payers is paid");
+  const r2 = await payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, proof: async () => ({ count: 4000, payers: undefined }) });
+  ok(r2.result?.scraped === true, "control: a proof with no payer figure (an older primed count) is judged on the count, as before");
+}
+{
+  const T = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const tp = (a) => "0x" + a.slice(2).toLowerCase().padStart(64, "0");
+  const OURS = "0x" + "0e".repeat(20);
+  const P = ["0x" + "a1".repeat(20), "0x" + "a2".repeat(20), "0x" + "a3".repeat(20)];
+  const logs = [
+    ...Array.from({ length: 10 }, () => ({ topics: [T, tp(RECIPIENT), tp(RECIPIENT)] })),   // itself
+    ...Array.from({ length: 10 }, () => ({ topics: [T, tp(OURS), tp(RECIPIENT)] })),        // our spending wallet
+    ...Array.from({ length: 6 }, (_, i) => ({ topics: [T, tp(P[i % 3]), tp(RECIPIENT)] })), // three outside payers
+    {},                                                                                      // no readable sender
+  ];
+  const ev = tempoEvidenceFromLogs(RECIPIENT, logs, new Set([OURS]));
+  ok(ev.count === 7 && ev.payers === 3, `a recipient's own transfers and ours are not evidence; an unreadable sender counts and names no payer (got ${ev.count}/${ev.payers})`);
+  __testResetProofCache();
+  const rpcFn = async (m) => (m === "eth_blockNumber" ? "0x" + (200000).toString(16) : logs);
+  const ev2 = await tempoInboundEvidence(RECIPIENT, { rpcFn, ourWallets: new Set([OURS]) });
+  ok(ev2.count === 7 && ev2.payers === 3, "the chain read applies the same exclusions and caches both figures");
+  __testResetProofCache();
+  primeTempoInboundCount(RECIPIENT, 50, Date.now(), 2);
+  ok((await tempoInboundEvidence(RECIPIENT, { rpcFn: async () => { throw new Error("must not be called"); } })).payers === 2, "a primed read carries its payer figure to the pay-time gate");
+  __testResetProofCache();
+}
+
+// ---- the delivery memo on the Tempo rail (2026-09-28) ----
+// payTempo wrote nothing when a seller took the credential and failed, so the
+// resolver kept sending buyers there. Same rules as payX402: opt-in, two
+// strikes, a settled delivery clears it.
+{
+  const ORIGIN = new URL(URL_).origin;
+  const buy = (mode, memoizeDelivery = true) => { sellerMode = mode; return payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, proof: proofOk, memoizeDelivery }).then((r) => r, (e) => e); };
+  __resetSellerDeliveryFailuresForTest();
+  const e1 = await buy("fail-500");
+  ok(e1 instanceof Error && e1.committed === true, "control: a 500 after the credential went out is still a committed 502");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo") === null, "one strike changes no routing decision");
+  await buy("fail-500");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo")?.strikes === 2, "a second 5xx with no receipt makes the Tempo seller actionable for the resolver");
+  await buy("ok");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo") === null, "a 200 carrying a Payment-Receipt reference clears it");
+  __resetSellerDeliveryFailuresForTest();
+  await buy("fail-400-receipt"); await buy("fail-400-receipt");
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo")?.status === 400, "a 4xx that carries a Payment-Receipt (the seller says it took the payment) is a delivery failure");
+  __resetSellerDeliveryFailuresForTest();
+  await buy("fail-400"); await buy("fail-400"); await buy("reject-paid"); await buy("reject-paid");
+  ok(sellerDeliveryMemoEntries().length === 0, "control: a 4xx or 402 with no receipt is the seller answering the request, and records nothing");
+  await buy("fail-500", false); await buy("fail-500", false);
+  ok(sellerDeliveryMemoEntries().length === 0, "a caller that does not opt in writes nothing (the default is false)");
+  noteSellerDeliveryFailure(ORIGIN, "tempo", { status: 500 }); noteSellerDeliveryFailure(ORIGIN, "tempo", { status: 500 });
+  await buy("ok", false);
+  ok(sellerDeliveryFailingRecently(ORIGIN, "tempo"), "...and cannot clear the memo either");
+  __resetSellerDeliveryFailuresForTest();
+  sellerMode = "ok";
+}
 seller.close();
 
 // ---- proof cache + count parsing (injected rpc) ----

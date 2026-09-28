@@ -1766,8 +1766,8 @@ for (const tier of EXEC_TIERS) {
     // method and body the CALLER chose, so an unguarded write was a paid
     // routing ban against any origin, on demand. Default false, opted into
     // here, where the seller was resolved by US from a task and not named by
-    // the buyer.
-    payExternal: (url, opts) => (opts?.chain === "tempo" ? payTempo(url, opts) : payX402(url, { ...opts, memoizeDelivery: true })),
+    // the buyer. Both rails: payTempo keeps the same memo since 2026-09-28.
+    payExternal: (url, opts) => { const o = { ...opts, memoizeDelivery: true }; return opts?.chain === "tempo" ? payTempo(url, o) : payX402(url, o); },
     externalEnabled: () => SOR_EXTERNAL_ENABLED,
     // Chains external routing can SETTLE on: Base always (the proven path);
     // Algorand only once the dedicated AVM spending wallet is configured;

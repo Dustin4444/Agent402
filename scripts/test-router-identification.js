@@ -121,7 +121,7 @@ const buy = (opts = {}) => payX402("https://seller.example/x", {
 // it imports the one string rather than typing a second one that drifts.
 {
   const src = readFileSync(new URL("../src/tempo-buyer.js", import.meta.url), "utf8");
-  ok(/import \{ ROUTER_UA \} from "\.\/x402-buyer\.js"/.test(src), "the Tempo buyer imports ROUTER_UA rather than typing its own copy");
+  ok(/import \{[^}]*\bROUTER_UA\b[^}]*\} from "\.\/x402-buyer\.js"/.test(src), "the Tempo buyer imports ROUTER_UA rather than typing its own copy");
   ok(/"user-agent": ROUTER_UA/.test(src), "the Tempo buyer sets the router User-Agent");
   ok(/"x-agent402-via": "router"/.test(src), "the Tempo buyer sets X-Agent402-Via");
   // `extra` carries the payment credential and must stay last.

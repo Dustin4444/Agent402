@@ -234,6 +234,35 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
   ok(served && served.result && served.result.ok === true, "control: the delivered answer reaches the buyer");
   eq(sellerDeliveryFailingRecently("https://good.example", "base"), null, "a 200 that SETTLED clears it on the spot - no TTL wait, no redeploy");
 
+  // (f) A 4xx AFTER A CHARGE (2026-09-28). The memo saw only a 5xx, so a seller
+  //     that took the payment and answered 400 wrote nothing. On Base the
+  //     chain answers exactly (the nonce we signed was consumed).
+  __resetSellerDeliveryFailuresForTest();
+  globalThis.fetch = sellerThat(() => ({ status: 400, headers: hdrs({ "content-type": "application/json" }), text: async () => JSON.stringify({ error: "bad input" }), json: async () => ({}) }));
+  const f1 = await buy("https://took-it.example");
+  ok(f1 instanceof Error && f1.committed === true, "control: a 400 after a proven debit stays a committed 502 (the money left)");
+  await buy("https://took-it.example");
+  const took = sellerDeliveryFailingRecently("https://took-it.example", "base");
+  ok(took && took.strikes === 2 && took.status === 400, "two 400s after a proven debit make the seller actionable - a stock seller never settles a >= 400");
+  // (g) the SAME 400 with no debit is the seller answering the request our
+  //     caller wrote: nothing recorded.
+  __resetSellerDeliveryFailuresForTest();
+  const undebited = () => payX402("https://said-no.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => ({ debited: false, observed: 1, expired: true }) }).catch(() => {});
+  await undebited(); await undebited();
+  eq(sellerDeliveryMemoEntries().length, 0, "control: a 400 the chain proves was uncharged records nothing (an honest seller refusing a bad request is not failing)");
+  // (h) a 400 carrying the seller's own success receipt, chain unreadable:
+  //     the seller says it took the payment. One strike per call, whichever
+  //     source said so first.
+  __resetSellerDeliveryFailuresForTest();
+  globalThis.fetch = sellerThat(() => ({ status: 400, headers: hdrs({ "content-type": "application/json", "payment-response": receipt }), text: async () => "{}", json: async () => ({}) }));
+  await payX402("https://self-declared.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited: async () => { throw new Error("rpc down"); } }).catch(() => {});
+  eq(sellerDeliveryMemoEntries().find((e) => e.origin === "https://self-declared.example")?.strikes, 1, "a 4xx with a success receipt is a strike even when the chain cannot be read");
+  await buy("https://both.example");
+  eq(sellerDeliveryMemoEntries().find((e) => e.origin === "https://both.example")?.strikes, 1, "a receipt AND a consumed nonce on one call are ONE strike, not two");
+  await buy("https://both.example", { asRouter: false }); await buy("https://nobody.example", { asRouter: false });
+  eq(sellerDeliveryMemoEntries().find((e) => e.origin === "https://both.example")?.strikes, 1, "and a caller that did not opt in adds nothing");
+  ok(!sellerDeliveryMemoEntries().some((e) => e.origin === "https://nobody.example"), "...anywhere");
+
   globalThis.fetch = origFetch;
   __resetSellerDeliveryFailuresForTest(); __resetSellerRefusalsForTest();
 }
@@ -285,6 +314,8 @@ const { dispatchEligibility, DISPATCH_REASONS, dispatchLegend } = await import("
      "and the CLEAR needs a settle receipt, so the memo cannot be bought off through a route the seller knows works");
   ok(/deliveryFailures\.delete\(key\);\n  if \(deliveryFailures\.size >= DELIVERY_FAIL_MAX\)/.test(buyer),
      "eviction deletes before it sets, so a repeat strike moves to the tail and the most-broken seller is not the first one evicted");
+  ok(/if \(evmCheckable && verdict && verdict\.debited === true\) strikeChargedFailure\(/.test(buyer),
+     "a debit strikes only on the EXACT chain read (the signed nonce): a Solana debit is our wallet moving in a window, which a concurrent buy can produce");
   ok(buyer.indexOf("noteSellerDeliveryFailure(sellerOrigin, chain, { status: paid.status") < buyer.indexOf("if (chainCheckable) {"),
      "recorded BEFORE the Base/Solana chain-truth checks, so a Tempo or Algorand seller that fails after payment is recorded too");
 }
