@@ -3220,9 +3220,13 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // CORRECTION of this very verb (the probe saw it fail and the other answer).
     const correctsVerb = !exact && hit.method && hit.method !== t.method
       && (t.methodInferred === true || hit.methodCorrectedFrom === String(t.method || "GET").toUpperCase());
-    // A verified read is evidence about ITS OWN row: the same verb, or the verb
-    // it recorded correcting. A sibling verb on the path was never read.
-    if (!fromQuote && !exact && !correctsVerb) continue;
+    // A read is evidence about ITS OWN row: the same verb, or the verb it
+    // recorded correcting (or the verb an inferred row adopts from it). A
+    // sibling verb on the path was never read, so a verified read carries
+    // nothing to it, and a learned quote carries it only the route-level price
+    // and, onto a row with no chains of its own, the chains (see below).
+    const ownRead = Boolean(exact) || correctsVerb;
+    if (!fromQuote && !ownRead) continue;
     if (exact && Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     if (hit.quoteSource === "live-200") {
       // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
@@ -3257,29 +3261,45 @@ export function carryForwardLearnedQuotes(tools, prev) {
       t.quoteCarriedForward = true;
       if (hit.quoteObservedAt) t.quoteObservedAt = hit.quoteObservedAt;
     }
+    // Did this row just take its chains from the hit? A row with no chains of
+    // its own takes a learned quote's chains through the route fallback (the
+    // older price-and-networks rule); the domain and payTo below describe those
+    // chains, so they ride with them.
+    let tookChains = false;
     if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
+      tookChains = true;
       // The verification stamp travels with the chains it verified, onto the
       // row it belongs to (same verb, or the verb it recorded correcting). This
       // branch used to drop it, so the next rebuild saw an unverified row.
-      if (Number(hit.networksVerifiedAt) > 0 && (exact || correctsVerb)) t.networksVerifiedAt = hit.networksVerifiedAt;
-    } else if (Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
+      if (Number(hit.networksVerifiedAt) > 0 && ownRead) t.networksVerifiedAt = hit.networksVerifiedAt;
+    } else if (ownRead && Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
       // A VERIFIED live read outranks a manifest claim: union the chains the
       // 402 actually offered into the freshly rebuilt (manifest-shaped) row,
       // and carry when they were verified so the weekly re-read keeps its clock.
+      // Own row only, like the stamp above. A declared sibling verb that
+      // already names chains in the seller's document was never read: until
+      // 2026-09-28 it took the other verb's chains and stamp here, and, once
+      // verified reads were carried, kept them rebuild after rebuild as its own
+      // "verified read" - hidden from its own weekly read, and listing the
+      // other verb's chains (and, below, its Base payTo) as the sibling's.
       t.networks = [...new Set([...(t.networks || []), ...hit.networks])];
       t.networksVerifiedAt = hit.networksVerifiedAt;
     }
+    // The domain observation and the payTo describe the chains of the read
+    // they came from, so they ride only where those chains do: onto the read's
+    // own row, or onto a row that just took the hit's chains.
+    const carriesPayment = ownRead || tookChains;
     // The domain observation rides with the verified read it came from: a
     // manifest-shaped rebuild has no accepts of its own, and without this the
     // label would forget a wrong-domain seller on every crawl.
-    if (!t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
+    if (carriesPayment && !t.evmDomainByNetwork && hit.evmDomainByNetwork && typeof hit.evmDomainByNetwork === "object") t.evmDomainByNetwork = { ...hit.evmDomainByNetwork };
     // The payTo the live 402 named rides forward the same way, per network,
     // filling a GAP only: a manifest-shaped rebuild names no wallet on a
     // bare-string resource, and without this every crawl would forget the one
     // address the Base scan needs. A network the rebuilt row already carries a
     // payTo for keeps it (the origin's own current document, read this crawl).
-    if (hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
+    if (carriesPayment && hit.payToByNetwork && typeof hit.payToByNetwork === "object") {
       const remembered = Object.entries(hit.payToByNetwork).filter(([, addr]) => typeof addr === "string" && addr);
       // The spread ORDER is the whole rule: what this crawl read from the
       // origin wins, the remembered address fills the rest. Filtering the
@@ -3293,6 +3313,12 @@ export function carryForwardLearnedQuotes(tools, prev) {
     if (correctsVerb) {
       if (hit.methodCorrectedFrom) t.methodCorrectedFrom = hit.methodCorrectedFrom;
       t.method = hit.method; t.methodInferred = false;
+      // The live proof belongs to the verb that answered, so it travels with
+      // the correction the way the verification stamp does. Carried on exact
+      // hits only until 2026-09-28, which lost it on the first rebuild of every
+      // corrected row (the rebuilt row states the wrong verb, so it never
+      // matches exactly).
+      if (Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     }
     // Only claim "live-402" for a price this crawl is actually standing behind:
     // a row the origin priced today is origin-declared, not live-learned, and a
@@ -3337,6 +3363,14 @@ export function networksNeedLiveVerify(t, now = Date.now()) {
   if (!(Array.isArray(t.networks) && t.networks.length)) return false;
   const at = Number(t.networksVerifiedAt);
   if (!Number.isFinite(at) || at <= 0) return true;
+  // The stamp's clock covers a row whose PRICE is the origin's own declaration
+  // (a live 402 is the other price source, and it returned above). A priced
+  // row carrying a stamp but neither is a row whose price came from somewhere
+  // no read looked at: the origin stopped declaring and the rebuild took a
+  // registry's settlement snapshot, while carry-forward kept the stamp of the
+  // read made beside the old declaration. Before verified reads were carried
+  // such a row had no stamp and was read on the next crawl; it still is.
+  if (!(Number(t.originDeclaredPrice) > 0)) return true;
   return now - at >= NETWORKS_VERIFY_AGE_MS;
 }
 
