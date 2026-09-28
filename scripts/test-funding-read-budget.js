@@ -19,8 +19,13 @@
 // own money) and one legitimate wallet with a dense stretch of history, it
 // asserts: every refresh within the scan's budget and every rolling day's
 // retries within the day's allowance; each heavy payTo costing a few calls
-// once and none after; every light wallet read in the first refresh. Then
-// eight days of heavy payTos that keep getting new payers, where every day
+// once and none after; every light wallet read in the first refresh. The
+// same with 1,000 light wallets beside 200 heavy payTos, and on a budget too
+// small for the first refresh to reach them all, where no later refresh
+// reads alone a light wallet whose read never got a turn. Then 200 payTos
+// whose histories are readable in pieces but larger than a wallet's progress
+// may keep between scans, over eight days: after the first day, no day
+// spends its retry allowance again. Then eight days of heavy payTos that keep getting new payers, where every day
 // after the first must cost no more than the one before; and a day whose
 // retry allowance is spent in the first refresh, where a wallet whose payers
 // first pay later must still be read in its first scan. Offline, nothing is
@@ -58,7 +63,7 @@ const MAX_CALLS = SF.FUNDING_DEFAULTS.maxCalls, DAY_MAX = SF.FUNDING_DEFAULTS.da
 // `newPerDay`: new payers each heavy payTo gets every day (light ones: the
 // seller never sent them anything). `late`: the hour a self-funded wallet L's
 // payers first pay it.
-function buildChain(K, days = 2, { newPerDay = 0, late = null, pays = 6 } = {}) {
+function buildChain(K, days = 2, { newPerDay = 0, late = null, pays = 6, nLight = 20 } = {}) {
   const start = LATEST0 - SPAN;
   const logs = [];
   const items = [];
@@ -75,14 +80,16 @@ function buildChain(K, days = 2, { newPerDay = 0, late = null, pays = 6 } = {}) 
       for (let c = 0; c < 3; c++) logs.push(log(p, d, 10_000, LATEST0 + day * BLOCKS_PER_DAY + (i + 1) * 3_000 + c, 4));
     }
   });
-  // 20 light wallets, 5 payers x 12 each; the first four funded their payers
-  // about 2M blocks before the window (paid with their own money: circular).
-  const lights = Array.from({ length: 20 }, (_, i) => A(0x2000 + i));
+  // `nLight` light wallets (20 by default), 5 payers x 12 each; the first
+  // four (and, past 20, the last four) funded their payers about 2M blocks
+  // before the window (paid with their own money: circular).
+  const lights = Array.from({ length: nLight }, (_, i) => A(0x2000 + i));
+  const circular = (i) => i < 4 || (nLight > 20 && i >= nLight - 4);
   lights.forEach((w, i) => {
     list(w, `light-${i}.example`);
     for (let j = 0; j < 5; j++) {
       const p = A(0x600000 + i * 5 + j);
-      if (i < 4) logs.push(log(w, p, 200_000, start - 2_000_000, j));
+      if (circular(i)) logs.push(log(w, p, 200_000, start - 2_000_000, j));
       for (let day = 0; day < days; day++) for (let k = 0; k < 12; k++) logs.push(log(p, w, 10_000, LATEST0 - 20_000 + day * BLOCKS_PER_DAY + k, j));
     }
   });
@@ -108,7 +115,7 @@ function buildChain(K, days = 2, { newPerDay = 0, late = null, pays = 6 } = {}) 
       for (let k = 0; k < 12; k++) logs.push(log(p, L, 10_000, LATEST0 + late * BLOCKS_PER_HOUR - 500 + k, j));
     }
   }
-  return { logs, items, heavy, lights, H, L, heavySet: new Set(heavy.map(topic)), dense };
+  return { logs, items, heavy, lights, nCircular: lights.filter((_, i) => circular(i)).length, H, L, heavySet: new Set(heavy.map(topic)), dense };
 }
 
 // Wallets with MANY new payers (each payer chunk of 200 is one planned read):
@@ -129,11 +136,50 @@ function buildManyPayers(n, perWallet) {
   return { logs, items, heavy: [], lights: [], H: A(0x4e4e), L: A(0x4c4c), heavySet: new Set(), dense: new Set(), wallets };
 }
 
+// `n` payTos whose history with their 20 payers is readable, but only in
+// pieces: each sent each payer a small transfer every 10,000 blocks since the
+// token's deployment (about 5,700 per payer, 114,000 per payTo). Generated as
+// it is asked for (see lazyParts). This stub caps an answer at `cap` results,
+// and the scan is told a wallet's progress may hold `held` transfers between
+// scans: the provider's 10,000 and the default 50,000 at a tenth, so the
+// widths a read is answered at are the ones a history ten times as dense has
+// under the real caps.
+function buildMedium(n, days) {
+  const logs = [], items = [];
+  const medium = Array.from({ length: n }, (_, i) => A(0xc00000 + i));
+  const lazy = new Map();
+  medium.forEach((w, i) => {
+    items.push({ resource: `https://medium-${i}.example/api/x`, accepts: [{ network: "eip155:8453", asset: USDC, payTo: w, amount: "10000" }] });
+    const ps = Array.from({ length: 20 }, (_, k) => A(0x5e0000 + i * 20 + k));
+    lazy.set(topic(w), ps.map((p, k) => ({ to: topic(p), payer: p, off: 2_797_221 + k * 37, every: 10_000 })));
+    for (let day = 0; day < days; day++) for (let k = 0; k < 20; k++) for (let c = 0; c < 3; c++) logs.push(log(ps[k], w, 10_000, LATEST0 - 4_000 + day * BLOCKS_PER_DAY + k * 3 + c, 2));
+  });
+  return { logs, items, heavy: [], lights: [], H: A(0x4e4e), L: A(0x4c4c), heavySet: new Set(), dense: new Set(), medium, lazy, cap: 1_000, held: 5_000 };
+}
+// The lazily generated transfers a read would return: those of the wallets
+// in topics[1] with lazy histories, to the payers in topics[2] (or to any).
+function lazyParts(p) {
+  if (!chain.lazy || !Array.isArray(p.topics?.[1])) return [];
+  const lo = parseInt(p.fromBlock, 16), hi = Math.min(parseInt(p.toBlock, 16), LATEST);
+  const tos = Array.isArray(p.topics[2]) ? new Set(p.topics[2].map((x) => x.toLowerCase())) : null;
+  const parts = [];
+  for (const t of p.topics[1]) for (const z of chain.lazy.get(t.toLowerCase()) || []) {
+    if (tos && !tos.has(z.to)) continue;
+    const a = Math.max(lo, z.off);
+    const first = a + ((((z.off - a) % z.every) + z.every) % z.every);
+    const count = first > hi ? 0 : Math.floor((hi - first) / z.every) + 1;
+    if (count) parts.push({ from: "0x" + t.slice(-40), z, first, count });
+  }
+  return parts;
+}
+const lazyCount = (parts) => parts.reduce((n, x) => n + x.count, 0);
+const lazyLogs = (parts) => parts.flatMap((x) => Array.from({ length: x.count }, (_, i) => log(x.from, x.z.payer, 1_000, x.first + i * x.z.every, 7)));
+
 // --- the stub Bazaar + RPC -------------------------------------------------------------
 let chain = null;
 let byFrom = new Map(), byTo = new Map();
 let LATEST = LATEST0;
-const counter = { funding: 0, namingHeavy: 0 };
+const counter = { funding: 0, namingHeavy: 0, namingMedium: 0 };
 // Every funding read of one wallet's payers: its direction, wallet, payer set
 // and block range (to find a chunk read twice).
 const reads = [];
@@ -172,13 +218,15 @@ const srv = createServer((req, res) => {
     const funding = Array.isArray(p.topics?.[1]);
     if (funding) {
       counter.funding++;
-      if (Array.isArray(p.topics[2])) reads.push({ t1: p.topics[1].map((x) => x.toLowerCase()).sort().join(), t2: p.topics[2].map((x) => x.toLowerCase()).sort().join(), lo: parseInt(p.fromBlock, 16), hi: parseInt(p.toBlock, 16) });
+      if (Array.isArray(p.topics[2])) reads.push({ t1: p.topics[1].map((x) => x.toLowerCase()).sort().join(), t2: p.topics[2].map((x) => x.toLowerCase()).sort().join(), lo: parseInt(p.fromBlock, 16), hi: parseInt(p.toBlock, 16), w1: p.topics[1].map((x) => x.toLowerCase()), w2: p.topics[2].map((x) => x.toLowerCase()) });
       const named = [...p.topics[1], ...(Array.isArray(p.topics[2]) ? p.topics[2] : [])].map((t) => t.toLowerCase());
       if (named.some((t) => chain.heavySet.has(t))) counter.namingHeavy++;
       if (span > 10_000 && named.some((t) => chain.heavySet.has(t)) && named.some((t) => chain.dense.has(t))) return send({ jsonrpc: "2.0", id: j.id, error: { code: -32602, message: SIZE_REFUSAL } });
     }
     const out = getLogs(p);
-    if (funding && span > 2_000 && out.length > 10_000) return send({ jsonrpc: "2.0", id: j.id, error: { code: -32602, message: SIZE_REFUSAL } });
+    const parts = funding ? lazyParts(p) : [];
+    if (funding && span > 2_000 && out.length + lazyCount(parts) > (chain.cap || 10_000)) return send({ jsonrpc: "2.0", id: j.id, error: { code: -32602, message: SIZE_REFUSAL } });
+    if (parts.length) { counter.namingMedium++; out.push(...lazyLogs(parts)); }
     return send({ jsonrpc: "2.0", id: j.id, result: out });
   });
 });
@@ -186,8 +234,9 @@ await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${srv.address().port}`;
 
 // --- one run: `hours` hourly refreshes of the real scan -------------------------------
-async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, late = null, pays, many = null } = {}) {
-  chain = many || buildChain(K, Math.ceil(hours / 24) + 1, { newPerDay, late, ...(pays ? { pays } : {}) });
+async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, maxCalls, newPerDay = 0, late = null, pays, nLight, many = null } = {}) {
+  chain = many || buildChain(K, Math.ceil(hours / 24) + 1, { newPerDay, late, ...(pays ? { pays } : {}), ...(nLight ? { nLight } : {}) });
+  const lightTopics = new Set(chain.lights.map(topic));
   reads.length = 0;
   index(chain);
   let state = SF.createFundingState(USDC);
@@ -196,12 +245,15 @@ async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, 
   for (let h = 0; h < hours; h++) {
     LATEST = LATEST0 + h * BLOCKS_PER_HOUR;
     const now = NOW0 + h * HOUR;
-    counter.funding = 0; counter.namingHeavy = 0;
+    counter.funding = 0; counter.namingHeavy = 0; counter.namingMedium = 0;
+    const readsBefore = reads.length;
     const snap = await LB.runLeaderboard({
       bazaarUrl: `${base}/bazaar`, rpcs: [`${base}/rpc`], spanBlocks: SPAN, chunkBlocks: SPAN + 1, now,
       fundingState: state, previousWalletEvidence: prev,
       ...(dayMaxCalls !== undefined ? { fundingDayMaxCalls: dayMaxCalls } : {}),
       ...(walletMaxCalls !== undefined ? { fundingWalletMaxCalls: walletMaxCalls } : {}),
+      ...(maxCalls !== undefined ? { fundingMaxCalls: maxCalls } : {}),
+      ...(chain.held ? { fundingMaxPartialLogsPerWallet: chain.held } : {}),
     });
     const f = snap.routerFundingScan || {};
     const ev = snap.walletEvidence || {};
@@ -210,7 +262,13 @@ async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, 
     prev = ev;
     const settled = (d) => ev[d]?.fundingRead === true || state.wallets.get(d)?.retryAt > now;
     rows.push({
-      h, now, calls: f.calls ?? 0, stubCalls: counter.funding, namingHeavy: counter.namingHeavy, history: (f.historyCalls ?? 0) + (f.gapCalls ?? 0),
+      h, now, calls: f.calls ?? 0, stubCalls: counter.funding, namingHeavy: counter.namingHeavy, namingMedium: counter.namingMedium, history: (f.historyCalls ?? 0) + (f.gapCalls ?? 0),
+      // History reads this refresh naming a light wallet, and those naming one alone.
+      lightReads: reads.slice(readsBefore).filter((r) => [...r.w1, ...r.w2].some((t) => lightTopics.has(t))).length,
+      lightAlone: reads.slice(readsBefore).filter((r) => (r.w1.length === 1 && lightTopics.has(r.w1[0])) || (r.w2.length === 1 && lightTopics.has(r.w2[0]))).length,
+      mediumWaiting: (chain.medium || []).filter((w) => state.wallets.get(w)?.retryAt > now).length,
+      mediumTooDense: (chain.medium || []).filter((w) => state.wallets.get(w)?.td?.length).length,
+      mediumGross: (chain.medium || []).filter((w) => ev[w]?.fundingRead === false && ev[w]?.callsSettled === ev[w]?.grossCallsSettled && ev[w]?.callsSettled > 0).length,
       lightsRead: chain.lights.filter((w) => ev[w]?.fundingRead === true).length,
       lightsCircular: chain.lights.filter((w) => ev[w]?.circular === true).length,
       heavySettled: chain.heavy.filter(settled).length,
@@ -221,7 +279,7 @@ async function run(K, { hours = 24, dayMaxCalls, walletMaxCalls, newPerDay = 0, 
       many: (chain.wallets || []).map((w) => ({ read: ev[w]?.fundingRead === true, circular: ev[w]?.circular === true })),
     });
   }
-  return { rows, state };
+  return { rows, state, chain };
 }
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
@@ -291,6 +349,39 @@ try {
   const lAt = capped.rows.findIndex((r) => r.L.read);
   ok(lAt === 5 && capped.rows[5].L.circular === true && capped.rows[5].L.net === 0, `...and the wallet whose payers first pay at hour 5 is read in that refresh (refresh ${lAt}), found paid with its own money, credited nothing`);
   ok(capped.rows[23].heavyGross === 200, `...and every heavy payTo, waiting or left behind, counts as it is (${capped.rows[23].heavyGross} of 200), never netted blind`);
+
+  // A PRODUCTION-SIZED LIGHT SET: 1,000 light wallets (eight of them paid
+  // with their own money) beside 200 heavy payTos. Every light wallet's
+  // first read goes before any split isolating a heavy payTo, so all are read
+  // in the first refresh, and none is read again.
+  const big = await run(200, { hours: 3, nLight: 1000 });
+  console.log(`# 200 heavy payTos beside 1,000 light wallets: calls per refresh ${big.rows.map((r) => r.calls).join(",")}; light wallets read ${big.rows.map((r) => r.lightsRead).join(",")}`);
+  ok(big.rows[0].lightsRead === 1000 && big.rows[0].lightsCircular === big.chain.nCircular && big.rows.slice(1).every((r) => r.lightReads === 0),
+    `every one of 1,000 light wallets beside 200 heavy payTos read in the first refresh (${big.rows[0].lightsRead}), the ${big.chain.nCircular} paid with their own money found (${big.rows[0].lightsCircular}), and none read again`);
+  // ...and on a budget too small for the first refresh to reach them all,
+  // the light wallets whose reads never got a turn are packed the next
+  // refresh, never read alone.
+  const tight = await run(200, { hours: 4, nLight: 1000, maxCalls: 40 });
+  const tightAt = tight.rows.findIndex((r) => r.lightsRead === 1000);
+  console.log(`# ...on a budget of 40: light wallets read ${tight.rows.map((r) => r.lightsRead).join(",")}; history reads naming one alone ${tight.rows.map((r) => r.lightAlone).join(",")}`);
+  ok(tight.rows[0].lightsRead < 1000 && tightAt >= 1 && tightAt <= 2 && tight.rows[tightAt].lightsCircular === tight.chain.nCircular && tight.rows.every((r) => r.lightAlone === 0 && r.calls <= 40),
+    `...on a budget of 40, ${tight.rows[0].lightsRead} are read in the first refresh and the rest by refresh ${tightAt}, packed: no refresh reads a light wallet alone`);
+
+  // HISTORIES READABLE IN PIECES BUT TOO LARGE TO HOLD: 200 payTos, over
+  // eight days. Each stops once it cannot finish on its share and what it
+  // would hold is past the cap, and is not read again while those payers are
+  // new to it: the first day's retries may reach the day's allowance, and no
+  // later day comes near it again.
+  const t1 = Date.now();
+  const med = await run(0, { hours: 192, many: buildMedium(200, 9) });
+  const medDay = (d, f) => sum(med.rows.slice(d * 24, d * 24 + 24).map(f));
+  const medRetries = Array.from({ length: 8 }, (_, d) => medDay(d, (r) => r.retries));
+  const medCalls = Array.from({ length: 8 }, (_, d) => medDay(d, (r) => r.calls));
+  console.log(`# 200 payTos too dense to hold (in ${Date.now() - t1} ms): calls per day ${medCalls.join(",")}; retries per day ${medRetries.join(",")}; marked too dense ${med.rows.at(-1).mediumTooDense}`);
+  ok(medRetries[0] <= DAY_MAX && medRetries.slice(1).every((n) => n < DAY_MAX / 2) && medRetries.slice(2).every((n) => n === 0) && med.rows.every((r) => r.retryDay <= DAY_MAX && r.calls === r.stubCalls),
+    `no day after the first spends its retry allowance again (retries per day ${medRetries.join(", ")})`);
+  ok(med.rows.at(-1).mediumTooDense === 200 && med.rows.at(-1).mediumGross === 200 && med.rows.slice(72).every((r) => r.namingMedium === 0),
+    `...every one of the 200 is marked too dense to hold (${med.rows.at(-1).mediumTooDense}) and counts as it is (${med.rows.at(-1).mediumGross}), and from the fourth day no call names one`);
 } finally {
   srv.close();
   rmSync(dir, { recursive: true, force: true });

@@ -1126,7 +1126,8 @@ export async function runLeaderboard(overrides = {}) {
       // One control for the whole scan: its timeouts, its stop, and each
       // wallet's share of the history and gap reads (src/seller-funding.js).
       const ctl = newFundingReadControl();
-      const share = { ctl, scanMaxCalls: maxCalls, now: nowMs, ...(Number.isFinite(opts.fundingWalletMaxCalls) ? { walletMaxCalls: opts.fundingWalletMaxCalls } : {}), ...(Number.isFinite(opts.fundingDayMaxCalls) ? { dayMaxCalls: opts.fundingDayMaxCalls } : {}) };
+      const held = Number.isFinite(opts.fundingMaxPartialLogsPerWallet) ? { maxPartialLogsPerWallet: opts.fundingMaxPartialLogsPerWallet } : {};
+      const share = { ctl, scanMaxCalls: maxCalls, now: nowMs, ...held, ...(Number.isFinite(opts.fundingWalletMaxCalls) ? { walletMaxCalls: opts.fundingWalletMaxCalls } : {}), ...(Number.isFinite(opts.fundingDayMaxCalls) ? { dayMaxCalls: opts.fundingDayMaxCalls } : {}) };
       const facts = await readSellerFunding({
         rpc: fundingRpc,
         token: chain.token, state,
@@ -1157,7 +1158,7 @@ export async function runLeaderboard(overrides = {}) {
       };
       processSellerFunding(state, byWallet, { throughFor, windowStartBlock: start, gaps: gapRead.gaps, histories: history.histories, classify });
       const pruned = {};
-      pruneFundingState(state, { now: nowMs, latest, counts: pruned });
+      pruneFundingState(state, { now: nowMs, latest, counts: pruned, ...held });
       const h = history.stats;
       const g = gapRead.stats;
       fundingScan = {

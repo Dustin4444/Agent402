@@ -582,6 +582,61 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const h2 = await scanOnce({ sellers: [seller(H2, "heavy2.example"), ...sells], pays: h2p, outs: lo, state: h2st, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(H2)) && span > 10_000 ? SIZE_REFUSAL : false) }, readOpts: { maxCalls: 4 } });
   ok(h2.stats.history.budgetExhausted && lights.every((w) => !h2st.wallets.get(w).retryAt), `four calls, spent isolating the heavy wallet in the packed job: no light wallet waits for it (${lights.filter((w) => h2st.wallets.get(w).retryAt).length} waiting)`);
 
+  // FIRST READS GO BEFORE SPLITS. Three heavy wallets packed together first
+  // in line, the twenty light wallets behind them in packs of three, and a
+  // budget of exactly the first reads: one refused call for the heavy pack,
+  // seven for the light packs, two for the second read of the four light
+  // wallets that funded their payers. Every light wallet is read and the four
+  // found paying themselves; the heavy pack's splits wait for a later call.
+  // (Before, the splits isolating the heavy wallets came first, and the light
+  // wallets behind them waited for every one of them.)
+  const Hv = [addr("e3"), addr("e4"), addr("e5")];
+  const hvPays = [...lp];
+  Hv.forEach((h, n) => { for (let k = 0; k < 20; k++) for (let c = 0; c < 5; c++) hvPays.push({ wallet: h, payer: P(7300 + n * 20 + k), usd: 0.01, pos: posOf(latest - 5_000 + k * 5 + c, 1) }); });
+  const hvRpc = { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && Hv.some((h) => p.topics[1].includes(topic(h))) && span > 10_000 ? SIZE_REFUSAL : false) };
+  const namesHv = (c) => Array.isArray(c.topics[2]) && Hv.some((h) => c.topics[1].includes(topic(h)) || c.topics[2].includes(topic(h)));
+  const fr = await scanOnce({ sellers: [...Hv.map((h, n) => seller(h, `hv-${n}.example`)), ...sells], pays: hvPays, outs: lo, state: createFundingState(USDC), latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: hvRpc, readOpts: { maxCalls: 10, walletChunk: 3 } });
+  ok(fr.stats.history.calls === 10 && lights.every((w) => fr.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => fr.ev[w].circular === true) && fr.calls.filter(namesHv).length === 1,
+    `first reads before splits: on a budget of the first reads (${fr.stats.history.calls} calls) every light wallet behind a refused heavy pack is read (${lights.filter((w) => fr.ev[w].fundingRead).length} of 20) and the four circular ones found; ${fr.calls.filter(namesHv).length} call names a heavy wallet`);
+
+  // A READ THAT NEVER GOT A TURN is packed with others the next scan, not read
+  // alone. A budget of two reads the first two packs of three; the other
+  // fourteen wallets' reads never get a turn. The next scan packs those
+  // fourteen three to a call (five calls), where it once read each alone.
+  const ntst = createFundingState(USDC);
+  await scanOnce({ sellers: sells, pays: lp, outs: lo, state: ntst, latest, span: SPAN, historyFrom: 2_797_221, readOpts: { maxCalls: 2, walletChunk: 3, scanMaxCalls: 400 } });
+  const late = lights.slice(6);
+  const nt2 = await scanOnce({ sellers: sells, pays: lp, outs: lo, state: ntst, latest: latest + 1_800, span: SPAN, historyFrom: 2_797_221, now: NOW + 3_600_000, readOpts: { walletChunk: 3 } });
+  const lateCalls = nt2.calls.filter((c) => Array.isArray(c.topics[2]) && late.some((w) => c.topics[1].includes(topic(w))));
+  ok(lateCalls.length === 5 && lateCalls.every((c) => c.topics[1].length >= 2) && lights.every((w) => nt2.ev[w].fundingRead === true) && lights.slice(0, 4).every((w) => nt2.ev[w].circular === true),
+    `the fourteen wallets whose reads got no turn are read the next scan in ${lateCalls.length} packed calls (none alone), and all 20 are read, the four circular found`);
+
+  // A SPLIT LEFT UNFINISHED goes on where it stopped. One heavy wallet packed
+  // with 36 light ones (one job of 37), on a budget of two: the job is refused
+  // and so is its half holding the heavy wallet. The three jobs left unread
+  // keep their groups, and the next scan reads those, never the whole 37
+  // again.
+  const Hx = addr("e6");
+  const gLights = Array.from({ length: 36 }, (_, i) => "0x" + (0x3100 + i).toString(16).padStart(40, "0"));
+  const gp = [];
+  for (let k = 0; k < 20; k++) for (let c = 0; c < 5; c++) gp.push({ wallet: Hx, payer: P(7600 + k), usd: 0.01, pos: posOf(latest - 5_000 + k * 5 + c, 1) });
+  gLights.forEach((w, i) => { for (let j = 0; j < 5; j++) for (let k = 0; k < 12; k++) gp.push({ wallet: w, payer: P(7400 + i * 5 + j), usd: 0.01, pos: posOf(latest - 20_000 + k, j) }); });
+  const gSells = [seller(Hx, "hx.example"), ...gLights.map((w, i) => seller(w, `gl-${i}.example`))];
+  const gRpc = { refuse: (p, span) => (Array.isArray(p.topics?.[1]) && p.topics[1].includes(topic(Hx)) && span > 10_000 ? SIZE_REFUSAL : false) };
+  const gst2 = createFundingState(USDC);
+  const g1 = await scanOnce({ sellers: gSells, pays: gp, outs: [], state: gst2, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: gRpc, readOpts: { maxCalls: 2, walletChunk: 40, scanMaxCalls: 400 } });
+  const groups = new Set([...gst2.wallets.values()].flatMap((ws) => ws.hp.map((g) => g.g)).filter(Boolean));
+  const gRound = parseFundingState(serializeFundingState(gst2), USDC);
+  const grouped = [...gRound.wallets.values()].flatMap((ws) => ws.hp).filter((g) => g.g).length;
+  const g2 = await scanOnce({ sellers: gSells, pays: gp, outs: [], state: gRound, latest: latest + 1_800, span: SPAN, historyFrom: 2_797_221, rpcOpts: gRpc, now: NOW + 3_600_000, readOpts: { walletChunk: 40 } });
+  const g2Hist = g2.calls.filter((c) => Array.isArray(c.topics[2]));
+  const widest = Math.max(...g2Hist.map((c) => c.topics[1].length));
+  ok(g1.stats.history.calls === 2 && g1.calls[0]?.topics[1].length === 37 && groups.size === 3 && grouped === 37,
+    `two calls: the job of 37 and its half holding the heavy wallet are refused; the 37 wallets' reads are kept in ${groups.size} groups, through the volume`);
+  const lightCalls = g2Hist.filter((c) => gLights.some((w) => c.topics[1].includes(topic(w)))).length;
+  ok(widest <= 18 && gLights.every((w) => g2.ev[w].fundingRead === true) && g2.ev[Hx].fundingRead === false && lightCalls <= 9,
+    `the next scan reads those groups (the widest call names ${widest} wallets, never the 37 again): all 36 light wallets read in ${lightCalls} calls`);
+
   // A GAP READ RESUMES the same way. A wallet funded one payer $1; the payer
   // then made 12,000 payments of $0.0001 before the next scan's window, which
   // spend what was left of that dollar. Cut short half-way through that gap,
@@ -659,8 +714,8 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
   const mOpts = { walletMaxCalls: 8, maxPartialLogsPerWallet: 100 };
   const mst = createFundingState(USDC);
   const m1 = await scanOnce({ sellers: [seller(M, "dense-hold.example")], pays: [...mp, ...qPays], outs: mo, state: mst, latest, span: SPAN, historyFrom: 2_797_221, rpcOpts: mRpc, readOpts: mOpts });
-  ok(m1.stats.history.overShare === 1 && mst.wallets.get(M).td?.includes(Q) && !mst.wallets.get(M).hp.length && m1.ev[M].fundingRead === false,
-    `a history readable only in pieces and too dense to hold: its first attempt spends its share (${mHist(m1)} calls), its progress is dropped, and the payer it could not hold is kept`);
+  ok(m1.stats.history.tooDense === 1 && m1.stats.history.overShare === 0 && mHist(m1) < 1 + mOpts.walletMaxCalls && mst.wallets.get(M).td?.includes(Q) && !mst.wallets.get(M).hp.length && m1.ev[M].fundingRead === false,
+    `a history readable only in pieces and too dense to hold: its first attempt stops once it cannot finish on its share and what it would hold is past the cap (${mHist(m1)} calls, not the ${1 + mOpts.walletMaxCalls} of its share), its progress is dropped, and the payer it could not hold is kept`);
   const m2 = await scanOnce({ sellers: [seller(M, "dense-hold.example")], pays: [...mp, ...qPays], outs: mo, state: mst, latest: latest + 45_000, span: SPAN, historyFrom: 2_797_221, rpcOpts: mRpc, readOpts: mOpts, now: NOW + 90_000_000 });
   ok(mHist(m2) === 0 && m2.stats.history.tooDense === 1 && mst.wallets.get(M).retryAt > NOW + 90_000_000 && m2.ev[M].fundingRead === false,
     `back from its wait with that payer still new to it: not read from the start again (${mHist(m2)} calls), it waits again`);
@@ -758,6 +813,45 @@ ok(ev[SIB_A].callsSettled === 8 && ev[SIB_A].selfFundedCalls === 0 && ev[SIB_A].
     for (const w of quiet) bst3.wallets.get(w).cursor = 2000;
     const b3 = await readSellerFunding({ rpc: capRpc([]), token: USDC, state: bst3, wallets: all, latest: 3000, windowStartBlock: 500, now: NOW + 8 * 86_400_000 });
     ok(b3.refusals > 0 && b3.calls > 2, `(control: a week later the mark has lapsed and the split is learned again, ${b3.calls} calls)`);
+
+    // BUSY TOGETHER, NOT ALONE: twenty wallets that each send three transfers
+    // a block to others, on an RPC that caps an answer at 10,000 results. An
+    // hour of one wallet (5,400) fits; two packed together do not, so the
+    // split was learned again every hour and nothing was ever marked. A
+    // wallet that sent 1,000 or more in a read answered after its packed job
+    // was refused is marked now, and the next hour reads the twenty targeted
+    // at their payers, nothing refused.
+    const B20 = Array.from({ length: 20 }, (_, i) => "0x" + (0xb100 + i).toString(16).padStart(40, "0"));
+    const q20 = Array.from({ length: 20 }, (_, i) => "0x" + (0xc100 + i).toString(16).padStart(40, "0"));
+    const payer20 = (w) => "0x" + "f2".repeat(18) + w.slice(-4);
+    const small = [];
+    for (const w of [...B20, ...q20]) small.push(log(w, payer20(w), usd(0.5), 1500, 3), log(w, payer20(w), usd(0.5), 3300, 3));
+    const busySet = new Set(B20.map((w) => topic(w)));
+    const busyRpc = (calls) => async (method, params) => {
+      const p = params[0];
+      const lo = parseInt(p.fromBlock, 16), hi = parseInt(p.toBlock, 16);
+      calls.push({ ...p, span: hi - lo + 1 });
+      const eager = filterLogs(small, p);
+      const busyFroms = p.topics[2] === null ? (p.topics[1] || []).filter((t) => busySet.has(t)) : [];
+      if (eager.length + busyFroms.length * 3 * (hi - lo + 1) > 10_000) throw new Error("query returned more than 10000 results");
+      const out = [...eager];
+      for (const t of busyFroms) for (let b = lo; b <= hi; b++) for (let k = 0; k < 3; k++) out.push(log("0x" + t.slice(-40), "0x" + "e3".repeat(16) + (b * 4 + k).toString(16).padStart(8, "0"), 5, b, 10 + k));
+      return out;
+    };
+    const all20 = [...B20, ...q20].map((w) => ({ wallet: w, payers: new Set([payer20(w)]) }));
+    const b20 = () => knownState(Object.fromEntries([...B20, ...q20].map((w) => [w, [payer20(w)]])), 1000);
+    const s20 = b20();
+    const r1 = await readSellerFunding({ rpc: busyRpc([]), token: USDC, state: s20, wallets: all20, latest: 2800, windowStartBlock: 500, now: NOW });
+    const r2 = await readSellerFunding({ rpc: busyRpc([]), token: USDC, state: s20, wallets: all20, latest: 4600, windowStartBlock: 500, now: NOW + 3_600_000 });
+    const funded20 = (st) => [...B20, ...q20].every((w) => st.wallets.get(w).pairs.get(payer20(w))?.pend.length === 2);
+    ok(r1.refusals > 0 && r1.marked === 20 && B20.every((w) => s20.wallets.get(w).oh === NOW) && q20.every((w) => !s20.wallets.get(w).oh) && r1.caughtUp === 40,
+      `twenty wallets busy together but not alone: the first hour isolates them (${r1.calls} calls, ${r1.refusals} refused) and marks each (${r1.marked})`);
+    ok(r2.refusals === 0 && r2.targeted === 20 && r2.calls === 2 && r2.caughtUp === 40 && funded20(s20),
+      `the next hour: nothing refused, ${r2.calls} calls (the twenty read targeted, packed; the quiet ones untargeted), and every payer's funding recorded`);
+    const u20 = b20();
+    await readSellerFunding({ rpc: busyRpc([]), token: USDC, state: u20, wallets: all20, latest: 2800, windowStartBlock: 500, now: NOW, outboundBusyLogs: Infinity });
+    const u2 = await readSellerFunding({ rpc: busyRpc([]), token: USDC, state: u20, wallets: all20, latest: 4600, windowStartBlock: 500, now: NOW + 3_600_000, outboundBusyLogs: Infinity });
+    ok(u2.refusals > 0 && u2.targeted === 0, `(control: with no such mark the next hour is refused and split again, ${u2.calls} calls, ${u2.refusals} refused)`);
   }
   // A single wallet refused even over the narrowest range is read targeted
   // at its known payers: exactly what is recorded anyway, so nothing is lost.
