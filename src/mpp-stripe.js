@@ -30,6 +30,7 @@ import { Challenge, Credential, Expires, Method, Receipt } from "mppx";
 import { stripe as stripeMethods } from "mppx/server";
 import { createHmac } from "node:crypto";
 import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
+import { clientGoneBeforeFirstByte, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 const STRIPE_MIN_USD = 0.50; // SPT card minimum (docs.stripe.com/payments/machine)
 const CHALLENGE_TIMEOUT_SECONDS = 300;
@@ -321,6 +322,19 @@ export function createStripeGate({ validate = validateStripeCredential, settle =
         restore();
         replay();
         releaseReplay();
+        return;
+      }
+      // The buyer left before anything could reach them (src/hangup-settlement.js):
+      // do not capture. The credential stays spent, so it cannot buy a second
+      // run; the 499 goes through the hang-up hook's res.end wrapper, which
+      // counts the strike. A close during the capture itself is charged and
+      // booked as owed.
+      if (clientGoneBeforeFirstByte(req)) {
+        bufferedCalls = [];
+        restore();
+        settleReplay();
+        console.warn(`[mpp-stripe] client gone before the handler's answer could be sent (${req.method} ${req.path}) - not captured, not charged`);
+        try { res.removeHeader("Content-Length"); res.statusCode = 499; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ error: CLIENT_GONE_TEXT, charged: false })); } catch { /* socket already gone */ }
         return;
       }
       const b = await settle(auth);

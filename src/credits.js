@@ -268,18 +268,23 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
         if (res.statusCode === 200 && !cacheHit) { const c = settle(a.hash, a.heldMicro, item.slug || req.path, Number.isFinite(metered) && metered > 0 ? metered : null); if (c) req.creditsCharged = c.chargedUsd; }
         else release(a.hash, a.heldMicro);
       });
-      // A client that drops the socket AFTER dispatch has bought the work: the
-      // handler still runs to completion and the upstream is still paid, and
-      // `finish` never fires on a destroyed socket - so `close` used to RELEASE
-      // the hold, making credits the one rail where an abort was a free
-      // expensive call (reproduced 2026-08-28: /v1/research ran, $0 spent).
-      // Every other rail settles after the handler regardless of the socket;
-      // credits now does the same, at the held amount (the quote ceiling on a
-      // metered route, since no usage header exists for an aborted response).
-      // The buyer never received that response, so server.js's hang-up hook
-      // (src/hangup-settlement.js) reads this flag and records the charge as
-      // owed in the refund ledger, like every other rail.
-      res.on("close", () => { if (done) return; done = true; const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) { req.creditsCharged = c.chargedUsd; req.creditsChargedOnClose = c.chargedUsd; } });
+      // A client that drops the socket before the response finished (`finish`
+      // never fires on a destroyed socket). Before the FIRST byte, nothing
+      // reached the buyer, so the hold is RELEASED - the same rule as every
+      // other rail, none of which settles once the buyer is gone
+      // (src/hangup-settlement.js). This also means a close followed by a
+      // handler failure is never charged. The 2026-08-28 concern (an abort
+      // made an expensive handler free) is bounded elsewhere: the dispatcher
+      // refuses to start a handler for a client already gone, a report
+      // composite's upstream calls are cut off the moment the buyer leaves,
+      // and each abandoned run counts a strike against this credits key in
+      // the composite guard and settle breaker. After the first byte (a stream
+      // that began), the response was partly delivered: the hold is settled.
+      res.on("close", () => {
+        if (done) return; done = true;
+        if (res.headersSent) { const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) req.creditsCharged = c.chargedUsd; }
+        else release(a.hash, a.heldMicro);
+      });
       return next();
     };
   }

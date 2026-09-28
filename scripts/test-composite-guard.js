@@ -52,6 +52,21 @@ ok(g.compositeGuardGlobalPaused(), "the 6th spend-then-fail (any key, even unkey
 await new Promise((r) => setTimeout(r, 750));
 ok(!g.compositeGuardGlobalPaused(), "the global pause lifts after its window");
 
+// A run the buyer abandoned before the answer (src/hangup-settlement.js) is
+// recorded with { global: false }: it blocks THAT key after MAX like any
+// spend-then-fail, and never feeds the global pause - honest short-timeout
+// clients hang up on long routes, and a costless event must not pause everyone.
+g._compositeGuardReset();
+const H = "0xHungUp";
+g.recordCompositeSpendFailure(H, { global: false });
+g.recordCompositeSpendFailure(H, { global: false });
+ok(!g.compositeGuardBlocked(H), "two client-gone strikes do not block");
+g.recordCompositeSpendFailure(H, { global: false });
+ok(g.compositeGuardBlocked(H), "the third client-gone strike blocks that key");
+for (let i = 0; i < 12; i++) g.recordCompositeSpendFailure(`0xRotatingGone${i}`, { global: false });
+ok(!g.compositeGuardGlobalPaused() && g._compositeGuardState().globalFails === 0, "12 client-gone strikes across rotating keys never trip the global pause (threshold 6)");
+g._compositeGuardReset();
+
 // Usage telemetry accumulates per slug.
 g.recordCompositeUsage({ slug: "research", upstreamUsd: 0.25, ok: true, priceUsd: 5 });
 g.recordCompositeUsage({ slug: "research", upstreamUsd: 0, ok: false, priceUsd: 5 });

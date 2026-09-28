@@ -652,31 +652,58 @@ async function withWarnings(fn) {
   server.close();
 }
 
-// Case Q: a client that disconnects while the handler runs is STILL broadcast
-// once the handler produced a <400 (the work was done; skipping it made a
-// hang-up a free run), the credential stays spent so it cannot run the handler
-// again, and the hang-up hook sees a settled-but-undelivered response - the
-// point where server.js books the refund debt.
+// Case Q: a client that disconnects while the handler runs is NOT broadcast
+// (src/hangup-settlement.js): the buyer could not have received anything, so
+// nothing is charged. The credential stays spent, so it cannot run the handler
+// again, and the hang-up hook sees an undelivered end with NO settlement on it
+// (server.js counts that as a cancelled charge, not a debt).
 {
   const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
   let broadcasts = 0, handlerRuns = 0;
   const undelivered = [];
   const app = express();
-  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, tempoSettled: req.tempoSettled === true, receipt: res.getHeader("Payment-Receipt") || null }) }));
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, tempoSettled: req.tempoSettled === true, status: res.statusCode, receipt: res.getHeader("Payment-Receipt") || null }) }));
   app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x0a", timestamp: new Date().toISOString() } }; } }));
   app.use(paywallStub);
   app.get("/paid", (req, res) => { handlerRuns++; setTimeout(() => res.json({ late: true }), 400); });
   const { server, url } = await listen(app);
   const cred = buildTempoCredential();
-  await fetch(`${url}/paid`, { headers: { Authorization: cred }, signal: AbortSignal.timeout(100) }).catch(() => null);
-  await sleep(700);
-  ok(broadcasts === 1, `case Q: the credential of a client that hung up mid-handler is broadcast once the handler produced a 200 (broadcasts ${broadcasts})`);
-  ok(undelivered.length === 1 && undelivered[0].tempoSettled && undelivered[0].kind === "end", `case Q: the hang-up hook sees the settled response it could not deliver, exactly once (${JSON.stringify(undelivered)})`);
+  const { warned } = await withWarnings(async () => {
+    await fetch(`${url}/paid`, { headers: { Authorization: cred }, signal: AbortSignal.timeout(100) }).catch(() => null);
+    await sleep(700);
+  });
+  ok(broadcasts === 0, `case Q: the credential of a client that hung up mid-handler is NOT broadcast (broadcasts ${broadcasts})`);
+  ok(undelivered.length === 1 && !undelivered[0].tempoSettled && undelivered[0].kind === "end" && undelivered[0].receipt === null && undelivered[0].status === 499, `case Q: the hang-up hook sees the undelivered end once, with no settlement on it (${JSON.stringify(undelivered)})`);
+  ok(warned.some((w) => /\[mpp-tempo\] client gone before the handler's answer could be sent[^\n]*not broadcast, not charged/.test(w)), "case Q: the gate says it did not broadcast");
   const again = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
-  ok(again.status === 402 && handlerRuns === 1 && broadcasts === 1, `case Q: the same credential cannot run the handler again (status ${again.status}, handler runs ${handlerRuns})`);
-  // Control: a client that stays connected is served and nothing is flagged.
+  ok(again.status === 402 && handlerRuns === 1 && broadcasts === 0, `case Q: the same credential is still spent and cannot run the handler again (status ${again.status}, handler runs ${handlerRuns})`);
+  // Control: a client that stays connected is served, broadcast once, and nothing is flagged.
   const served = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
-  ok(served.status === 200 && undelivered.length === 1, "case Q: a connected client is served and the hook stays quiet");
+  ok(served.status === 200 && broadcasts === 1 && undelivered.length === 1, "case Q: a connected client is served and broadcast once; the hook stays quiet");
+  server.close();
+}
+
+// Case Q2: the residual window. The handler has answered and the broadcast is
+// in flight when the client leaves: the payment settles (the gate cannot see
+// the close before it broadcasts), and the hook sees tempoSettled - the point
+// where server.js books the charge as owed in the refund ledger.
+{
+  const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
+  let broadcasts = 0, broadcastStarted = null;
+  const started = new Promise((r) => { broadcastStarted = r; });
+  const undelivered = [];
+  const app = express();
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, tempoSettled: req.tempoSettled === true, receipt: res.getHeader("Payment-Receipt") || null }) }));
+  app.use(createTempoGate({ ...GATE, replayGuard: createReplayGuard(), validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; broadcastStarted(); await sleep(400); return { ok: true, receipt: { method: "tempo", status: "success", reference: "0x0b", timestamp: new Date().toISOString() } }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (req, res) => res.json({ fast: true }));
+  const { server, url } = await listen(app);
+  const ctl = new AbortController();
+  started.then(() => sleep(50)).then(() => ctl.abort());
+  await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: ctl.signal }).catch(() => null);
+  await sleep(600);
+  ok(broadcasts === 1, `case Q2: a client that leaves DURING the broadcast is charged (broadcasts ${broadcasts})`);
+  ok(undelivered.length === 1 && undelivered[0].tempoSettled && undelivered[0].kind === "end" && !!undelivered[0].receipt, `case Q2: the hook sees the settled response it could not deliver - the residual debt (${JSON.stringify(undelivered)})`);
   server.close();
 }
 

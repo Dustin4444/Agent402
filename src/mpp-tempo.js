@@ -25,6 +25,7 @@ import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 import { mppChallengesSuppressed, clientFingerprint } from "./mpp-fallback.js";
+import { clientGoneBeforeFirstByte, CLIENT_GONE_TEXT } from "./hangup-settlement.js";
 
 const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles (unconfirmed specifically for pathUSD — decimals() unread, this is the USDC-family convention, not a live lookup)
 
@@ -849,12 +850,13 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // writeHead threw ERR_HTTP_HEADERS_SENT AFTER broadcast - buyer charged,
       // response never finished (found by the 2026-08-18 security review).
       const originalFlushHeaders = typeof res.flushHeaders === "function" ? res.flushHeaders.bind(res) : null;
-      // A client that hangs up while the handler runs is still broadcast once
-      // the handler produced a <400: the work was done, and skipping the
-      // broadcast would make a hang-up a free handler run on this rail. The
-      // buyer who never received the answer is covered by the hang-up hook in
-      // server.js (src/hangup-settlement.js), which records the settled
-      // charge as owed in the refund ledger. Same rule as every other rail.
+      // A client that hangs up before the handler's answer could be sent is
+      // NOT broadcast (src/hangup-settlement.js): the buyer could not have
+      // received anything, so nothing is charged. The credential stays spent,
+      // so it cannot buy a second run, and the hang-up recorder in server.js
+      // counts the abandoned run against the buyer's key. Only a close that
+      // lands while the broadcast itself is in flight is charged; that one is
+      // booked as owed in the refund ledger. Same rule as every other rail.
       let bufferedCalls = [];
       let settled = false;
       let endCalled;
@@ -896,6 +898,17 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         restore();
         replay();
         releaseReplay();
+        return;
+      }
+      // The buyer left before anything could reach them: do not broadcast.
+      // The credential stays spent (it cannot buy a second run); the 499 goes
+      // through the hang-up hook's res.end wrapper, which counts the strike.
+      if (clientGoneBeforeFirstByte(req)) {
+        bufferedCalls = [];
+        restore();
+        settleReplay();
+        console.warn(`[mpp-tempo] client gone before the handler's answer could be sent (${req.method} ${req.path}) - not broadcast, not charged`);
+        try { res.removeHeader("Content-Length"); res.statusCode = 499; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ error: CLIENT_GONE_TEXT, charged: false })); } catch { /* socket already gone */ }
         return;
       }
       const tHandled = Date.now();

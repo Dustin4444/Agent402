@@ -102,12 +102,18 @@ export function compositeGuardGlobalPaused() {
   return false;
 }
 
-/** Record that we SPENT upstream for this payer and then did NOT settle (non-200). */
-export function recordCompositeSpendFailure(payer) {
+/** Record that we SPENT upstream for this payer and then did NOT settle (non-200).
+ *  `global:false` counts against the payer only: a run the buyer abandoned
+ *  before the answer was ready (src/hangup-settlement.js) is a costless event
+ *  for whoever triggers it, and honest short-timeout clients hang up on long
+ *  routes routinely, so it must never pause every composite for all buyers. */
+export function recordCompositeSpendFailure(payer, { global = true } = {}) {
   const t = Date.now();
-  globalFails = globalFails.filter((x) => t - x < WINDOW_MS);
-  globalFails.push(t);
-  if (globalFails.length >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFails = []; }
+  if (global) {
+    globalFails = globalFails.filter((x) => t - x < WINDOW_MS);
+    globalFails.push(t);
+    if (globalFails.length >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFails = []; }
+  }
   if (!payer) return;
   const arr = (fails.get(payer) || []).filter((x) => t - x < WINDOW_MS);
   arr.push(t);

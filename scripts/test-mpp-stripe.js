@@ -125,6 +125,38 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
   s.close();
 }
 
+// F) client gone before the handler's answer could be sent: the card is NOT
+// captured (src/hangup-settlement.js), the credential stays spent, and the
+// hang-up hook sees an undelivered end with no settlement on it. A connected
+// control is captured once.
+{
+  const { createHangupSettlementHook } = await import("../src/hangup-settlement.js");
+  const replay = new Map();
+  const replayGuard = { begin: async (k) => (replay.has(k) ? replay.get(k) : (replay.set(k, "inflight"), "ok")), settle: async (k) => { replay.set(k, "consumed"); }, release: async (k) => { replay.delete(k); } };
+  let captures = 0, handlerRuns = 0;
+  const undelivered = [];
+  const app = express();
+  app.use(createHangupSettlementHook({ onUndelivered: (req, res, kind) => undelivered.push({ kind, stripeSettled: req.stripeSettled === true, status: res.statusCode, receipt: res.getHeader("Payment-Receipt") || null }) }));
+  app.use(createStripeGate({ ...GATE, replayGuard, validate: async () => ({ ok: true, validation: {} }), settle: async () => { captures++; return { ok: true, receipt: { method: "stripe", status: "success", reference: "pi_test_gone", timestamp: new Date().toISOString() } }; } }));
+  app.post("/paid", (req, res) => { handlerRuns++; setTimeout(() => res.status(200).json({ late: true }), 400); });
+  const { s, url } = await listen(app);
+  const cred = credFor();
+  const warned = [];
+  const w0 = console.warn; console.warn = (...a) => { warned.push(a.join(" ")); };
+  try {
+    await fetch(`${url}/paid`, { method: "POST", headers: { Authorization: cred }, signal: AbortSignal.timeout(100) }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 700));
+  } finally { console.warn = w0; }
+  ok(captures === 0, `gate F: a buyer gone before the handler answered is NOT captured (captures ${captures})`);
+  ok(undelivered.length === 1 && undelivered[0].kind === "end" && !undelivered[0].stripeSettled && undelivered[0].receipt === null && undelivered[0].status === 499, `gate F: the hang-up hook sees the undelivered end once, with no settlement on it (${JSON.stringify(undelivered)})`);
+  ok(warned.some((w) => /\[mpp-stripe\] client gone before the handler's answer could be sent[^\n]*not captured, not charged/.test(w)), "gate F: the gate says it did not capture");
+  const again = await fetch(`${url}/paid`, { method: "POST", headers: { Authorization: cred } });
+  ok(again.status !== 200 && handlerRuns === 1 && captures === 0, `gate F: the same credential is still spent and cannot run the handler again (status ${again.status}, handler runs ${handlerRuns})`);
+  const served = await fetch(`${url}/paid`, { method: "POST", headers: { Authorization: credFor() } });
+  ok(served.status === 200 && captures === 1 && undelivered.length === 1, "gate F: a connected buyer is captured once; the hook stays quiet");
+  s.close();
+}
+
 // ---- wiring pin: server.js MUST bypass the x402 paywall for a validated
 // stripe request, exactly like req.tempoSettling. Without it a real card
 // payment is 402'd by the paywall and never served (the gate here runs with
