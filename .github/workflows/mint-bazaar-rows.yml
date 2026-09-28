@@ -64,5 +64,5 @@ jobs:
           [ "$MINT_EXPENSIVE" = "true" ] && ARGS="$ARGS --expensive"
           [ -n "$MINT_ONLY" ] && ARGS="$ARGS --only $MINT_ONLY"
           cd /tmp/mint && env -i PATH="$PATH" HOME="$HOME" \
-            BURNER_KEY="$BURNER_KEY" POW_SECRET="$POW_SECRET" \
+            BURNER_KEY="$BURNER_KEY" POW_SECRET="${POW_SECRET}" \
             node mint-bazaar-rows.js $ARGS
