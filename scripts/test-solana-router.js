@@ -257,7 +257,9 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
       res.setHeader("payment-required", Buffer.from(JSON.stringify({ x402Version: 2, error: "payment required", accepts })).toString("base64"));
       res.end("{}"); return;
     }
+    // The seller's payment layer refusing: its offer comes back with the 402.
     res.statusCode = 402;
+    res.setHeader("payment-required", Buffer.from(JSON.stringify({ x402Version: 2, error: "payment_payload_invalid", accepts: [] })).toString("base64"));
     res.end(JSON.stringify({ error: { message: "Payment could not be settled: payment_payload_invalid", code: "payment_payload_invalid" } }));
   });
   await new Promise((r) => refuser.listen(0, "127.0.0.1", r));
@@ -273,7 +275,9 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(refuserPaidAttempts === 1, "a 402 that does NOT name X-PAYMENT (payment_payload_invalid) gets no header-name resend - one paid attempt");
   ok(asked && typeof asked.wallet === "string" && Number.isInteger(asked.sinceUnix) && asked.sinceUnix <= Math.floor(Date.now() / 1000), "the chain check is asked about OUR wallet since the moment the header went out");
   ok(asked.blockhash === "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W" && Number.isFinite(asked.maxWaitMs) && asked.maxWaitMs > 0, "the chain check is told the blockhash the credential was signed against (so it can wait for THAT to expire) and the wait bound");
-  ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the refusing seller is memoized for this chain");
+  ok(!sellerRefusedRecently(refuserOrigin, "solana"), "one refusal is recorded and benches nothing yet");
+  await buy(async () => ({ debited: false, observed: 0, expired: true }));
+  ok(sellerRefusedRecently(refuserOrigin, "solana") && sellerRefusedRecently(refuserOrigin, "solana").status === 402, "the second benches the refusing route for this chain");
   ok(!sellerRefusedRecently(refuserOrigin, "base"), "the memo is per chain - the same seller on Base is untouched");
   __resetSellerRefusalsForTest();
   // refuse-then-settle-late (2026-09-03): "no debit" while the blockhash is
@@ -293,7 +297,8 @@ const DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
   ok(e3 && e3.committed === true, "unreadable chain -> post-commit stance kept (fail closed)");
   ok(!sellerRefusedRecently(refuserOrigin, "solana"), "and nothing memoized on an unreadable chain");
   // Memo TTL: a seller that fixes its rail is retried after the window.
-  noteSellerRefusal("https://fixed.example", "solana", 402);
+  noteSellerRefusal("https://fixed.example/x", "solana", 402);
+  noteSellerRefusal("https://fixed.example/x", "solana", 402);
   ok(sellerRefusedRecently("https://fixed.example", "solana") !== null, "a fresh memo is visible");
   ok(sellerRefusedRecently("https://fixed.example", "solana", Date.now() + 7 * 3600 * 1000) === null, "and gone after the TTL (6 h default)");
   refuser.close();

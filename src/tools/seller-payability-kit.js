@@ -313,7 +313,10 @@ export function buildSellerPayabilityTool({
         settled = false;
         // Nothing was signed unless the payer says it committed, so give the
         // day's budget back rather than holding the worst case for the window.
+        // A committed attempt keeps what it signed (`signedUsd`), the most
+        // the credential can move.
         if (e?.committed !== true) adjustSpend(spendHandle, 0);
+        else if (e?.signedUsd != null && Number.isFinite(Number(e.signedUsd))) adjustSpend(spendHandle, Number(e.signedUsd));
       }
       payMs = now() - t1;
     } else {

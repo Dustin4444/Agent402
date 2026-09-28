@@ -353,7 +353,7 @@ export function composeSellerDossier(a) {
     // useful to them for no gain.
     deliveryFailures: (deliveryFailures || []).map((r) => ({ chain: r.chain, at: iso(r.at) })),
   };
-  if (router.refusals.length) flags.push(`our router's last paid retry was refused on ${router.refusals.map((r) => r.chain).join(", ")}; those chains are skipped until the memo expires`);
+  if (router.refusals.length) flags.push(`our router's paid retries to one of this seller's routes were refused on ${router.refusals.map((r) => r.chain).join(", ")}; that route is skipped there until the memo expires`);
   for (const f of router.deliveryFailures) flags.push(`our router paid this seller on ${f.chain} and the call did not deliver, so that chain is skipped until the memo expires or a call succeeds (what we observed is not published here; ask us)`);
   if (!self && dispatch && dispatch.routerDispatchEligible !== true && dispatch.routerDispatchReason) flags.push(`router verdict: ${dispatch.routerDispatchReason}`);
   if (prices.length && thresholds.sorCap != null && prices[0] > thresholds.sorCap) flags.push(`the cheapest priced route ($${prices[0]}) is above the router's $${thresholds.sorCap} underlying cap for the cheapest tier`);

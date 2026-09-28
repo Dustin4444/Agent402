@@ -477,14 +477,16 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // WHAT STAYS BOOKED IS WHAT MAY HAVE LEFT THE WALLET. The payer
             // stamps `committed:true` on every failure after the payment
             // header left us (a seen response, or a request that got no
-            // answer) unless the chain showed the credential expired unused.
-            // Those bookings stand at the worst case, per payer and on the
-            // chain's 24 h ledger. Anything else provably spent nothing - the
+            // answer) unless the chain showed the credential expired unused,
+            // and `signedUsd` with the amount that credential carries: the
+            // most it can move. Those bookings are lowered to that amount, per
+            // payer and on the chain's 24 h ledger (the tier cap only when no
+            // amount came back). Anything else provably spent nothing - the
             // seller was unreachable, its 402 was unusable or over the cap,
             // nothing was signed, or the chain said so - and is lowered to $0
             // below, so failed candidates cannot fill the chain's day.
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
-            lastErr = bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
+            lastErr = bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}${e?.paidUnanswered === true ? "; no other seller is tried for this request" : ""}`, sc);
             // FALL THROUGH TO THE NEXT SELLER only on a 5xx (their own upstream
             // or gateway failed), and only when the error carries NO settle
             // receipt - a payExternal throw that includes a receipt means the
@@ -520,7 +522,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // time. The chain's answer decides the booking, not a fallthrough.
             const unanswered = e?.paidUnanswered === true;
             if (spentMaybe || unanswered) __paidAttempts++;
-            if (!spentMaybe) adjustSpend(spendHandle, 0);
+            const signedUsd = Number(e?.signedUsd);
+            adjustSpend(spendHandle, spentMaybe ? (e?.signedUsd != null && Number.isFinite(signedUsd) && signedUsd >= 0 ? signedUsd : cap) : 0);
             if (hasNext && !spentMaybe && !unanswered && chain !== "tempo") {
               console.warn(e?.refused
                 ? `[sor] seller ${ext.seller} refused the payment and the chain shows no debit - trying next candidate, nothing spent`

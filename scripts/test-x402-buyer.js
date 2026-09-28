@@ -135,7 +135,9 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
     ok(wd && /EIP-712 name "USDC"/.test(wd.message) && /"USD Coin"/.test(wd.message) && /Nothing was signed/.test(wd.message), "wrong domain: a Base accept naming \"USDC\" is refused before signing, naming both names");
     ok(wd && wd.refused === true && wd.statusCode === 502, "wrong domain: the error is marked refused (route-execute falls through) with a 502");
     ok(_spentThisWindow() === 0n, "wrong domain: no budget held");
-    ok(!!sellerRefusedRecently("https://wrongdomain.example", "base"), "wrong domain: the seller is memoized as refusing on base for the TTL");
+    ok(!sellerRefusedRecently("https://wrongdomain.example", "base"), "wrong domain: one meeting is recorded and benches nothing yet");
+    try { await payX402("https://wrongdomain.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true }); } catch { /* refused again */ }
+    ok(!!sellerRefusedRecently("https://wrongdomain.example", "base"), "wrong domain: the second meeting benches that route on base for the TTL");
     // Control: the same accept naming "USD Coin" passes the domain check. It
     // is then refused by the payTo binding one line further down (the proven
     // address differs), which proves the domain check threw nothing AND keeps
@@ -237,7 +239,8 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
     if (!paid) return { status: 402, headers: { get: (h) => (h.toLowerCase() === "payment-required" ? v2hdr : null) }, json: async () => ({}), text: async () => "{}" };
     paidAttempts++;
     try { sentPayload = JSON.parse(Buffer.from(paid, "base64").toString("utf8")); } catch { sentPayload = null; }
-    return { status: 402, headers: { get: () => "application/json" }, json: async () => ({ error: "payment_verification_failed" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }) };
+    // The seller's payment layer refusing: it answers with its offer again.
+    return { status: 402, headers: { get: (h) => (h.toLowerCase() === "payment-required" ? v2hdr : "application/json") }, json: async () => ({ error: "payment_verification_failed" }), text: async () => JSON.stringify({ error: "payment_verification_failed" }) };
   };
   const buy = (notDebited, extra = {}) => payX402("https://refuser.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", memoizeDelivery: true, notDebited, ...extra }).then(() => null, (e) => e);
   const held0 = _spentThisWindow();
@@ -251,7 +254,9 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   ok(Number.isFinite(vb) && vb <= t1 + 30 && vb >= t0 + 25, `the SIGNED validBefore is now + the 30 s refusal window (got +${vb - t0}s) even though the accept said maxTimeoutSeconds 300`);
   ok(sentPayload?.accepted?.maxTimeoutSeconds === 300, "the ECHOED accept keeps the seller's own maxTimeoutSeconds (the facilitator's requirements match)");
   ok(asked.untilUnix === vb + 5 && asked.maxWaitMs === 12345, "the chain check is told to wait until the signed validBefore (+ slack), bounded by the caller's refusalMaxWaitMs");
-  ok(sellerRefusedRecently("https://refuser.example", "base")?.status === 402 && !sellerRefusedRecently("https://refuser.example", "solana"), "the refusing seller is memoized on base only");
+  ok(!sellerRefusedRecently("https://refuser.example", "base"), "one refusal is recorded and benches nothing yet");
+  await buy(async () => ({ debited: false, observed: 1, expired: true }));
+  ok(sellerRefusedRecently("https://refuser.example", "base")?.status === 402 && !sellerRefusedRecently("https://refuser.example", "solana"), "the second benches the refusing route on base only");
   __resetSellerRefusalsForTest();
   const heldLive = _spentThisWindow();
   const rLive = await buy(async () => ({ debited: false, observed: 1, expired: false }));
@@ -264,7 +269,7 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   ok(r2 && r2.committed === true && !r2.refused && _spentThisWindow() === held1 + 1000n, "Base: nonce consumed -> post-commit stance kept, hold stands");
   const r3 = await buy(async () => { throw new Error("RPC 429"); });
   ok(r3 && r3.committed === true && !sellerRefusedRecently("https://refuser.example", "base"), "Base: unreadable chain -> post-commit stance kept, nothing memoized");
-  ok(paidAttempts === 5, "one paid attempt per buy (a refusal that does not name X-PAYMENT gets no resend)");
+  ok(paidAttempts === 6, "one paid attempt per buy (a refusal that does not name X-PAYMENT gets no resend)");
   // The pure cap: never above the window, never rewrites a shorter seller value upward.
   const { capEvmValidity } = await import("../src/x402-buyer.js");
   ok(capEvmValidity({ maxTimeoutSeconds: 300 }, 30).maxTimeoutSeconds === 30 && capEvmValidity({ maxTimeoutSeconds: 10 }, 30).maxTimeoutSeconds === 10 && capEvmValidity({}, 30).maxTimeoutSeconds === 30, "capEvmValidity: min(seller, window), and a missing seller value takes the window");

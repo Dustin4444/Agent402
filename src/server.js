@@ -1485,14 +1485,16 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
   }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   const resolved = [];
-  const { sellerRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
+  const { sellerRouteRefusedRecently, sellerServesModel } = await import("./x402-buyer.js");
   for (const r of candidates) {
     let live = false;
-    // A seller that refused our payment on this chain (paid retry 402/401,
-    // chain showed no debit) is skipped until its memo expires - otherwise it
-    // keeps ranking first and every call burns a full round trip on it.
-    const refusal = sellerRefusedRecently(r.seller, chain);
-    if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.seller}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status})`); continue; }
+    // A route whose payment layer refused our payment on this chain twice
+    // (paid retry 402/401 carrying the seller's offer, chain showed no debit)
+    // is skipped until its memo expires - otherwise it keeps ranking first
+    // and every call burns a full round trip on it. The seller's other routes
+    // are asked about separately.
+    const refusal = sellerRouteRefusedRecently(r.url, chain);
+    if (refusal) { console.log(`[sor] skipping ${chain} candidate ${r.url}: refused a payment ${Math.round((Date.now() - refusal.at) / 60000)} min ago (HTTP ${refusal.status}, ${refusal.strikes} times)`); continue; }
     // ...and a seller whose last PAID call did not deliver (5xx with no
     // receipt, or no answer at all) is skipped the same way. The gate above is
     // built from settlement history, which is evidence about the past: a

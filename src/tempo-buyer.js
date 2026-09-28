@@ -185,8 +185,9 @@ export async function payTempo(url, {
   if (typeof credential !== "string" || !/^Payment\s/i.test(credential)) throw bad("Could not create an MPP credential", 502);
   // From here the credential has been handed to the seller, and nothing on
   // this rail can prove afterwards that it was not broadcast: every failure
-  // below is stamped `committed`, so a caller keeps the spend booked against
-  // the wallet (route-execute) instead of treating it as nothing spent.
+  // below is stamped `committed`, with the amount the credential carries
+  // (`signedUsd`), so a caller keeps that spend booked against the wallet
+  // (route-execute) instead of treating it as nothing spent.
   try {
     const paid = await fetch(url, init({ Authorization: credential }));
     if (paid.status === 402 || paid.status === 401) throw bad(`Seller rejected the paid retry (HTTP ${paid.status})`, 502);
@@ -205,6 +206,8 @@ export async function payTempo(url, {
   } catch (err) {
     const e = err && typeof err === "object" ? err : bad(String(err), 502);
     e.committed = true;
+    // The credential carries the quote and nothing more: the most it moves.
+    e.signedUsd = Number(quotedAtomic) / 1e6;
     throw e;
   }
 }
