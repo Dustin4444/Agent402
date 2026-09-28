@@ -175,17 +175,17 @@ const page = (results, extra = {}) =>
   check(`a manifest-priced row with chains but no live read is verified once`, networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, networks: ["eip155:8453"] }, now) === true);
   // A manifest price is an origin declaration and is stamped as one
   // (originDeclaredPrice, normaliseManifestTools), so the fixtures carry it.
-  check(`verified two days ago: left alone`, networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, originDeclaredPrice: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 2 * day }, now) === false);
-  check(`verified eight days ago: read again`, networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, originDeclaredPrice: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 8 * day }, now) === true);
+  check(`verified two days ago: left alone`, networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, originDeclaredPrice: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 2 * day, networksVerifiedMethod: "GET" }, now) === false);
+  check(`verified eight days ago: read again`, networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, originDeclaredPrice: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 8 * day, networksVerifiedMethod: "GET" }, now) === true);
   // The stamp's clock covers the ORIGIN's price. The same fresh stamp on a row
   // whose price nobody declared and no read learned (a registry snapshot the
   // rebuild took after the origin stopped declaring) does not defer the read.
   check(`a fresh stamp beside a price that is neither the origin's nor a live quote asks for a read`,
-    networksNeedLiveVerify({ price: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 2 * day }, now) === true);
+    networksNeedLiveVerify({ price: 0.25, networks: ["eip155:8453"], networksVerifiedAt: now - 2 * day, networksVerifiedMethod: "GET" }, now) === true);
   check(`a learned (live-402) row keeps its own clock, not this one`, networksNeedLiveVerify({ quoteSource: "live-402", price: 0.25, networks: ["eip155:8453"] }, now) === false);
   check(`an unpriced or chainless row is already a candidate by the older rule`, networksNeedLiveVerify({ quoteSource: "manifest", networks: ["eip155:8453"] }, now) === false && networksNeedLiveVerify({ quoteSource: "manifest", price: 0.25, networks: [] }, now) === false);
   const rebuilt = carryForwardLearnedQuotes([{ route: "/api/rewrite", method: "POST", price: 0.25, networks: ["eip155:8453"], quoteSource: "manifest" }],
-    { tools: [{ route: "/api/rewrite", method: "POST", price: 0.25, quoteSource: "live-402", networks: ["eip155:8453", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], networksVerifiedAt: now - 1 * day }] })[0];
+    { tools: [{ route: "/api/rewrite", method: "POST", price: 0.25, quoteSource: "live-402", networks: ["eip155:8453", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], networksVerifiedAt: now - 1 * day, networksVerifiedMethod: "POST" }] })[0];
   check(`a verified live read's extra chain survives the next crawl's manifest-shaped rebuild (union, never a drop)`, rebuilt.networks.length === 2 && rebuilt.networks.includes("eip155:8453") && rebuilt.networksVerifiedAt === now - 1 * day && networksNeedLiveVerify(rebuilt, now) === false);
   const unverified = carryForwardLearnedQuotes([{ route: "/y", method: "GET", price: 0.1, networks: ["eip155:8453"], quoteSource: "manifest" }],
     { tools: [{ route: "/y", method: "GET", price: 0.1, quoteSource: "live-402", networks: ["eip155:137"] }] })[0];
@@ -201,7 +201,7 @@ const page = (results, extra = {}) =>
 // and the wallet the Base scan reads flapping with it. Three rebuilds in a
 // row, because the defect only shows on the second.
 {
-  const { carryForwardLearnedQuotes, networksNeedLiveVerify } = await import("../src/x402-index.js");
+  const { carryForwardLearnedQuotes, networksNeedLiveVerify, quoteIsStale } = await import("../src/x402-index.js");
   const day = 86_400_000, now = Date.now();
   const NETS = ["eip155:8453", "eip155:143", "eip155:137"];
   const PAYTO = "0x2222222222222222222222222222222222222222";
@@ -211,7 +211,7 @@ const page = (results, extra = {}) =>
   const readAt = now - 2 * day;
   const crawlN = (over = {}) => [{
     method: "GET", route: ROUTE, slug: "preflight", price: 0.015, originDeclaredPrice: 0.01,
-    networks: [...NETS], networksVerifiedAt: readAt, liveProvenAt: readAt,
+    networks: [...NETS], networksVerifiedAt: readAt, networksVerifiedMethod: "GET", liveProvenAt: readAt,
     quoteSource: "live-402", quoteObservedAt: readAt, payToByNetwork: { "eip155:8453": PAYTO }, ...over,
   }];
   // Every later crawl rebuilds the row from the origin's own document: the
@@ -272,7 +272,7 @@ const page = (results, extra = {}) =>
 
   // A recorded verb CORRECTION on an origin-priced row survives too: the
   // document keeps stating GET, the route answers only POST.
-  let corrected = crawlN({ method: "POST", methodCorrectedFrom: "GET" });
+  let corrected = crawlN({ method: "POST", methodCorrectedFrom: "GET", networksVerifiedMethod: "POST" });
   for (let i = 1; i <= 3; i++) corrected = carryForwardLearnedQuotes(rebuild(), { tools: corrected });
   check(`a verb correction on an origin-priced row survives three rebuilds (got ${corrected[0].method}, ${JSON.stringify(corrected[0].networks)})`,
     corrected[0].method === "POST" && corrected[0].methodCorrectedFrom === "GET" && corrected[0].networksVerifiedAt === readAt && corrected[0].networks?.length === 3);
@@ -283,7 +283,7 @@ const page = (results, extra = {}) =>
   check(`the live proof time survives three rebuilds of a corrected row (got ${corrected[0].liveProvenAt})`, corrected[0].liveProvenAt === readAt);
   // A correction also takes the verified UNION when the rebuilt row names
   // chains of its own: the gate is "the read's own row", not "an exact hit".
-  let correctedManifest = crawlN({ method: "POST", methodCorrectedFrom: "GET" });
+  let correctedManifest = crawlN({ method: "POST", methodCorrectedFrom: "GET", networksVerifiedMethod: "POST" });
   for (let i = 1; i <= 3; i++) correctedManifest = carryForwardLearnedQuotes(rebuild({ networks: ["eip155:10"] }), { tools: correctedManifest });
   const cm = correctedManifest[0];
   check(`a corrected row with a manifest chain keeps the union, stamp and payTo across rebuilds (got ${JSON.stringify({ m: cm.method, n: cm.networks, v: cm.networksVerifiedAt === readAt, p: cm.payToByNetwork })})`,
@@ -332,8 +332,8 @@ const page = (results, extra = {}) =>
     // Exact key: a learned quote is never displaced by a verified read,
     // whichever came first; between learned quotes the last one stands.
     const R = "/api/v1/order";
-    const learned = { method: "GET", route: R, price: 0.02, quoteSource: "live-402", quoteObservedAt: readAt, networks: ["eip155:8453"], networksVerifiedAt: readAt };
-    const verified = { method: "GET", route: R, price: 0.01, originDeclaredPrice: 0.01, networks: ["eip155:137"], networksVerifiedAt: readAt };
+    const learned = { method: "GET", route: R, price: 0.02, quoteSource: "live-402", quoteObservedAt: readAt, networks: ["eip155:8453"], networksVerifiedAt: readAt, networksVerifiedMethod: "GET" };
+    const verified = { method: "GET", route: R, price: 0.01, originDeclaredPrice: 0.01, networks: ["eip155:137"], networksVerifiedAt: readAt, networksVerifiedMethod: "GET" };
     for (const [label, remembered] of [["learned first", [learned, verified]], ["verified first", [verified, learned]]]) {
       const r = carryForwardLearnedQuotes([{ method: "GET", route: R, slug: "order" }], { tools: remembered })[0];
       check(`exact key, ${label}: the learned quote is carried, never a verified read (got ${JSON.stringify({ p: r.price, s: r.quoteSource, n: r.networks })})`,
@@ -351,7 +351,7 @@ const page = (results, extra = {}) =>
     const B = "/api/v1/basket";
     const getQ = { method: "GET", route: B, price: 0.02, quoteSource: "live-402", networks: ["eip155:8453"] };
     const postQ = { method: "POST", route: B, price: 0.03, quoteSource: "live-402", networks: ["eip155:137"] };
-    const getV = { method: "GET", route: B, price: 0.01, originDeclaredPrice: 0.01, networks: ["eip155:10"], networksVerifiedAt: readAt };
+    const getV = { method: "GET", route: B, price: 0.01, originDeclaredPrice: 0.01, networks: ["eip155:10"], networksVerifiedAt: readAt, networksVerifiedMethod: "GET" };
     const put = () => [{ method: "PUT", route: B, slug: "basket-put" }];
     const first = carryForwardLearnedQuotes(put(), { tools: [getQ, postQ] })[0];
     check(`route map: the first learned quote holds the route (got ${first.price}, ${JSON.stringify(first.networks)})`,
@@ -365,10 +365,99 @@ const page = (results, extra = {}) =>
     // A stamp with NO chains is not a verified read: it verified nothing that
     // can ride forward, so it carries no payTo and no proof time.
     const L = "/api/v1/ledger";
-    const stampedChainless = { method: "GET", route: L, price: 0.01, originDeclaredPrice: 0.01, networks: [], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { "eip155:8453": PAYTO } };
+    const stampedChainless = { method: "GET", route: L, price: 0.01, originDeclaredPrice: 0.01, networks: [], networksVerifiedAt: readAt, networksVerifiedMethod: "GET", liveProvenAt: readAt, payToByNetwork: { "eip155:8453": PAYTO } };
     const r = carryForwardLearnedQuotes([{ method: "GET", route: L, slug: "ledger", price: 0.01, originDeclaredPrice: 0.01 }], { tools: [stampedChainless] })[0];
     check(`a stamp without chains carries nothing forward (got ${JSON.stringify({ p: r.payToByNetwork, l: r.liveProvenAt, v: r.networksVerifiedAt })})`,
       !r.payToByNetwork && !(Number(r.liveProvenAt) > 0) && !(Number(r.networksVerifiedAt) > 0));
+  }
+
+  // A stamp is evidence about the verb that EARNED it: the probe records that
+  // verb (networksVerifiedMethod), and only a stamp naming the row's own verb
+  // is carried as a verified read. Rows written before the verb was recorded
+  // are still in the persisted cache, and some of them are exactly the
+  // contamination this carry used to write: a declared, origin-priced GET with
+  // a chain of its own, stamped with its POST sibling's read, holding the
+  // POST's chains and Base payTo under its own key. Carried as its own verified
+  // read it would keep them for good. It must come out clean on the first
+  // rebuild and ask for a read of its own.
+  {
+    const BASE = "eip155:8453", OP = "eip155:10";
+    const POST_PAYTO = "0x1111111111111111111111111111111111111111";
+    const DOMAIN = { [BASE]: { asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", name: "USD Coin" } };
+    const C = "/api/v1/contaminated";
+    const legacyPost = () => ({ method: "POST", route: C, price: 0.02, quoteSource: "live-402", quoteObservedAt: readAt,
+      networks: [BASE], networksVerifiedAt: readAt, payToByNetwork: { [BASE]: POST_PAYTO }, evmDomainByNetwork: DOMAIN });
+    const contaminatedGet = () => ({ method: "GET", route: C, price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi",
+      networks: [OP, BASE], networksVerifiedAt: readAt, payToByNetwork: { [BASE]: POST_PAYTO }, evmDomainByNetwork: DOMAIN });
+    const rebuildPair = () => [
+      { method: "POST", route: C, slug: "c-post", quoteSource: "openapi" },
+      { method: "GET", route: C, slug: "c-get", price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi", networks: [OP] },
+    ];
+    let rows = [legacyPost(), contaminatedGet()];
+    for (let i = 1; i <= 3; i++) {
+      rows = carryForwardLearnedQuotes(rebuildPair(), { tools: rows });
+      const g = rows.find((x) => x.method === "GET");
+      check(`legacy contamination, rebuild ${i}: the GET lists only its own chain, with no stamp, payTo or domain from the POST (got ${JSON.stringify({ n: g?.networks, v: g?.networksVerifiedAt, p: g?.payToByNetwork, d: g?.evmDomainByNetwork })})`,
+        g?.networks?.length === 1 && g.networks[0] === OP && !(Number(g.networksVerifiedAt) > 0) && !g.payToByNetwork && !g.evmDomainByNetwork);
+      check(`legacy contamination, rebuild ${i}: the GET asks for a read of its own`, networksNeedLiveVerify(g, now) === true);
+    }
+    // Nor is it carried to a rebuilt row with no chains of its own: a stamp
+    // that names no verb is no verified read at all, so it lends the row no
+    // chains, payTo or live proof by any rule. The row is then unchained, which
+    // makes it a probe candidate by the older rule, and its own read restores
+    // all of it. The same row stamped with its own verb carries everything.
+    const legacyRead = { method: "GET", route: C, price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi",
+      networks: [BASE], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { [BASE]: PAYTO } };
+    const chainless = () => [{ method: "GET", route: C, slug: "c-get", price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi" }];
+    const unread = carryForwardLearnedQuotes(chainless(), { tools: [legacyRead] })[0];
+    check(`a stamp naming no verb lends a chainless row nothing (got ${JSON.stringify({ n: unread.networks, p: unread.payToByNetwork, l: unread.liveProvenAt, v: unread.networksVerifiedAt })})`,
+      !(unread.networks?.length) && !unread.payToByNetwork && !(Number(unread.liveProvenAt) > 0) && !(Number(unread.networksVerifiedAt) > 0));
+    const reread = carryForwardLearnedQuotes(chainless(), { tools: [{ ...legacyRead, networksVerifiedMethod: "GET" }] })[0];
+    check(`control: the same read stamped with its own verb carries its chains, payTo, proof and stamp (got ${JSON.stringify({ n: reread.networks, v: reread.networksVerifiedMethod })})`,
+      reread.networks?.length === 1 && reread.payToByNetwork?.[BASE] === PAYTO && reread.liveProvenAt === readAt
+        && reread.networksVerifiedAt === readAt && reread.networksVerifiedMethod === "GET");
+    // The same row with its stamp naming ANOTHER verb is no verified read either.
+    const foreign = carryForwardLearnedQuotes([rebuildPair()[1]], { tools: [{ ...contaminatedGet(), networksVerifiedMethod: "POST" }] })[0];
+    check(`a stamp naming another verb is not carried (got ${JSON.stringify({ n: foreign.networks, p: foreign.payToByNetwork })})`,
+      foreign.networks?.length === 1 && !(Number(foreign.networksVerifiedAt) > 0) && !foreign.payToByNetwork);
+    check("networksNeedLiveVerify: a fresh stamp that names no verb, or another verb, asks for a read; its own verb defers it",
+      networksNeedLiveVerify({ ...contaminatedGet(), networks: [OP] }, now) === true
+        && networksNeedLiveVerify({ ...contaminatedGet(), networks: [OP], networksVerifiedMethod: "POST" }, now) === true
+        && networksNeedLiveVerify({ ...contaminatedGet(), networks: [OP], networksVerifiedMethod: "GET" }, now) === false);
+
+    // A LEARNED QUOTE's stamp is gated the same way: an exact key does not
+    // prove the stamp is this verb's, since the old carry filed a sibling's read
+    // under this row's key and relabelled it live-402. On a row with chains of
+    // its own, a quote whose stamp names no verb keeps its price but not the
+    // read's chains, payTo or domain, and is carried without its age, so it is
+    // due for the one read that restores them. The same quote stamped with its
+    // own verb carries all of it and keeps its age.
+    const Q = "/api/v1/quoted";
+    const quoted = (over = {}) => ({ method: "GET", route: Q, price: 0.02, quoteSource: "live-402", quoteObservedAt: readAt,
+      networks: [BASE, OP], networksVerifiedAt: readAt, payToByNetwork: { [BASE]: PAYTO }, evmDomainByNetwork: DOMAIN, ...over });
+    const fresh = () => [{ method: "GET", route: Q, slug: "quoted", quoteSource: "openapi", networks: [BASE] }];
+    const legacyQ = carryForwardLearnedQuotes(fresh(), { tools: [quoted()] })[0];
+    check(`a legacy learned quote keeps its price and is due for a read (got ${JSON.stringify({ p: legacyQ.price, s: legacyQ.quoteSource, o: legacyQ.quoteObservedAt, stale: quoteIsStale(legacyQ, now) })})`,
+      legacyQ.price === 0.02 && legacyQ.quoteSource === "live-402" && !legacyQ.quoteObservedAt && quoteIsStale(legacyQ, now) === true);
+    check(`...and holds only its own document's chain, no stamp, payTo or domain (got ${JSON.stringify({ n: legacyQ.networks, v: legacyQ.networksVerifiedAt, p: legacyQ.payToByNetwork })})`,
+      legacyQ.networks.length === 1 && legacyQ.networks[0] === BASE && !(Number(legacyQ.networksVerifiedAt) > 0) && !legacyQ.payToByNetwork && !legacyQ.evmDomainByNetwork);
+    const ownQ = carryForwardLearnedQuotes(fresh(), { tools: [quoted({ networksVerifiedMethod: "GET" })] })[0];
+    check(`the same quote stamped with its own verb carries its read and its age (got ${JSON.stringify({ n: ownQ.networks, v: ownQ.networksVerifiedMethod, o: ownQ.quoteObservedAt === readAt })})`,
+      ownQ.networks.length === 2 && ownQ.networksVerifiedAt === readAt && ownQ.networksVerifiedMethod === "GET"
+        && ownQ.payToByNetwork?.[BASE] === PAYTO && ownQ.evmDomainByNetwork?.[BASE]?.name === "USD Coin" && ownQ.quoteObservedAt === readAt && quoteIsStale(ownQ, now) === false);
+    // A row with NO chains of its own still takes a legacy quote's chains and
+    // payTo by the older price-and-networks rule, with its age: nothing was
+    // withheld from it but the stamp.
+    const bareQ = carryForwardLearnedQuotes([{ method: "GET", route: Q, slug: "quoted", quoteSource: "openapi" }], { tools: [quoted()] })[0];
+    check(`a chainless row takes a legacy quote's chains, payTo and age, never its stamp (got ${JSON.stringify({ n: bareQ.networks, p: bareQ.payToByNetwork, v: bareQ.networksVerifiedAt })})`,
+      bareQ.networks.length === 2 && bareQ.payToByNetwork?.[BASE] === PAYTO && bareQ.quoteObservedAt === readAt && !(Number(bareQ.networksVerifiedAt) > 0));
+    // The verb rides with the stamp, so the carried row is still its own read
+    // on the next rebuild (and a corrected row's stamp names the corrected verb).
+    let own = carryForwardLearnedQuotes(rebuild(), { tools: crawlN() });
+    own = carryForwardLearnedQuotes(rebuild(), { tools: own });
+    const corr = carryForwardLearnedQuotes(rebuild(), { tools: crawlN({ method: "POST", methodCorrectedFrom: "GET", networksVerifiedMethod: "POST" }) })[0];
+    check(`the verb travels with the stamp (got ${own[0].networksVerifiedMethod}, corrected ${corr.networksVerifiedMethod}/${corr.method})`,
+      own[0].networksVerifiedMethod === "GET" && own[0].networksVerifiedAt === readAt && corr.networksVerifiedMethod === "POST" && corr.method === "POST");
   }
 }
 
@@ -668,7 +757,7 @@ const page = (results, extra = {}) =>
     globalThis.fetch = stub({ "POST /x402/full": [accept()] });
     const pair = [
       { seller: ORIGIN, route: "/x402/full", method: "GET", slug: "full-get", price: null, networks: [] },
-      { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: 0.032, originDeclaredPrice: 0.032, networks: ["eip155:8453"], networksVerifiedAt: Date.now() },
+      { seller: ORIGIN, route: "/x402/full", method: "POST", slug: "full-post", price: 0.032, originDeclaredPrice: 0.032, networks: ["eip155:8453"], networksVerifiedAt: Date.now(), networksVerifiedMethod: "POST" },
     ];
     await enrichLiveQuotes(pair, ORIGIN);
     const survivor = pair.find((r) => r.method === "POST");
@@ -691,7 +780,7 @@ const page = (results, extra = {}) =>
       globalThis.fetch = async (url, init) => { if (new URL(String(url)).pathname === ROUTE) asked++; return counting(url, init); };
       const crawlN = [{
         seller: ORIGIN, method: "GET", route: ROUTE, slug: "moved", price: 0.032, originDeclaredPrice: 0.032,
-        networks: ["eip155:8453"], networksVerifiedAt: readAt, liveProvenAt: readAt, quoteSource: "live-402", quoteObservedAt: readAt,
+        networks: ["eip155:8453"], networksVerifiedAt: readAt, networksVerifiedMethod: "GET", liveProvenAt: readAt, quoteSource: "live-402", quoteObservedAt: readAt,
         payToByNetwork: { "eip155:8453": OLD }, evmDomainByNetwork: { "eip155:8453": { asset: USDC_BASE, name: "USDC" } },
       }];
       const rebuild = () => [{ seller: ORIGIN, method: "GET", route: ROUTE, slug: "moved", price: 0.032, originDeclaredPrice: 0.032, quoteSource: "openapi" }];
@@ -728,7 +817,7 @@ const page = (results, extra = {}) =>
       globalThis.fetch = async (url, init) => { if (new URL(String(url)).pathname === ROUTE) asked++; return counting(url, init); };
       const prevRows = [{
         seller: ORIGIN, method: "GET", route: ROUTE, slug: "undeclared", price: 0.032, originDeclaredPrice: 0.032, quoteSource: "openapi",
-        networks: ["eip155:8453"], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { "eip155:8453": PAYTO },
+        networks: ["eip155:8453"], networksVerifiedAt: readAt, networksVerifiedMethod: "GET", liveProvenAt: readAt, payToByNetwork: { "eip155:8453": PAYTO },
       }];
       const snapshot = () => [{ seller: ORIGIN, method: "GET", route: ROUTE, slug: "undeclared", price: 0.05, paid: true, networks: ["eip155:8453"] }];
       const rows = carryForwardLearnedQuotes(snapshot(), { tools: prevRows });
@@ -776,7 +865,7 @@ const page = (results, extra = {}) =>
       };
       const readN = (route) => [{
         seller: ORIGIN, route, method: "POST", slug: "v-post", price: 0.032, quoteSource: "live-402", quoteObservedAt: readAt,
-        networks: [BASE], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { [BASE]: PREV_PAYTO },
+        networks: [BASE], networksVerifiedAt: readAt, networksVerifiedMethod: "POST", liveProvenAt: readAt, payToByNetwork: { [BASE]: PREV_PAYTO },
       }];
       const crawl = (route, prevRows, getOver = {}) => carryForwardLearnedQuotes([
         { seller: ORIGIN, route, method: "POST", slug: "v-post", quoteSource: "openapi" },
@@ -872,6 +961,66 @@ const page = (results, extra = {}) =>
         check(`six crawls: the GET re-asks back off (GET probes per crawl ${JSON.stringify(perCrawl)})`,
           perCrawl[0] === 1 && perCrawl.slice(4).every((n) => n === 0) && perCrawl.reduce((a, b) => a + b, 0) <= 4);
       }
+
+      // Rows the older carry already wrote to the persisted cache: a declared,
+      // origin-priced GET with a chain of its own, holding its POST sibling's
+      // read under its own key (the POST's Base chain, stamp and Base payTo),
+      // beside the POST's learned quote. Neither stamp names a verb. From the
+      // first crawl on, the GET lists only its own chain and no Base payTo,
+      // whether it validates its input first (400: it never gets a read of its
+      // own, so nothing can clean it later) or answers a 402 of its own on its
+      // own chain (the union never drops a chain, so nothing can clean it
+      // later either). The POST keeps its read throughout.
+      {
+        const GET_PAYTO = "0x6666666666666666666666666666666666666666";
+        const USDC_OP = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85";
+        const olderCarry = (route) => [
+          { seller: ORIGIN, route, method: "POST", slug: "v-post", price: 0.032, quoteSource: "live-402", quoteObservedAt: readAt,
+            networks: [BASE], networksVerifiedAt: readAt, liveProvenAt: readAt, payToByNetwork: { [BASE]: PREV_PAYTO } },
+          { seller: ORIGIN, route, method: "GET", slug: "v-get", price: 0.01, originDeclaredPrice: 0.01, quoteSource: "openapi",
+            networks: [OP, BASE], networksVerifiedAt: readAt, payToByNetwork: { [BASE]: PREV_PAYTO } },
+        ];
+        for (const getAnswer of [400, 402]) {
+          const route = `/x402/older-carry-${getAnswer}`;
+          let gets = 0;
+          globalThis.fetch = async (url, init = {}) => {
+            const u = new URL(String(url));
+            const m = String(init.method || "GET").toUpperCase();
+            if (u.pathname !== route) return new Response("{}", { status: 404 });
+            if (m === "POST") return new Response("{}", { status: 402, headers: { "payment-required": header([accept({ payTo: NOW_PAYTO })]), "content-type": "application/json" } });
+            gets++;
+            if (getAnswer === 400) return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
+            return new Response("{}", { status: 402, headers: { "payment-required": header([accept({ network: OP, asset: USDC_OP, payTo: GET_PAYTO, amount: "10000" })]), "content-type": "application/json" } });
+          };
+          let rows = olderCarry(route);
+          const getSeen = [], postSeen = [];
+          for (let i = 1; i <= 8; i++) {
+            rows = crawl(route, rows);
+            await enrichLiveQuotes(rows, ORIGIN);
+            const g = rows.find((r) => r.method === "GET"), p = rows.find((r) => r.method === "POST");
+            getSeen.push({ n: g?.networks, p: g?.payToByNetwork ?? null, v: g?.networksVerifiedMethod ?? null, price: g?.price });
+            postSeen.push({ n: p?.networks, p: p?.payToByNetwork?.[BASE] ?? null });
+          }
+          await enrichLiveQuotes(rows, ORIGIN, { ignoreBudget: true });
+          const g = rows.find((r) => r.method === "GET");
+          getSeen.push({ n: g?.networks, p: g?.payToByNetwork ?? null, v: g?.networksVerifiedMethod ?? null, price: g?.price });
+          const ownChainOnly = (s) => s.n?.length === 1 && s.n[0] === OP && !s.p?.[BASE] && s.price === 0.01;
+          check(`older carry, GET ${getAnswer}: every crawl and a re-registration list the GET with its own chain only and no Base payTo (got ${JSON.stringify(getSeen)})`,
+            getSeen.length === 9 && getSeen.every(ownChainOnly));
+          check(`older carry, GET ${getAnswer}: the POST keeps its Base chain and a payTo on every crawl (got ${JSON.stringify(postSeen)})`,
+            postSeen.every((s) => s.n?.length === 1 && s.n[0] === BASE && (s.p === PREV_PAYTO || s.p === NOW_PAYTO)));
+          if (getAnswer === 400) {
+            check(`older carry, GET 400: the GET never holds a stamp and takes no read (got ${JSON.stringify(getSeen.map((s) => s.v))})`,
+              getSeen.every((s) => s.v === null && !s.p));
+            check(`older carry, GET 400: the POST takes the read with a stamp naming POST (got ${JSON.stringify({ v: rows.find((r) => r.method === "POST")?.networksVerifiedMethod, p: postSeen.at(-1).p })})`,
+              rows.find((r) => r.method === "POST")?.networksVerifiedMethod === "POST" && postSeen.at(-1).p === NOW_PAYTO);
+          } else {
+            check(`older carry, GET 402: the GET's own read names GET and its own wallet, and is carried from then on (got ${JSON.stringify(getSeen.slice(0, 8).map((s) => [s.v, s.p?.[OP] ?? null]))})`,
+              getSeen.slice(0, 8).every((s) => s.v === "GET" && s.p?.[OP] === GET_PAYTO));
+            check(`older carry, GET 402: one read, then the weekly clock (GET probes over 8 crawls: ${gets - 1} before the re-registration)`, gets === 2);
+          }
+        }
+      }
     }
   } finally {
     globalThis.fetch = origFetch;
@@ -888,10 +1037,13 @@ const page = (results, extra = {}) =>
   check("a payTo this crawl read from the origin is never overwritten by the remembered one",
     declaredNow.payToByNetwork["eip155:8453"] === "0x0000000000000000000000000000000000000002");
   const sharedSource = { "eip155:8453": "0x0000000000000000000000000000000000000003" };
-  carryForwardLearnedQuotes([{ route: "/a", method: "GET", payToByNetwork: sharedSource }],
-    { tools: [{ route: "/a", method: "GET", price: 1, quoteSource: "live-402", payToByNetwork: { [SOL_NET]: SOL_PAYTO } }] });
+  // The remembered row names its chain, so its payTo rides with it (a payTo
+  // travels only with the chains it describes); the row gets the wallet, the
+  // manifest's shared object does not.
+  const sharedRow = carryForwardLearnedQuotes([{ route: "/a", method: "GET", payToByNetwork: sharedSource }],
+    { tools: [{ route: "/a", method: "GET", price: 1, quoteSource: "live-402", networks: [SOL_NET], payToByNetwork: { [SOL_NET]: SOL_PAYTO } }] })[0];
   check("a manifest's shared payTo object is never written through (rows on one path would move together)",
-    sharedSource[SOL_NET] === undefined);
+    sharedSource[SOL_NET] === undefined && sharedRow.payToByNetwork?.[SOL_NET] === SOL_PAYTO);
 
   // 4. the manifest's own top-level wallet reaches a bare-string resource row
   const manifest = {

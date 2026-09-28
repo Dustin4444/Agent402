@@ -3153,6 +3153,24 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * probe that cannot produce a quote leaves the row exactly as it was.
  */
 /**
+ * Was this row's verification stamp earned by this row's own verb?
+ *
+ * The probe records the verb whose 402 it read (networksVerifiedMethod) beside
+ * every networksVerifiedAt it writes, so a stamp is evidence about that verb's
+ * row and no other. A stamp that names no verb was written before 2026-09-28,
+ * when carry-forward still unioned one verb's read into a declared sibling on
+ * the same path: the other verb's chains, its stamp and its Base payTo, filed
+ * as the sibling's own. Such a stamp cannot be told from one the row earned, so
+ * it is not carried as a verified read, and the row takes one fresh read of its
+ * own (networksNeedLiveVerify, quoteIsStale) instead of keeping it for good.
+ */
+function stampIsOwn(r) {
+  return Number(r?.networksVerifiedAt) > 0
+    && typeof r?.networksVerifiedMethod === "string"
+    && r.networksVerifiedMethod.toUpperCase() === String(r?.method || "GET").toUpperCase();
+}
+
+/**
  * Carry forward quotes (and verified chain reads) we already learned from a
  * live 402.
  *
@@ -3192,9 +3210,12 @@ export function carryForwardLearnedQuotes(tools, prev) {
   // verified read now carries its chains, payTo, domain observation, verb
   // correction and verification stamp - never a price, never a quoteSource -
   // so the origin's price still wins and the weekly re-verify
-  // (networksNeedLiveVerify) keeps its own clock.
+  // (networksNeedLiveVerify) keeps its own clock. A verified read is admitted
+  // only when its stamp names its own verb (stampIsOwn): a stamp written before
+  // the verb was recorded may be another verb's read, and carrying it would
+  // keep that verb's chains and Base payTo on this row for good.
   const learnedQuote = (r) => r?.quoteSource === "live-402" || r?.quoteSource === "live-200";
-  const verifiedRead = (r) => Number(r?.networksVerifiedAt) > 0 && Array.isArray(r?.networks) && r.networks.length > 0;
+  const verifiedRead = (r) => stampIsOwn(r) && Array.isArray(r?.networks) && r.networks.length > 0;
   const learnedExact = new Map();
   const learnedByRoute = new Map();
   for (const t of prev?.tools || []) {
@@ -3227,6 +3248,21 @@ export function carryForwardLearnedQuotes(tools, prev) {
     // and, onto a row with no chains of its own, the chains (see below).
     const ownRead = Boolean(exact) || correctsVerb;
     if (!fromQuote && !ownRead) continue;
+    // ...and the hit's chains, stamp, payTo and domain are this row's own only
+    // when its stamp was earned by its own verb (stampIsOwn). A verified read
+    // is admitted only on that condition; a learned quote may still carry a
+    // stamp written before the verb was recorded, and an exact key does not
+    // prove that stamp is this verb's: until 2026-09-28 carry-forward itself
+    // filed a sibling verb's read on this row, under this row's key.
+    const readIsOwn = ownRead && stampIsOwn(hit);
+    const hitRead = Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length > 0;
+    const rowHasChains = Array.isArray(t.networks) && t.networks.length > 0;
+    // A read that would have been this row's by key but cannot be attributed
+    // to its verb, on a row with chains of its own: its chains, payTo and
+    // domain are withheld below, so the row must be read again to get them
+    // back (a row with no chains takes the chains and payTo by the older
+    // price-and-networks rule and loses only the stamp).
+    const withheldRead = ownRead && !readIsOwn && hitRead && rowHasChains;
     if (exact && Number(hit.liveProvenAt) > 0) t.liveProvenAt = hit.liveProvenAt;
     if (hit.quoteSource === "live-200") {
       // A RETIREMENT is carried the way a quote is: the rebuilt row (which the
@@ -3259,21 +3295,27 @@ export function carryForwardLearnedQuotes(tools, prev) {
     if (fromQuote && !(Number(t.price) > 0) && !originPricedThisCrawl && Number(hit.price) > 0) {
       t.price = hit.price;
       t.quoteCarriedForward = true;
-      if (hit.quoteObservedAt) t.quoteObservedAt = hit.quoteObservedAt;
+      // A quote whose read was withheld is carried without its age, so
+      // quoteIsStale reads it as due once ("never stamped: refresh once") and
+      // the next probe restores what was withheld, stamped with its own verb.
+      // (An origin-priced row is due through networksNeedLiveVerify instead,
+      // and a row already priced carries no age from the hit in any case.)
+      if (hit.quoteObservedAt && !withheldRead) t.quoteObservedAt = hit.quoteObservedAt;
     }
     // Did this row just take its chains from the hit? A row with no chains of
     // its own takes a learned quote's chains through the route fallback (the
     // older price-and-networks rule); the domain and payTo below describe those
     // chains, so they ride with them.
     let tookChains = false;
-    if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
+    if (!rowHasChains && Array.isArray(hit.networks) && hit.networks.length) {
       t.networks = [...hit.networks];
       tookChains = true;
       // The verification stamp travels with the chains it verified, onto the
-      // row it belongs to (same verb, or the verb it recorded correcting). This
-      // branch used to drop it, so the next rebuild saw an unverified row.
-      if (Number(hit.networksVerifiedAt) > 0 && ownRead) t.networksVerifiedAt = hit.networksVerifiedAt;
-    } else if (ownRead && Number(hit.networksVerifiedAt) > 0 && Array.isArray(hit.networks) && hit.networks.length) {
+      // row it belongs to (same verb, or the verb it recorded correcting),
+      // with the verb that earned it. This branch used to drop it, so the next
+      // rebuild saw an unverified row.
+      if (readIsOwn) { t.networksVerifiedAt = hit.networksVerifiedAt; t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase(); }
+    } else if (readIsOwn && Array.isArray(hit.networks) && hit.networks.length) {
       // A VERIFIED live read outranks a manifest claim: union the chains the
       // 402 actually offered into the freshly rebuilt (manifest-shaped) row,
       // and carry when they were verified so the weekly re-read keeps its clock.
@@ -3283,13 +3325,16 @@ export function carryForwardLearnedQuotes(tools, prev) {
       // verified reads were carried, kept them rebuild after rebuild as its own
       // "verified read" - hidden from its own weekly read, and listing the
       // other verb's chains (and, below, its Base payTo) as the sibling's.
+      // Rows written that way are still in the persisted cache, stamped with
+      // no verb, which is why the gate is readIsOwn and not ownRead.
       t.networks = [...new Set([...(t.networks || []), ...hit.networks])];
       t.networksVerifiedAt = hit.networksVerifiedAt;
+      t.networksVerifiedMethod = hit.networksVerifiedMethod.toUpperCase();
     }
     // The domain observation and the payTo describe the chains of the read
     // they came from, so they ride only where those chains do: onto the read's
     // own row, or onto a row that just took the hit's chains.
-    const carriesPayment = ownRead || tookChains;
+    const carriesPayment = readIsOwn || tookChains;
     // The domain observation rides with the verified read it came from: a
     // manifest-shaped rebuild has no accepts of its own, and without this the
     // label would forget a wrong-domain seller on every crawl.
@@ -3363,6 +3408,10 @@ export function networksNeedLiveVerify(t, now = Date.now()) {
   if (!(Array.isArray(t.networks) && t.networks.length)) return false;
   const at = Number(t.networksVerifiedAt);
   if (!Number.isFinite(at) || at <= 0) return true;
+  // A stamp that names no verb, or another verb, is no read of this row's own
+  // (stampIsOwn): carry-forward no longer passes such a stamp on, and a row
+  // still holding one is read rather than left to the clock.
+  if (!stampIsOwn(t)) return true;
   // The stamp's clock covers a row whose PRICE is the origin's own declaration
   // (a live 402 is the other price source, and it returned above). A priced
   // row carrying a stamp but neither is a row whose price came from somewhere
@@ -3747,7 +3796,10 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
       if (learned.networks?.length) sibling.networks = [...new Set([...(sibling.networks || []), ...learned.networks])];
       if (learned.evmDomainByNetwork) sibling.evmDomainByNetwork = { ...learned.evmDomainByNetwork };
       applyLivePayTo(sibling, learned.payToByNetwork);
+      // The stamp names the verb whose 402 was read (stampIsOwn), here the
+      // sibling's own.
       sibling.networksVerifiedAt = Date.now();
+      sibling.networksVerifiedMethod = answered;
       if (statedRefused) {
         dropped.add(tool);
         console.log(`[x402-index] live-402: ${originUrl}${tool.route} refuses ${own} and answers ${answered}; the seller declares both, dropping the ${own} row (sibling kept; ${own} answered ${answersByMethod[own].join(",")})`);
@@ -3782,7 +3834,10 @@ export async function enrichLiveQuotes(tools, originUrl, { ignoreBudget = false 
     applyLivePayTo(tool, learned.payToByNetwork);
     // The live 402 was read: the row's chains are verified as of now, whatever
     // the manifest claimed (the union above never drops a manifest chain).
+    // The stamp names the verb that answered, which is this row's verb once
+    // the correction below applies (stampIsOwn).
     tool.networksVerifiedAt = Date.now();
+    tool.networksVerifiedMethod = answered;
     if (learned.method && learned.method !== tool.method) {
       // The stated verb did not answer a quote and this one did, and no
       // sibling row declares the answering verb (that case took the branch
