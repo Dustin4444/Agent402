@@ -268,8 +268,28 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     ok(globalFails() === 5, `...and every one still feeds the /v1 global pause (got ${globalFails()})`);
     await finishWith("subcent_quota_exceeded", {}, { global: false });
     ok(walletFails() === 0 && globalFails() === 5, "on the catalog consult (global:false) it records nothing at all");
-    await finishWith("subcent_quota_exceeded");
+    const warned = [], warn0 = console.warn;
+    console.warn = (...a) => { warned.push(a.join(" ")); };
+    try { await finishWith("subcent_quota_exceeded"); } finally { console.warn = warn0; }
     ok(b.gatewaySettleBreakerGlobalPaused().paused, "the sixth trips the global pause (GLOBAL_MAX 6): the backstop for requests already in flight");
+    const pauseLine = warned.find((l) => /pausing every \/v1 tier/.test(l)) || "";
+    ok(/from 0 buyer\(s\), 6 withdrawn sub-cent refusal\(s\) inside/.test(pauseLine) && !/different buyers/.test(pauseLine), `the pause line says what it counted - withdrawn refusals, not six buyers (${pauseLine.slice(0, 90)})`);
+    // The global pause counts distinct buyers; a withdrawn refusal is recorded
+    // with no key, so each one still counts on its own - also in the real
+    // arming order (the catalog consult first, then the /v1 handler's own,
+    // which upgrades the listener) and from ONE buyer's requests.
+    b._gatewaySettleBreakerReset();
+    pause();
+    const finishUpgraded = async () => {
+      const req = avmReq();
+      b.armGatewaySettleBreaker(req, avmKey, { global: false });
+      await nano.handler(chatBody, req);
+      req.res.statusCode = 402;
+      req.res.setHeader("PAYMENT-RESPONSE", receipt("subcent_quota_exceeded"));
+      req.res.emit("finish");
+    };
+    for (let i = 0; i < 3; i++) await finishUpgraded();
+    ok(walletFails() === 0 && globalFails() === 3, `one buyer's three withdrawn refusals, catalog consult first: off the wallet, and each still counts toward the /v1 global pause (wallet ${walletFails()}, global ${globalFails()})`);
     b._gatewaySettleBreakerReset();
     b.recordGatewaySettleFailure(avmKey);
     await finishWith("subcent_quota_exceeded");
@@ -321,7 +341,7 @@ const chatBody = { model: "mistralai/ministral-8b-2512", messages: [{ role: "use
     b._gatewaySettleBreakerReset();
     await finishWith("free_tier_exhausted", { network: "eip155:43114" });
     await finishWith("unexpected_settle_error", { network: "eip155:1329", errorMessage: "Facilitator settle failed (403): payment required: buy more credits" });
-    ok(walletFails() === 2 && globalFails() === 2, `free_tier_exhausted and a credits wall named only in errorMessage count per wallet and globally (wallet ${walletFails()}, global ${globalFails()})`);
+    ok(walletFails() === 2 && globalFails() === 1, `free_tier_exhausted and a credits wall named only in errorMessage count per wallet and globally (wallet ${walletFails()}; global ${globalFails()}: one buyer, counted once)`);
     await finishWith("transaction_failed", { network: "eip155:43114", errorMessage: "rpc quota exceeded" });
     err = await nextCall();
     ok(err?.statusCode === 429 && /2 of them were a facilitator billing refusal/.test(err?.message || "") && /USDC balance/.test(err?.message || ""), `a mixed window names the billing share and still points at the wallet for the rest - transaction_failed is a payment verdict, whatever its message says (got: ${String(err?.message).slice(0, 160)})`);
@@ -380,6 +400,55 @@ delete process.env.OPENAI_API_KEY;
   ok(firstStatementIs(rsp, /return async function responsesHandler\(input, req\) \{/), "Responses wire: consult first");
   const throws402 = (src) => /bad\([^;]*,\s*402\s*\)/.test(src) || /statusCode\s*=\s*402\b/.test(src);
   ok(!throws402(kit) && !throws402(msg) && !throws402(rsp), "no gateway kit throws a 402 of its own - a post-arm 402 is a settlement failure, which the finish listener relies on");
+}
+
+// --- the listener's scope: a later global consult upgrades, never downgrades ----
+// (The HTTP twin, through a booted paid server's /v1 route, is in
+// scripts/test-paid-settle-breaker.js.) The dispatcher arms with global:false
+// for every wallet-only slug, and every /v1 slug is one, so the /v1 handler's
+// own global:true consult arrives SECOND on the same request.
+{
+  b._gatewaySettleBreakerReset();
+  const failOnce = (consults) => {
+    const req = fakeReq({ from: ADDR });
+    for (const g of consults) b.armGatewaySettleBreaker(req, "0xscope", { global: g });
+    req.res.statusCode = 402;
+    req.res.emit("finish");
+  };
+  failOnce([false]);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 0, "a catalog-only consult (global:false) feeds nothing global");
+  failOnce([false, true]);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 1, "catalog consult first, /v1 consult second: the failure reaches the global count");
+  ok(b.gatewaySettleBreakerBlocked("0xscope").fails === 2, "one listener per request: two requests, two wallet failures, none double-counted");
+  b._gatewaySettleBreakerReset();
+  const req = fakeReq({ from: ADDR });
+  b.armGatewaySettleBreaker(req, "0xscope2", { global: true });
+  b.armGatewaySettleBreaker(req, "0xscope2", { global: false });
+  req.res.statusCode = 402;
+  req.res.emit("finish");
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 1, "a later global:false consult never downgrades an armed global listener");
+  b._gatewaySettleBreakerReset();
+}
+
+// --- the global pause counts BUYERS, not failures --------------------------------
+// The per-key check runs before any of a burst's failures lands, so one wallet
+// firing concurrent calls could otherwise supply the whole global count alone
+// and pause every /v1 buyer. (The HTTP twin, a real concurrent burst through a
+// booted paid server, is in scripts/test-paid-settle-breaker.js.)
+{
+  b._gatewaySettleBreakerReset();
+  for (let i = 0; i < 20; i++) b.recordGatewaySettleFailure("0xoneburstwallet");
+  const st = b.gatewaySettleBreakerStatus();
+  ok(!st.globalPaused && st.globalFailsInWindow === 1, `twenty failures from ONE buyer count once toward the global pause and never trip it (distinct ${st.globalFailsInWindow}, GLOBAL_MAX 6)`);
+  ok(b.gatewaySettleBreakerBlocked("0xoneburstwallet").blocked, "...that buyer is the per-key bound's job, and it is blocked");
+  for (let i = 1; i <= 4; i++) b.recordGatewaySettleFailure(`0xotherbuyer${i}`);
+  ok(!b.gatewaySettleBreakerGlobalPaused().paused && b.gatewaySettleBreakerStatus().globalFailsInWindow === 5, "five different buyers: still below the threshold of six");
+  b.recordGatewaySettleFailure("0xotherbuyer5");
+  ok(b.gatewaySettleBreakerGlobalPaused().paused, "the sixth DIFFERENT buyer trips the pause (wallet rotation is what the pause is for)");
+  b._gatewaySettleBreakerReset();
+  b.recordGatewaySettleFailure(null); b.recordGatewaySettleFailure(null);
+  ok(b.gatewaySettleBreakerStatus().globalFailsInWindow === 2, "a failure with no key to count it under counts as its own buyer (never merged into one)");
+  b._gatewaySettleBreakerReset();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

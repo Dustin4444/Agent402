@@ -2,7 +2,15 @@
 // Mocks global fetch so no wallet/network is needed. The refusal paths throw
 // BEFORE any signing, so they run offline with a throwaway key.
 import { randomBytes } from "node:crypto";
-import { quoteWithinCap, readAfterSpend } from "../src/x402-buyer.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+// Two cases below settle against a stub seller, and a settled payment writes a
+// per-payment ledger line. Point it at a scratch directory before the buyer
+// module (and the ledger it imports) is loaded, so a test run never writes to
+// the volume path.
+process.env.OUTBOUND_LEDGER_FILE = join(mkdtempSync(join(tmpdir(), "x402-buyer-test-")), "outbound-spend.ndjson");
+const { quoteWithinCap, readAfterSpend } = await import("../src/x402-buyer.js");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
@@ -273,6 +281,120 @@ ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC a
   // The pure cap: never above the window, never rewrites a shorter seller value upward.
   const { capEvmValidity } = await import("../src/x402-buyer.js");
   ok(capEvmValidity({ maxTimeoutSeconds: 300 }, 30).maxTimeoutSeconds === 30 && capEvmValidity({ maxTimeoutSeconds: 10 }, 30).maxTimeoutSeconds === 10 && capEvmValidity({}, 30).maxTimeoutSeconds === 30, "capEvmValidity: min(seller, window), and a missing seller value takes the window");
+}
+
+// --- the payment we SIGN re-checks the evidence wallets (2026-09-28) ----------
+//
+// The resolver binds INHERITED settlement history to the wallets it came from,
+// and checks that the PROBE's 402 pays one of them. payX402 then makes its own
+// unpaid request and signs whatever that 402 names, and the seller answers
+// both - so a seller could show the bound wallet to the probe and another
+// address to the payment. `evidenceWallets` carries the binding to the accept
+// actually signed. The signer is spied on the live client instance, so "signed
+// zero times" is measured at the signing call itself, not inferred from a
+// header.
+{
+  const { payX402, getUpstreamBuyer, getUpstreamBuyerAvm, _spentThisWindow } = await import("../src/x402-buyer.js");
+  // Letters in the address on purpose: an all-digit wallet has no case, and
+  // the case-insensitive compare is one of the things under test.
+  const W1 = "0x" + "1a".repeat(20);
+  const X = "0x" + "9".repeat(40);
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
+  const accept = (payTo) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount: "1000", payTo, maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } });
+  let paidRequests = 0;
+  const seller = (payTo) => async (_url, init) => {
+    const h = init?.headers || {};
+    if (!(h["PAYMENT-SIGNATURE"] || h["payment-signature"] || h["X-PAYMENT"])) {
+      return { status: 402, headers: { get: (n) => (String(n).toLowerCase() === "payment-required" ? b64({ x402Version: 2, accepts: [accept(payTo)] }) : null) }, json: async () => ({}), text: async () => "{}" };
+    }
+    paidRequests++;
+    return new Response(JSON.stringify({ answer: 42 }), { status: 200, headers: { "content-type": "application/json", "payment-response": b64({ success: true, transaction: "0x" + "ab".repeat(32), network: "eip155:8453" }) } });
+  };
+  const evm = await getUpstreamBuyer();
+  const realSign = evm.client.createPaymentPayload.bind(evm.client);
+  let signs = 0;
+  evm.client.createPaymentPayload = async (...a) => { signs++; return realSign(...a); };
+  const pay = (payTo, evidenceWallets, extra = {}) => {
+    globalThis.fetch = seller(payTo);
+    return payX402("https://tenant.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "base", evidenceWallets, ...extra }).then((r) => ({ r }), (e) => ({ e }));
+  };
+
+  // A1 CONTROL, first: the 402 names the bound wallet -> it signs once and
+  // settles. Without this the refusals below could be a signer that never
+  // works at all.
+  signs = 0; paidRequests = 0;
+  const a1 = await pay(W1, [W1]);
+  ok(!a1.e && a1.r?.result?.answer === 42 && a1.r?.receipt?.transaction && signs === 1 && paidRequests === 1,
+    `A1 control: the pay 402 names the evidence wallet -> signed once and settled (signs ${signs}, paid requests ${paidRequests}${a1.e ? `, threw ${a1.e.message}` : ""})`);
+
+  // A2: the pay 402 names another address -> refused before anything is signed.
+  signs = 0; paidRequests = 0;
+  const held2 = _spentThisWindow();
+  const a2 = await pay(X, [W1]);
+  ok(a2.e && a2.e.statusCode === 502 && /Nothing was signed/.test(a2.e.message) && a2.e.message.includes(X),
+    "A2: a pay 402 naming a wallet outside the evidence wallets is refused 502, naming the normalized address, and says nothing was signed");
+  ok(signs === 0 && paidRequests === 0 && _spentThisWindow() === held2, "A2: the signer was called 0 times and no budget was held");
+  ok(/belongs to a different wallet/.test(a2.e?.message || ""), "A2: the refusal says the history belongs to a different wallet");
+
+  // A3: an unreadable payTo refuses (unlike provenPayTo, where it is unknown),
+  // and no part of the seller's raw string reaches the message.
+  const long = "Q9".repeat(150);
+  for (const junk of ["not-an-address", long]) {
+    signs = 0;
+    const a3 = await pay(junk, [W1]);
+    const m = a3.e?.message || "";
+    ok(a3.e && /Refusing to pay an unreadable address/.test(m) && signs === 0,
+      `A3: an unreadable pay 402 payTo (${junk.length} chars) is refused as "an unreadable address", nothing signed`);
+    ok(!m.includes("not-an-address") && !m.includes("Q9Q9") && !m.includes(junk.slice(-12)), "A3: the refusal never echoes any part of the seller's raw payTo string");
+  }
+
+  // A4: case never decides - an upper-case 402 payTo against a lower-case list signs.
+  signs = 0;
+  const a4 = await pay(W1.toUpperCase().replace("0X", "0x"), [W1.toLowerCase()]);
+  ok(!a4.e && signs === 1, `A4: the same wallet in upper case against a lower-case evidence list is a match and signs${a4.e ? ` (threw ${a4.e.message})` : ""}`);
+
+  // A5: no binding (null, or an empty list) is today's behaviour: pays X.
+  signs = 0;
+  const a5null = await pay(X, null);
+  const a5empty = await pay(X, []);
+  ok(!a5null.e && !a5empty.e && signs === 2, "A5: evidenceWallets null or [] checks nothing and pays as before");
+
+  // A6: Base only. On Algorand the accept's payTo is not an EVM address and the
+  // Base binding must not refuse it. The AVM signer is replaced by a sentinel,
+  // so reaching it proves the check was not applied and nothing touches algod.
+  {
+    const algosdk = (await import("algosdk")).default;
+    process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC = algosdk.secretKeyToMnemonic(algosdk.generateAccount().sk);
+    const avm = await getUpstreamBuyerAvm();
+    let avmSigns = 0;
+    avm.client.createPaymentPayload = async () => { avmSigns++; throw new Error("SENTINEL: reached the AVM signer"); };
+    const algoPayTo = algosdk.generateAccount().addr.toString();
+    globalThis.fetch = async () => ({ status: 402, headers: { get: (n) => (String(n).toLowerCase() === "payment-required" ? b64({ x402Version: 2, accepts: [{ scheme: "exact", network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", asset: "31566704", amount: "1000", payTo: algoPayTo, maxTimeoutSeconds: 60 }] }) : null) }, json: async () => ({}), text: async () => "{}" });
+    let a6 = null;
+    try { await payX402("https://tenant.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, chain: "algorand", evidenceWallets: [W1] }); } catch (e) { a6 = e; }
+    ok(a6 && /SENTINEL/.test(a6.message) && avmSigns === 1, `A6: on Algorand the Base-only check is not applied (reached the AVM signer${a6 && !/SENTINEL/.test(a6.message) ? `; threw ${a6.message}` : ""})`);
+  }
+
+  evm.client.createPaymentPayload = realSign;
+}
+
+// A7: the call sites, pinned from source. The payer check above is inert unless
+// the resolver SETS the list and route-execute FORWARDS it (a behavioural twin
+// of the second pin lives in test-route-execute.js).
+{
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const fn = server.slice(server.indexOf("async function resolveExternalSeller("), server.indexOf("async function diagnoseExternalSeller("));
+  ok(/evidenceWallets = gate\.evidenceWallets;/.test(fn) && fn.indexOf("evidenceWallets = gate.evidenceWallets;") > fn.indexOf("const gate = baseLiveGate({"),
+    "A7: resolveExternalSeller's Base branch sets evidenceWallets from the passed binding gate (the wallets whose own evidence clears)");
+  ok(/resolved\.push\(\{[^\n]*\bevidenceWallets,/.test(fn), "A7: the resolved candidate carries evidenceWallets");
+  const re = readFileSync(new URL("../src/tools/route-execute.js", import.meta.url), "utf8");
+  ok(/payExternal\(extUrl, \{[^\n]*evidenceWallets: ext\.evidenceWallets/.test(re), "A7: route-execute passes evidenceWallets: ext.evidenceWallets to payExternal");
+  const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
+  const payFn = buyer.slice(buyer.indexOf("export async function payX402("));
+  const at = payFn.indexOf("evidenceWallets.length");
+  ok(at > payFn.indexOf("quoteWithinCap(quotedAtomic, maxAtomic)") && at < payFn.indexOf("screenAddressForPayment") && at < payFn.indexOf("reserveSpend(quotedAtomic)"),
+    "A7: the check sits after the cap check and before the sanctions screen and any budget hold");
 }
 
 globalThis.fetch = origFetch;

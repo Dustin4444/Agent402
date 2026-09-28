@@ -466,13 +466,17 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             // and the seller answers both, so the check has to happen again
             // against the accept actually signed. Null = no chain-derived
             // address on record, which is not a failure - see provenPayToMatches.
+            // evidenceWallets: the wallets the seller's INHERITED settlement
+            // history belongs to, when that binding made it eligible. Same
+            // reason: the resolver checked the probe's 402, and the payer must
+            // check the one it signs. Null = nothing inherited decided it.
             if (ext.unproven) console.warn(`[sor] paying UNPROVEN ${chain} seller ${ext.seller} (${ext.price}) - every proven candidate was exhausted; loss bounded by the unproven allowance`);
             if (__paidAttempts >= MAX_PAID_ATTEMPTS) {
               // Not a fall-through: the next candidate would be a SECOND signature,
               // which is the thing being bounded.
               throw lastErr || bad(`Tried ${__paidAttempts} paid seller(s) for this task without a delivered answer. Refusing to sign another payment for one request.`, 502);
             }
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null, evidenceWallets: ext.evidenceWallets || null, allowUnproven: ext.unproven === true, refusalMaxWaitMs: refusalBudgetMs(), ...(tempoBudgetMs != null ? { timeoutMs: Math.max(3000, remainingMs()) } : {}) });
           } catch (e) {
             // WHAT STAYS BOOKED IS WHAT MAY HAVE LEFT THE WALLET. The payer
             // stamps `committed:true` on every failure after the payment

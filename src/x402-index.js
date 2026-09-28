@@ -49,7 +49,7 @@ import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, probeAttemptsFor
 import { evmDomainsOfAccepts, EVM_TOKEN_DOMAINS } from "./evm-usdc-domain.js";
 import { queryTerms, isCjkTerm, splitTokens } from "./query-terms.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
-import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
+import { rankBy, canonicalHost, getLeaderboardSnapshot, getLeaderboardCircularWallets } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
 import { sellerRegistrationFirstSeen, recordSellerRegistrationSeen, getSellerRegistrations, deleteSellerRegistration } from "./stats.js";
 
@@ -1095,6 +1095,37 @@ const bazaarQualityByOrigin = new GuardedMap();
 export function bazaarQualityFor(origin) {
   return bazaarQualityByOrigin.get(String(origin || "").replace(/\/$/, "")) || null;
 }
+/**
+ * The Bazaar payer count a ranking tie-break may read for one origin
+ * (2026-09-28). The Bazaar counts every settled payment, including the ones a
+ * seller funded itself; at a wallet whose received dollars were mostly
+ * self-funded (src/seller-funding.js) those counts are the same self-payments,
+ * so the slice measured at that wallet is left out. Null when nothing measured
+ * remains: unmeasured, never zero.
+ *
+ * ONLY AN ORIGIN MEASURED AT A CIRCULAR WALLET IS TOUCHED. Every other origin
+ * reads its payers30d exactly as before, whatever other wallets are circular:
+ * another seller's verdict must never move this one's rank (the first cut
+ * replaced every split origin's figure with its Base split, which dropped the
+ * payers of its non-Base resources as soon as any wallet anywhere was
+ * circular). For an origin that IS measured at a circular wallet, what stays
+ * is the largest figure measured anywhere else: its other Base wallets, and
+ * its resources declaring no Base payTo at all (`payersOffBase`), which cannot
+ * be paid at that wallet.
+ */
+export function rankingPayersOf(q, circular = null) {
+  if (!q || typeof q !== "object") return null;
+  if (!circular || typeof circular.has !== "function" || !circular.size) return q.payers30d ?? null;
+  const isCircular = (w) => circular.has(String(w).toLowerCase());
+  const split = q.byPayTo && typeof q.byPayTo === "object" ? Object.entries(q.byPayTo) : [];
+  const measuredAtCircular = split.some(([w]) => isCircular(w)) || (Array.isArray(q.payTos) ? q.payTos : []).some(isCircular);
+  if (!measuredAtCircular) return q.payers30d ?? null;
+  let best = null;
+  for (const [w, v] of split) if (!isCircular(w)) best = Math.max(best ?? 0, Number(v?.payers) || 0);
+  const off = Number(q.payersOffBase);
+  if (off > 0) best = Math.max(best ?? 0, off);
+  return best;
+}
 export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
 export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
 // `basePayTo` (2026-09-03): the Base-mainnet payTo the counted resource
@@ -1103,18 +1134,40 @@ export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrig
 // a quality count is Coinbase's measurement of settlements at that resource's
 // payTo, and it must not clear the Base floor for an origin whose live 402
 // asks to be paid somewhere else.
-const BAZAAR_QUALITY_MAX_PAYTOS = 8;
-function foldBazaarQuality(map, origin, q, basePayTo = null) {
+//
+// `byPayTo` (2026-09-28): the same counts split by the Base payTo each
+// counted resource declares, under the same cap: calls summed, payers the MAX
+// across that wallet's resources. The router keeps its evidence PER WALLET
+// (src/evidence-binding.js), so a count measured at one wallet can never clear
+// the floor for a payment to another. NON-ENUMERABLE on purpose: this object
+// is served as-is as `bazaar` on public index and route rows, and the split is
+// router input, not a column.
+//
+// `payersOffBase` (2026-09-28, non-enumerable for the same reason): the largest
+// payer count among the origin's resources that declare NO Base payTo. Those
+// cannot be paid at any Base wallet, so no Base wallet's verdict applies to
+// them (rankingPayersOf).
+export const BAZAAR_QUALITY_MAX_PAYTOS = 8;
+export function foldBazaarQuality(map, origin, q, basePayTo = null) {
   if (!q || typeof q !== "object") return;
   const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
   const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
+  if (!cur.byPayTo || typeof cur.byPayTo !== "object") Object.defineProperty(cur, "byPayTo", { value: {}, enumerable: false, writable: true, configurable: true });
+  if (!Object.hasOwn(cur, "payersOffBase")) Object.defineProperty(cur, "payersOffBase", { value: 0, enumerable: false, writable: true, configurable: true });
   cur.calls30d += calls;
   cur.payers30d = Math.max(cur.payers30d, payers);
   if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
   const w = typeof basePayTo === "string" && /^0x[0-9a-f]{40}$/i.test(basePayTo) ? basePayTo.toLowerCase() : null;
+  if (!w) cur.payersOffBase = Math.max(cur.payersOffBase, payers);
   if (!Array.isArray(cur.payTos)) cur.payTos = [];
   if (w && !cur.payTos.includes(w) && cur.payTos.length < BAZAAR_QUALITY_MAX_PAYTOS) cur.payTos.push(w);
+  if (w && calls > 0 && (Object.hasOwn(cur.byPayTo, w) || Object.keys(cur.byPayTo).length < BAZAAR_QUALITY_MAX_PAYTOS)) {
+    const at = cur.byPayTo[w] || { calls: 0, payers: 0 };
+    at.calls += calls;
+    at.payers = Math.max(at.payers, payers);
+    cur.byPayTo[w] = at;
+  }
   map.set(origin, cur);
 }
 
@@ -6609,12 +6662,14 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
   // (a regex + map read) hundreds of thousands of times per query.
   const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
   const payersBySeller = new Map();
+  // Self-funded Bazaar counts never break a tie (rankingPayersOf above).
+  const circular = getLeaderboardCircularWallets();
   const payersOf = (seller) => {
     let p = payersBySeller.get(seller);
-    if (p === undefined) { p = bazaarQualityFor(seller)?.payers30d ?? null; payersBySeller.set(seller, p); }
+    if (p === undefined) { p = rankingPayersOf(bazaarQualityFor(seller), circular.wallets); payersBySeller.set(seller, p); }
     return p;
   };
-  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion]) : null;
+  const memoKey = scoredMemo ? JSON.stringify([q, inc, wantNet, !!strictNetwork, baseUrl, cacheVersion, circular.version]) : null;
   const memoHit = !!scoredMemo && scoredMemo.key === memoKey && scoredMemo.local === localRef;
   const scored = memoHit ? scoredMemo.scored : [];
   // The four text-match rules, per row. Same rules and weights as before the
