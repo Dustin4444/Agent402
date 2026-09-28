@@ -814,12 +814,13 @@ export function fundingReadNotes(f) {
   const parts = [];
   if (f.historyWalletsOverShare) parts.push(`${f.historyWalletsOverShare} over their share of the reads`);
   if (f.historyWalletsGaveUp) parts.push(`${f.historyWalletsGaveUp} refused at the narrowest range`);
-  if (f.historyWalletsCutShort) parts.push(`${f.historyWalletsCutShort} cut short when the budget ran out`);
   if (f.historyWalletsWaiting) parts.push(`${f.historyWalletsWaiting} waiting to retry`);
   if (f.historyWalletsTooLarge) parts.push(`${f.historyWalletsTooLarge} too large to read in a scan (FUNDING_HISTORY_CHUNK_BLOCKS, or widths they learned)`);
+  if (f.historyWalletsTooDense) parts.push(`${f.historyWalletsTooDense} too dense to hold between scans`);
   if (f.historyReadsResumed) parts.push(`${f.historyReadsResumed} read(s) resumed`);
-  if (f.dayCapReached) parts.push(`the day's history calls are spent (LEADERBOARD_FUNDING_DAY_MAX_CALLS)`);
-  if (f.readStopped) parts.push(`stopped: ${f.readStopped}${f.readStopped === "range-limited" ? " (this RPC limits eth_getLogs ranges: set FUNDING_HISTORY_CHUNK_BLOCKS under its limit, or turn the reader off)" : ""}`);
+  if (f.historyWalletsDayHeld) parts.push(`${f.historyWalletsDayHeld} held for the day's retries`);
+  if (f.dayCapReached) parts.push(`the day's retries are spent (LEADERBOARD_FUNDING_DAY_MAX_CALLS)`);
+  if (f.readStopped) parts.push(`stopped: ${f.readStopped}${f.readStopped === "range-limited" ? (f.rangeLimitFits ? " (this RPC limits eth_getLogs ranges: set FUNDING_HISTORY_CHUNK_BLOCKS under its limit, or turn the reader off)" : " (this RPC limits eth_getLogs ranges too narrowly to read a history in a scan: use a primary RPC without that limit, or turn the reader off)") : ""}`);
   return parts.length ? `; ${parts.join(", ")}` : "";
 }
 
@@ -1165,13 +1166,15 @@ export async function runLeaderboard(overrides = {}) {
         // Counts only: wallets whose reads went past their share, were refused
         // over the narrowest range, need more calls than a scan has (or lost
         // their progress to its cap), or are waiting after one of those.
-        historyWalletsOverShare: h.overShare + (g.overShare || 0), historyWalletsGaveUp: h.gaveUp + (g.gaveUp || 0), historyWalletsTooLarge: h.tooLarge + (g.tooLarge || 0) + (pruned.progressDropped || 0), historyWalletsWaiting: h.waiting + (g.waiting || 0),
-        // Cut short when the scan's or the day's budget ran out; reads that
-        // resumed an earlier scan's progress; history and gap calls in the
-        // rolling day, and whether the day's allowance stopped this scan.
-        historyWalletsCutShort: h.cutShort + (g.cutShort || 0), historyReadsResumed: h.resumed + (g.resumed || 0),
-        historyCallsDay: fundingDayCalls(state, nowMs), ...(h.dayCapReached || g.dayCapReached ? { dayCapReached: true } : {}),
-        ...(ctl.stop ? { readStopped: ctl.stop } : {}),
+        historyWalletsOverShare: h.overShare + (g.overShare || 0), historyWalletsGaveUp: h.gaveUp + (g.gaveUp || 0), historyWalletsTooLarge: h.tooLarge + (g.tooLarge || 0) + (pruned.progressDropped || 0), historyWalletsTooDense: h.tooDense + (g.tooDense || 0), historyWalletsWaiting: h.waiting + (g.waiting || 0),
+        // Reads that resumed an earlier scan's progress; retries (calls past
+        // a wallet's plan, or picking up a read refused at every width last
+        // time) this scan and in the rolling day; wallets the day's allowance
+        // for them held back, and whether it held any.
+        historyReadsResumed: h.resumed + (g.resumed || 0),
+        historyRetryCalls: h.retries + (g.retries || 0), historyRetryCallsDay: fundingDayCalls(state, nowMs), historyWalletsDayHeld: h.dayHeld + (g.dayHeld || 0), ...(h.dayCapReached || g.dayCapReached ? { dayCapReached: true } : {}),
+        ...(ctl.stop ? { readStopped: ctl.stop } : {}), ...(ctl.stop === "range-limited" ? { rangeLimitFits: !!h.rangeLimitFits } : {}),
+        walletsReadTargeted: facts.targeted,
         gapWallets: gapRead.stats.wallets, gapWalletsRead: gapRead.stats.read, gapCalls: gapRead.stats.calls,
         walletsCaughtUp: facts.caughtUp, walletsBehind: facts.behind, walletsStuck: facts.stuck, walletsTruncated: facts.truncated, walletsNew: facts.fresh,
         fundingEvents: facts.events + h.events, budgetExhausted: facts.budgetExhausted || h.budgetExhausted || gapRead.stats.budgetExhausted,
