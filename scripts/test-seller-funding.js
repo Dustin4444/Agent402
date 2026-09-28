@@ -1116,6 +1116,50 @@ const SELF_FLAG = /USDC this seller's wallet had sent its payers|USDC that walle
   ok(r.ev[W].selfFundedCalls === 100 && r.ev[W].circular === false && r.ev[W].callsSettled === 20 && r.ev[W].uniqueBuyers === 4, "100 refunded $0.001 calls against 20 genuine $0.10 ones: netted, but the seller is not circular ($0.10 of $2.10 self-funded)");
 }
 
+// --- 7a. Bazaar netting is attributed per origin, never double-deducted ----------
+{
+  // A wallet's own scan: `net` calls/payers genuine in the window, and what it
+  // netted over 30 days. Not circular.
+  const evAt = (w, { calls = 0, payers = 0, dc = 0, dp = 0 } = {}) => ({ [w]: { callsSettled: calls, uniqueBuyers: payers, grossCallsSettled: calls + dc, grossUniqueBuyers: payers + dp, selfFundedCalls: 0, selfFundedPayers: 0, selfFundedUsd: dc * 0.01, selfFundedCalls30d: dc, selfFundedPayers30d: dp, circular: false } });
+  const bz = (w, calls, payers) => ({ calls30d: calls, payers30d: payers, payTos: [w] });
+  {
+    // Two origins on ONE wallet, 60 Bazaar calls each; the wallet netted 40
+    // over 30 days. Together they hold 120 calls, 80 genuine: neither origin
+    // must hold more than the 40 netted ones, so each keeps at least 60-40.
+    const W = addr("c1");
+    const b = buildEvidenceBinding({ walletEvidence: evAt(W, { dc: 40, dp: 2 }), bazaarQuality: [["https://two-a.example", bz(W, 60, 8)], ["https://two-b.example", bz(W, 60, 8)]], ...FLOORS });
+    const a = b.get("https://two-a.example").byWallet.get(W), bb = b.get("https://two-b.example").byWallet.get(W);
+    ok(a.settled === 60 && bb.settled === 60 && a.payers === 6 && bb.payers === 6, `TWO ORIGINS, ONE WALLET: the 40 netted calls fit in either origin's share, so neither loses them twice over (60 / 6 each, was 20 / 6)`);
+    // Where the other origin cannot hold them, they are this origin's.
+    const b2 = buildEvidenceBinding({ walletEvidence: evAt(W, { dc: 70, dp: 2 }), bazaarQuality: [["https://two-a.example", bz(W, 60, 8)], ["https://two-b.example", bz(W, 20, 3)]], ...FLOORS });
+    ok(b2.get("https://two-a.example").byWallet.get(W).settled === 10 && b2.get("https://two-b.example").byWallet.get(W).settled === 10, "...and the netted calls the other origins cannot hold are deducted (80 calls, 70 netted: 10 genuine, and neither origin credited more)");
+  }
+  {
+    // Bazaar MAX: the top resource had 5 payers and 4 payers paid the wallet
+    // only with its own money. Which resource they paid is unknowable; the
+    // wallet's own scan measured 5 genuine payers this window, which is exact.
+    const W = addr("c2");
+    const one = buildEvidenceBinding({ walletEvidence: evAt(W, { calls: 60, payers: 5, dc: 4, dp: 4 }), bazaarQuality: [["https://max.example", bz(W, 80, 5)]], ...FLOORS }).get("https://max.example").byWallet.get(W);
+    ok(one.settled === 76 && one.payers === 5, "BAZAAR MAX: 5 payers less 4 wallet-wide self-funded ones is not 1 when the scan itself measured 5 genuine payers (76 / 5)");
+    const calls = buildEvidenceBinding({ walletEvidence: evAt(W, { calls: 55, payers: 5, dc: 50, dp: 1 }), bazaarQuality: [["https://max.example", bz(W, 60, 6)]], ...FLOORS }).get("https://max.example").byWallet.get(W);
+    ok(calls.settled === 55, "...and the calls likewise: 60 less 50 netted over 30 days is not 10 when the scan measured 55 genuine calls this window");
+    const other = buildEvidenceBinding({ walletEvidence: evAt(W, { dc: 4, dp: 4 }), bazaarQuality: [["https://max.example", bz(W, 60, 5)], ["https://max-b.example", bz(W, 2, 2)]], ...FLOORS }).get("https://max.example").byWallet.get(W);
+    ok(other.settled === 58 && other.payers === 1, "...and without a scan measurement the payer worst case stands (62 calls at the wallet, 4 netted, at most 2 of them held by the other origin: 58 / 1)");
+  }
+  {
+    // CONTROL: a real business with 2 genuine payers pads its top resource with
+    // 4 payers it funded (one cheap call each). Not circular by dollars; the
+    // padded payer count must still not clear the floor.
+    const W = addr("c3");
+    const b = buildEvidenceBinding({ walletEvidence: evAt(W, { calls: 100, payers: 2, dc: 4, dp: 4 }), bazaarQuality: [["https://pad.example", bz(W, 104, 6)]], ...FLOORS });
+    const e = b.get("https://pad.example").byWallet.get(W);
+    ok(e.payers === 2 && label(b, "https://pad.example", W).eligible === false, "CONTROL: 4 funded payers padding the Bazaar payer count are still deducted (6 -> 2, under the floor of 3: refused)");
+    // A circular wallet is still disregarded outright, whatever its share.
+    const bc = buildEvidenceBinding({ walletEvidence: evAt(W, { calls: 1, payers: 1, dc: 500, dp: 20 }), bazaarQuality: [["https://pad.example", bz(W, 600, 25)], ["https://pad-b.example", bz(W, 600, 25)]], circularWallets: new Set([W]), ...FLOORS });
+    ok(!bc.get("https://pad.example").byWallet.has(W) && label(bc, "https://pad.example", W).eligible === false, "CONTROL: a mostly self-funded (circular) wallet shared by two origins still clears nothing");
+  }
+}
+
 // --- 7b. Refund-and-retry: a refund gives back genuine payments first -------------
 {
   const run = async (pays0, outs0, w) => {
