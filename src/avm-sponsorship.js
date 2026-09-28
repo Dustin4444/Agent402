@@ -81,12 +81,25 @@ export function isSponsorshipExhausted(row) {
 
 export const utcMonthOf = (ms) => new Date(ms).toISOString().slice(0, 7);
 
+/** Pure: when the row was last written, in epoch ms, or null. The live
+ *  document sends `updatedTs` as epoch MILLISECONDS (a number; read
+ *  2026-09-28); epoch seconds, a numeric string and an ISO string are read too,
+ *  so a change of encoding degrades to "taken at its word", never to a wrong month. */
+export function sponsorshipRowUpdatedAt(row) {
+  const v = row?.updatedTs;
+  if (v === null || v === undefined || v === "" || typeof v === "boolean") return null;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : null;
+}
+
 /** Pure: the row was last written in an EARLIER UTC month than `now`, so its
  *  usedMonth describes that month, not this one. A row without a readable
  *  updatedTs is taken at its word (the rule the canaries already applied). */
 export function isSponsorshipRowFromEarlierMonth(row, now = Date.now()) {
-  const ts = Date.parse(String(row?.updatedTs ?? ""));
-  return Number.isFinite(ts) && utcMonthOf(ts) < utcMonthOf(now);
+  const ts = sponsorshipRowUpdatedAt(row);
+  return ts !== null && utcMonthOf(ts) < utcMonthOf(now);
 }
 const mask = (a) => { const s = String(a || ""); return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s; };
 
@@ -145,7 +158,7 @@ export function noteSponsorshipStatus(payTo, row, { now = Date.now(), readStarte
     return "unreadable";
   }
   if (isSponsorshipRowFromEarlierMonth(row, now)) {
-    if (s.lastRead !== "earlier-month") log(`[avm-subcent] sponsorship status for payTo ${mask(payTo)} was last updated ${new Date(Date.parse(row.updatedTs)).toISOString()}, before this UTC month began - not evidence for this month; only a fresh subcent_quota_exceeded refusal can pause sub-cent Algorand until the facilitator rewrites it`);
+    if (s.lastRead !== "earlier-month") log(`[avm-subcent] sponsorship status for payTo ${mask(payTo)} was last updated ${new Date(sponsorshipRowUpdatedAt(row)).toISOString()}, before this UTC month began - not evidence for this month; only a fresh subcent_quota_exceeded refusal can pause sub-cent Algorand until the facilitator rewrites it`);
     s.lastRead = "earlier-month";
     reconcile(payTo, now);
     return "earlier-month";

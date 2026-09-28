@@ -209,7 +209,7 @@ if (sd) {
   // routes the leg around a reset that never gets a sub-cent settle to happen
   // on. The leg applies the server's own rule (one definition), and says so
   // loudly when a pause outlives the reset instead of "resets on the 1st".
-  ok(/import \{ isSponsorshipRowFromEarlierMonth \} from "\.\.\/src\/avm-sponsorship\.js"/.test(canarySrc) && /const quotaFromEarlierMonth = !!quota && isSponsorshipRowFromEarlierMonth\(quota\)/.test(canarySrc),
+  ok(/import \{ isSponsorshipRowFromEarlierMonth, sponsorshipRowUpdatedAt \} from "\.\.\/src\/avm-sponsorship\.js"/.test(canarySrc) && /const quotaFromEarlierMonth = !!quota && isSponsorshipRowFromEarlierMonth\(quota\)/.test(canarySrc),
     "a status row from an earlier UTC month is not read as this month's exhaustion (the server's own rule, imported)");
   ok(/const pauseOutlivedReset = exhausted && \(dayOfMonth === 2 \|\| dayOfMonth === 3 \|\| \(subcentWithdrawn && quotaFromEarlierMonth\)\)/.test(canarySrc) && /if \(pauseOutlivedReset\) console\.warn\(`\\nWARN  algorand leg: the sub-cent pause is \$\{resetNote\}/.test(canarySrc),
     "a pause still up on the 2nd or 3rd of the month (or held while the facilitator's row is last month's) is WARNed");

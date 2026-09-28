@@ -103,11 +103,15 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
   // next write - which a paused rail would never send. Taken at its word on
   // the 1st, it re-paused at once and stayed paused all month, silently.
   {
-    const sepRow = { ...exhaustedRow, suConsumed: 13, updatedTs: "2026-09-28T01:43:00.000Z" };
+    // The LIVE shape, read 2026-09-28: updatedTs is epoch MILLISECONDS, a number.
+    const sepRow = { chain: "algorand", suBalance: 0, suPurchased: 0, suConsumed: 13, usdSpent: 0, updatedTs: 1790559828059, patron: false, useProfile: false, usedMonth: 1013, quota: 1000 };
+    ok(g.sponsorshipRowUpdatedAt(sepRow) === 1790559828059 && new Date(g.sponsorshipRowUpdatedAt(sepRow)).toISOString() === "2026-09-28T01:43:48.059Z", "the live epoch-ms updatedTs is read as a time");
+    ok(g.sponsorshipRowUpdatedAt({ updatedTs: 1790559828 }) === 1790559828000 && g.sponsorshipRowUpdatedAt({ updatedTs: "1790559828059" }) === 1790559828059 && g.sponsorshipRowUpdatedAt({ updatedTs: "2026-09-28T01:43:48.059Z" }) === 1790559828059, "epoch seconds, a numeric string and an ISO string read the same instant");
     ok(g.isSponsorshipRowFromEarlierMonth(sepRow, Date.UTC(2026, 9, 1, 0, 0, 10)), "a row updated in September read on October 1 is from an earlier month");
+    ok(g.isSponsorshipRowFromEarlierMonth({ ...sepRow, updatedTs: "2026-09-28T01:43:48Z" }, Date.UTC(2026, 9, 1, 0, 0, 10)), "...in ISO form too");
     ok(!g.isSponsorshipRowFromEarlierMonth(sepRow, Date.UTC(2026, 8, 30, 23, 59)), "...and is this month's on September 30");
-    ok(!g.isSponsorshipRowFromEarlierMonth(exhaustedRow, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: "soon" }, Date.UTC(2026, 9, 1)), "no readable updatedTs: taken at its word");
-    ok(!g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: "2026-10-01T00:00:05Z" }, Date.UTC(2026, 8, 30, 23, 59, 58)), "a row a few seconds AHEAD of our clock at the boundary is not an earlier month");
+    ok(!g.isSponsorshipRowFromEarlierMonth(exhaustedRow, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: "soon" }, Date.UTC(2026, 9, 1)) && !g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: null }, Date.UTC(2026, 9, 1)), "no readable updatedTs: taken at its word");
+    ok(!g.isSponsorshipRowFromEarlierMonth({ ...exhaustedRow, updatedTs: Date.UTC(2026, 9, 1, 0, 0, 5) }, Date.UTC(2026, 8, 30, 23, 59, 58)), "a row a few seconds AHEAD of our clock at the boundary is not an earlier month");
 
     const logs2 = [];
     g._resetAvmSponsorshipForTest({ logger: (m) => logs2.push(m) });
@@ -129,7 +133,7 @@ const base = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x8
     tickAt(oct1b + 90_000);
     ok(g.isSubcentPaused(PAYTO, oct1b + 90_000), "...and a later read of September's row cannot clear it");
     ok(!g.isSubcentPaused(PAYTO, oct1b + g.STALE_MS + 1), "...while it still fails open once that refusal is stale, so the next sub-cent settle asks the facilitator again");
-    const octRow = { ...exhaustedRow, updatedTs: "2026-10-01T01:30:00.000Z" };
+    const octRow = { ...sepRow, updatedTs: Date.UTC(2026, 9, 1, 1, 30) };
     ok(g.noteSponsorshipStatus(PAYTO, octRow, { now: oct1b + 2 * g.STALE_MS }) === "exhausted" && g.isSubcentPaused(PAYTO, oct1b + 2 * g.STALE_MS + 1), "a row the facilitator rewrote in October, still exhausted, is evidence and pauses");
   }
 

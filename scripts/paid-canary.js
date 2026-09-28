@@ -20,7 +20,7 @@
 //   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
 import { legRefusalVerdict } from "./canary-refusal-classify.js";
 import { disableVendorSpendControls } from "../src/x402-spend-controls.js";
-import { isSponsorshipRowFromEarlierMonth } from "../src/avm-sponsorship.js";
+import { isSponsorshipRowFromEarlierMonth, sponsorshipRowUpdatedAt } from "../src/avm-sponsorship.js";
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
@@ -1639,7 +1639,7 @@ async function main() {
       // ignored, the $0.001 buy below IS that settle, and pages if refused.
       const quotaFromEarlierMonth = !!quota && isSponsorshipRowFromEarlierMonth(quota);
       const exhausted = subcentWithdrawn || (!!quota && !quotaFromEarlierMonth && Number(quota.usedMonth) >= Number(quota.quota) && Number(quota.suBalance || 0) <= 0);
-      const quotaText = quota ? `${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}${quotaFromEarlierMonth ? `, row last updated ${quota.updatedTs}, before this month` : ""}` : "facilitator status unreadable";
+      const quotaText = quota ? `${quota.usedMonth}/${quota.quota} used, SU ${quota.suBalance}${quotaFromEarlierMonth ? `, row last updated ${new Date(sponsorshipRowUpdatedAt(quota)).toISOString()}, before this month` : ""}` : "facilitator status unreadable";
       // The allowance resets on the 1st. A pause still up on the 2nd or 3rd
       // (the 3rd so one skipped daily run cannot hide it), or one the server
       // holds while the facilitator's row is still last month's, is the reset
