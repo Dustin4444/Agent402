@@ -170,7 +170,7 @@ export function handler(req, res) {
   });
 }
 
-async function boot() {
+export async function boot() {
   if (DB_URL) {
     state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, ssl: /railway\.internal/.test(DB_URL) ? false : { rejectUnauthorized: false } });
     await migrate(state.pool);

@@ -6,7 +6,6 @@
     "watchPatterns": ["services/decide/**", "src/decide/**", "Dockerfile", "package-lock.json", "railway.decide.json"]
   },
   "deploy": {
-    "startCommand": "node services/decide/server.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 90,
     "restartPolicyType": "ON_FAILURE",
