@@ -88,7 +88,7 @@ function toolView(row, { routingFeePct }) {
  * @param deps   { index, embed(texts)->vecs, llm:{call}, reliability(id)->stats, cfg, now, deadline }
  */
 export async function buildDecision({ task, constraints, depth }, deps) {
-  const { index, embed, llm, reliability = () => null, cfg, now = Date.now() } = deps;
+  const { index, embed, llm, reliability = () => null, cfg, now = Date.now(), meter = null } = deps;
   const deadline = deps.deadline ?? now + cfg.budgetMs[depth];
   const left = () => deadline - Date.now();
   const notes = [];
@@ -99,7 +99,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   let steps = [{ purpose: task, query: task, dependsOn: [] }];
   if (depth !== "quick") {
     const p = decomposePrompt(task, cfg.maxSteps);
-    const out = left() > 1500 ? await within(llm.call(p.system, p.user, { maxTokens: 700, timeoutMs: timeoutFor(0.35) }), timeoutFor(0.35) + 250) : null;
+    const out = left() > 1500 ? await within(llm.call(p.system, p.user, { maxTokens: 700, timeoutMs: timeoutFor(0.35), meter, stage: "decompose" }), timeoutFor(0.35) + 250) : null;
     const raw = Array.isArray(out?.steps) ? out.steps : null;
     if (raw && raw.length) {
       steps = raw.slice(0, cfg.maxSteps).map((s, i) => ({
@@ -113,7 +113,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   // 2. retrieval, one embedding call for every query + the whole task
   const live = { ...constraints, freshWithinMs: cfg.liveWithinHours * 3_600_000 };
   let vecs = null;
-  try { vecs = await Promise.race([embed([task, ...steps.map((s) => s.query)]), new Promise((_, r) => setTimeout(() => r(new Error("embed timeout")), Math.max(500, Math.min(5000, left() * 0.2))))]); }
+  try { vecs = await Promise.race([embed([task, ...steps.map((s) => s.query)], { meter, stage: "embed_query" }), new Promise((_, r) => setTimeout(() => r(new Error("embed timeout")), Math.max(500, Math.min(5000, left() * 0.2))))]); }
   catch { partial = true; notes.push("semantic retrieval unavailable: lexical retrieval only"); }
   const usable = (r) => r.inputSchemaState !== "unknown";
   const retrieve = (query, vec) => index.search({ query, queryVec: vec, constraints: live, k: cfg.candidatesPerStep * 2, now })
@@ -128,7 +128,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     ? [{ purpose: task, candidates: whole.slice(0, 12) }]
     : [...steps.map((s) => ({ purpose: s.purpose, candidates: s.candidates.slice(0, 12) })), { purpose: `the ENTIRE task in one call: ${task}`, candidates: whole.slice(0, 8) }];
   const jp = judgePrompt(task, judgeSteps);
-  const judged = left() > 1200 ? await within(llm.call(jp.system, jp.user, { maxTokens: 1500, timeoutMs: timeoutFor(0.5) }), timeoutFor(0.5) + 250) : null;
+  const judged = left() > 1200 ? await within(llm.call(jp.system, jp.user, { maxTokens: 1500, timeoutMs: timeoutFor(0.5), meter, stage: "judge" }), timeoutFor(0.5) + 250) : null;
   const rawFits = judged?.fits && typeof judged.fits === "object" ? judged.fits : null;
   const stepFit = new Map(); // `${stepIndex}:${rowId}` -> fit
   let judgedCount = 0;
@@ -193,7 +193,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   let filled = null;
   if (depth !== "quick" && plan.length && left() > 1500) {
     const pp = paramsPrompt(task, plan.map((p) => ({ step: p.step, purpose: p.purpose, row: p._row })));
-    filled = await within(llm.call(pp.system, pp.user, { maxTokens: 900, timeoutMs: timeoutFor(0.8) }), timeoutFor(0.8) + 250);
+    filled = await within(llm.call(pp.system, pp.user, { maxTokens: 900, timeoutMs: timeoutFor(0.8), meter, stage: "params" }), timeoutFor(0.8) + 250);
     if (!filled?.params) { partial = true; notes.push("parameter filling unavailable: skeleton params"); }
   }
   for (const p of plan) {

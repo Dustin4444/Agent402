@@ -26,7 +26,10 @@ export function embedBudgetStatus() { return { day, usedToday, max: dailyMax() }
 export function _resetEmbedBudget() { day = ""; usedToday = 0; }
 
 /** Embed texts; returns float arrays in order. Throws on failure or budget. */
-export async function embedTexts(texts, { apiKey = process.env.OPENAI_API_KEY, fetchImpl = fetch } = {}) {
+export const embedApiKey = () => process.env.DECIDE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "";
+
+/** `meter` (optional array) receives { stage:"embed", items, tokens } per batch. */
+export async function embedTexts(texts, { apiKey = embedApiKey(), fetchImpl = fetch, meter = null, stage = "embed" } = {}) {
   if (!apiKey) throw Object.assign(new Error("embeddings not configured"), { statusCode: 503 });
   const out = [];
   for (let i = 0; i < texts.length; i += BATCH) {
@@ -42,6 +45,7 @@ export async function embedTexts(texts, { apiKey = process.env.OPENAI_API_KEY, f
     const j = await res.json();
     const rows = Array.isArray(j?.data) ? j.data.slice().sort((a, b) => a.index - b.index) : [];
     if (rows.length !== chunk.length) throw Object.assign(new Error("embeddings count mismatch"), { statusCode: 502 });
+    meter?.push({ stage, model: EMBED_MODEL, items: chunk.length, tokens: Number(j?.usage?.total_tokens) || Number(j?.usage?.prompt_tokens) || 0 });
     for (const r of rows) out.push(r.embedding);
   }
   return out;

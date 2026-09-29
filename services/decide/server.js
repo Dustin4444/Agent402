@@ -54,13 +54,16 @@ export async function decide(body, { now = Date.now() } = {}) {
   const key = cacheKeyFor(input.task, input.constraints, input.depth);
   let result = state.cache.get(key, now);
   let cached = false;
+  const meter = [];
+  const t0 = Date.now();
   if (result) {
     result = { ...structuredClone(result), decisionId: newDecisionId() };
     cached = true;
   } else {
     result = await state.gate.run(() => Date.now() >= callerDeadline - 500 ? Promise.reject(late()) : buildDecision(input, {
       index: state.index,
-      embed: (t) => embedTexts(t),
+      embed: (t, o) => embedTexts(t, o),
+      meter,
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
       reliability: (id) => state.reliability.get(id),
       cfg, now,
@@ -69,8 +72,28 @@ export async function decide(body, { now = Date.now() } = {}) {
     if (!result.partial) state.cache.set(key, result, now);
   }
   const { _rankingLog, ...pub } = result;
-  await state.decisions.save(pub, { constraints: input.constraints, cacheKey: key, payer: body.payer || null, rail: body.rail || null, priceUsd: Number(body.priceUsd) || 0, rankingLog: _rankingLog || [] });
+  const cost = summarizeCost(meter, { cached, depth: input.depth, ms: Date.now() - t0, partial: !!result.partial });
+  await state.decisions.save(pub, { constraints: input.constraints, cacheKey: key, payer: body.payer || null, rail: body.rail || null, priceUsd: Number(body.priceUsd) || 0, rankingLog: _rankingLog || [], cost });
   return { ...pub, cached };
+}
+
+/** One decision's serving cost, from the meter. Kept with the decision in the
+ *  service's own store; never part of the response the main app forwards. */
+export function summarizeCost(meter, { cached = false, depth = "", ms = 0, partial = false } = {}) {
+  const llm = meter.filter((m) => m.stage !== "embed_query");
+  const emb = meter.filter((m) => m.stage === "embed_query");
+  const sum = (a, k) => a.reduce((t, m) => t + (Number(m[k]) || 0), 0);
+  return {
+    depth, cached, partial, ms,
+    modelCalls: llm.filter((m) => m.outcome !== "skipped_no_budget").length,
+    fallbackUsed: llm.some((m) => m.attempt > 0 && m.outcome === "ok"),
+    failedAttempts: llm.filter((m) => m.outcome !== "ok" && m.outcome !== "skipped_no_budget").map((m) => `${m.stage}:${m.model}:${m.outcome}`),
+    promptTokens: sum(llm, "promptTokens"), completionTokens: sum(llm, "completionTokens"),
+    modelUsd: Math.round(sum(llm, "costUsd") * 1e8) / 1e8,
+    modelUsdUnknown: llm.some((m) => m.outcome === "ok" && m.costUsd === null),
+    embedTokens: sum(emb, "tokens"),
+    calls: meter,
+  };
 }
 
 function tokenOk(req) {
@@ -149,6 +172,10 @@ export const routes = {
     let accepted = 0;
     for (const o of list) if (state.reliability.record({ toolId: o?.toolId, ok: o?.ok === true, latencyMs: Number(o?.latencyMs), source: o?.source })) accepted++;
     return { accepted };
+  },
+  "POST /internal/decision-cost": async (req) => {
+    const b = await readJson(req);
+    return { decisionId: String(b.decisionId || ""), cost: await state.decisions.getCost(String(b.decisionId || "")) };
   },
   "POST /internal/decision": async (req) => {
     const b = await readJson(req);

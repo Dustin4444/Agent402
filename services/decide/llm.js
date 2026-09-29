@@ -22,14 +22,26 @@ export function extractJson(text) {
   return null;
 }
 
-export function makeLlm({ apiKey = process.env.OPENROUTER_API_KEY, models = [], fetchImpl = fetch, user = "decide" } = {}) {
+// Decide may carry its own OpenRouter key (DECIDE_OPENROUTER_API_KEY) so its
+// spend is attributable; it falls back to the shared key.
+export const llmApiKey = () => process.env.DECIDE_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || "";
+
+export function makeLlm({ apiKey = llmApiKey(), models = [], fetchImpl = fetch, user = "decide" } = {}) {
   let calls = 0, failures = 0;
-  async function call(system, userMsg, { maxTokens = 900, timeoutMs = 12000 } = {}) {
+  // `meter` (optional array) receives one entry per upstream attempt: model,
+  // stage, outcome, tokens and the upstream's own reported cost. It is kept
+  // server-side with the decision and never returned to a buyer.
+  async function call(system, userMsg, { maxTokens = 900, timeoutMs = 12000, meter = null, stage = "" } = {}) {
     if (!apiKey) return null;
     const stopAt = Date.now() + timeoutMs; // the whole call, fallback included
-    for (const model of models) {
+    for (let mi = 0; mi < models.length; mi++) {
+      const model = models[mi];
       const remaining = stopAt - Date.now();
-      if (remaining < 500) break; // never start a model past the caller's budget
+      if (remaining < 500) { meter?.push({ stage, model, attempt: mi, outcome: "skipped_no_budget" }); break; } // never start a model past the caller's budget
+      const t0 = Date.now();
+      const note = (outcome, j) => meter?.push({ stage, model, attempt: mi, outcome, ms: Date.now() - t0,
+        promptTokens: Number(j?.usage?.prompt_tokens) || 0, completionTokens: Number(j?.usage?.completion_tokens) || 0,
+        costUsd: Number.isFinite(Number(j?.usage?.cost)) ? Number(j.usage.cost) : null });
       try {
         const res = await fetchImpl(URL_, {
           method: "POST",
@@ -39,12 +51,12 @@ export function makeLlm({ apiKey = process.env.OPENROUTER_API_KEY, models = [], 
           signal: AbortSignal.timeout(remaining),
         });
         calls++;
-        if (!res.ok) { failures++; continue; }
+        if (!res.ok) { failures++; note(`http_${res.status}`, null); continue; }
         const j = await res.json();
         const parsed = extractJson(j?.choices?.[0]?.message?.content || "");
-        if (parsed) return parsed;
-        failures++;
-      } catch { failures++; }
+        if (parsed) { note("ok", j); return parsed; }
+        failures++; note("unparseable", j);
+      } catch (e) { failures++; note(e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "network", null); }
     }
     return null;
   }

@@ -72,6 +72,13 @@ export const MIGRATIONS = [
       ALTER TABLE decide_tool_reliability ADD COLUMN IF NOT EXISTS fb_failures INT NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 3,
+    name: "per-decision serving cost",
+    sql: `
+      ALTER TABLE decide_decisions ADD COLUMN IF NOT EXISTS cost JSONB;
+    `,
+  },
 ];
 
 export async function migrate(pool) {
