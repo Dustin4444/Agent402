@@ -1163,12 +1163,20 @@ export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrig
 // payer count among the origin's resources that declare NO Base payTo. Those
 // cannot be paid at any Base wallet, so no Base wallet's verdict applies to
 // them (rankingPayersOf).
+//
+// `curated` (2026-09-29): true when any of the origin's resources carries the
+// Bazaar's own `curated: true` flag, which the bulk discovery feed now serves
+// per item (it used to appear on the search endpoint only). Read ONLY from the
+// Coinbase feed (`fromCoinbase`): an open registry's item could set the same
+// key about itself. Coinbase's editorial mark, reported as theirs; the router
+// reads it as its LAST tie-break, after match, health, payers and price.
 export const BAZAAR_QUALITY_MAX_PAYTOS = 8;
-export function foldBazaarQuality(map, origin, q, basePayTo = null) {
+export function foldBazaarQuality(map, origin, q, basePayTo = null, { curated = false } = {}) {
   if (!q || typeof q !== "object") return;
   const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
   const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
-  const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [] };
+  const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null, payTos: [], curated: false };
+  cur.curated = cur.curated === true || curated === true;
   if (!cur.byPayTo || typeof cur.byPayTo !== "object") Object.defineProperty(cur, "byPayTo", { value: {}, enumerable: false, writable: true, configurable: true });
   if (!Object.hasOwn(cur, "payersOffBase")) Object.defineProperty(cur, "payersOffBase", { value: 0, enumerable: false, writable: true, configurable: true });
   cur.calls30d += calls;
@@ -1384,7 +1392,7 @@ async function discoverOneSource(source, selfOrigin) {
           arr.push(t);
           toolsByOrigin.set(origin, arr);
         }
-        if (qualityByOrigin && item.quality) foldBazaarQuality(qualityByOrigin, origin, item.quality, t?.payToByNetwork?.["eip155:8453"] || null);
+        if (qualityByOrigin && item.quality) foldBazaarQuality(qualityByOrigin, origin, item.quality, t?.payToByNetwork?.["eip155:8453"] || null, { curated: item.curated === true && isBazaarDiscoveryUrl(source.url) });
       }
     }
     if (toolsByOrigin) {
@@ -6786,7 +6794,15 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
   // query instead of once per sort COMPARISON: on a pool where a common term
   // matches tens of thousands of rows, the comparator ran bazaarQualityFor()
   // (a regex + map read) hundreds of thousands of times per query.
-  const selfQuality = (bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN))?.payers30d ?? null;
+  const selfQ = bazaarQualityFor(baseUrl) || bazaarQualityFor(SELF_BAZAAR_ORIGIN);
+  const selfQuality = selfQ?.payers30d ?? null;
+  const selfCurated = selfQ?.curated === true;
+  const curatedBySeller = new Map();
+  const curatedOf = (seller) => {
+    let c = curatedBySeller.get(seller);
+    if (c === undefined) { c = bazaarQualityFor(seller)?.curated === true; curatedBySeller.set(seller, c); }
+    return c;
+  };
   const payersBySeller = new Map();
   // Self-funded Bazaar counts never break a tie (rankingPayersOf above).
   const circular = getLeaderboardCircularWallets();
@@ -6834,7 +6850,7 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
     // checkable by anyone instead of merely stated (asked for in #645).
     if (score > 0) {
       const isLocal = t.seller === LOCAL_SELLER;
-      scored.push([score, t, { slug: mSlug, name: mName, text: mText }, st.priceRank, isLocal, isLocal ? selfQuality : payersOf(t.seller)]);
+      scored.push([score, t, { slug: mSlug, name: mName, text: mText }, st.priceRank, isLocal, isLocal ? selfQuality : payersOf(t.seller), isLocal ? selfCurated : curatedOf(t.seller)]);
     }
   };
   // Local rows first (a few hundred; scanned outright), then the remote pool's
@@ -6925,6 +6941,10 @@ function* routeQuerySteps({ query, top, include, networkFilter, strictNetwork = 
       if (qb !== qa) return qb - qa;
     }
     if (a[3] !== b[3]) return a[3] - b[3];
+    // Bazaar-curated (Coinbase's editorial flag), only among rows equal on
+    // match, health, payers AND price: it can order two equals, never lift a
+    // seller over a better-matched, healthier, more-paid or cheaper one.
+    if (a[6] !== b[6]) return a[6] ? -1 : 1;
     return (a[1].slug || "").length - (b[1].slug || "").length;
   };
   // ONE global sort over the whole scored array, deliberately. A bucket-per-
