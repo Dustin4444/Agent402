@@ -642,7 +642,7 @@ const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { createTempoPushDebts, tempoLedgerPayerPending, whenTempoLedgerPayerKnown } from "./tempo-push-debts.js";
-import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
+import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, restateOwedAsHandlerFailure, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -5402,7 +5402,10 @@ app.get("/api/reliability", async (_req, res) =>
 // with ?fresh=1, still no more than once per 5 minutes (createSelfCheckRoute).
 app.get("/api/selfcheck", createSelfCheckRoute({
   run: () => runSelfCheck(CATALOG),
-  isOperator: (req) => operatorAuthed(req),
+  // The probe-only STATUS_PROBE_TOKEN may also ask for a fresh run (still at
+  // most once per 5 minutes), so tool-alert.yml sees a failure within its own
+  // 30-minute poll without carrying the operator token.
+  isOperator: (req) => statusProbeAuthed(req),
 }));
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
@@ -7907,7 +7910,7 @@ if (!FREE_MODE) {
   // at least this route's price" before a single relay call. Without them
   // createTempoGate refuses to mount (fail closed).
   tempoPushDebts = createTempoPushDebts({
-    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, promoteToHangup: promoteOwedToHangup, refundByEvidence,
+    recordOwed: recordRefundOwed, voidOnClaim: voidOwedOnClaim, renoteOwed: renoteOwedRefund, promoteToHangup: promoteOwedToHangup, restateHandlerFailure: restateOwedAsHandlerFailure, refundByEvidence,
     recordChargedFailure, isSynthetic: isSyntheticRequest,
     slugOf: (req) => CATALOG[`${req.method} ${req.path}`]?.slug,
   });
@@ -8849,16 +8852,21 @@ app.use((req, res, next) => {
         // relay's receipt reference comes back in.
         const tx = req.tempoSettled ? (tempoPushHashOf(req) || tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt"))) : stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt"));
         recordChargedFailure(def.slug, res.statusCode);
-        whenTempoLedgerPayerKnown(req, "refund-ledger", () => recordRefundOwed({
-          slug: def.slug,
-          network: req.tempoSettled ? "tempo" : "stripe",
-          payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
-          priceUsd: settledPriceUsd(def, req, res),
-          tx,
-          httpStatus: res.statusCode,
-          synthetic: isSyntheticRequest(req),
-          wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
-        }));
+        whenTempoLedgerPayerKnown(req, "refund-ledger", () => {
+          const created = recordRefundOwed({
+            slug: def.slug,
+            network: req.tempoSettled ? "tempo" : "stripe",
+            payer: req.tempoSettled ? tempoLedgerPayer(req) : null,
+            priceUsd: settledPriceUsd(def, req, res),
+            tx,
+            httpStatus: res.statusCode,
+            synthetic: isSyntheticRequest(req),
+            wire: req.tempoSettled ? "mpp-tempo" : "mpp-stripe",
+          });
+          // A corrected push retry: its hash already carries the owed
+          // input-refused row, which the insert above left alone.
+          if (!created && req.tempoSettled && tempoPushDebts && typeof tx === "string") tempoPushDebts.handlerFailed(tx, res.statusCode);
+        });
       }
     });
   }

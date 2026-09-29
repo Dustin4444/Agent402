@@ -85,6 +85,13 @@ const promoteHangup = db.prepare(`
     note = CASE WHEN note IS NULL OR note = '' THEN @append ELSE note || '; ' || @append END
   WHERE evidence = @evidence AND status = 'owed' AND note = @from
 `);
+// The same rewrite for a claimed push whose handler then failed: the owed
+// input-refused row takes the handler's status and says what happened.
+const restateHandlerFailure = db.prepare(`
+  UPDATE refunds SET httpStatus = @httpStatus,
+    note = CASE WHEN note IS NULL OR note = '' THEN @append ELSE note || '; ' || @append END
+  WHERE evidence = @evidence AND status = 'owed' AND note = @from
+`);
 const selectByStatus = db.prepare("SELECT * FROM refunds WHERE status = ? ORDER BY id DESC LIMIT ?");
 const selectAll = db.prepare("SELECT * FROM refunds ORDER BY id DESC LIMIT ?");
 const resolveRow = db.prepare(`
@@ -226,6 +233,18 @@ export function promoteOwedToHangup(evidence, { from, hangupReason, append } = {
   if (typeof evidence !== "string" || !evidence.trim() || !from || !append) return false;
   try {
     return promoteHangup.run({ evidence: evidence.trim(), from, append: String(append).slice(0, 120), hangupReason: hangupReason ? String(hangupReason).slice(0, 40) : null }).changes > 0;
+  } catch { return false; }
+}
+
+/** An OWED row whose note is exactly `from` takes a handler's failure status
+ *  (>= 400, never 499: disconnects go through promoteOwedToHangup) and gains
+ *  `append` in its note. Rows being sent, paid or void are never touched.
+ *  True when the row changed. */
+export function restateOwedAsHandlerFailure(evidence, { from, httpStatus, append } = {}) {
+  const st = Number(httpStatus);
+  if (typeof evidence !== "string" || !evidence.trim() || !from || !append || !Number.isInteger(st) || st < 400 || st === 499) return false;
+  try {
+    return restateHandlerFailure.run({ evidence: evidence.trim(), from, append: String(append).slice(0, 120), httpStatus: st }).changes > 0;
   } catch { return false; }
 }
 

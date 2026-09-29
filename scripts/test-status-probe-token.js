@@ -137,7 +137,8 @@ const postProbe = (token) =>
   // future endpoint could quietly accept it.
   const serverSrc = await readFile("src/server.js", "utf8");
   const gateUses = [...serverSrc.matchAll(/statusProbeAuthed\(/g)].length;
-  ok(gateUses === 2, `statusProbeAuthed is declared once and called from exactly one route (found ${gateUses} occurrences)`);
+  ok(gateUses === 3, `statusProbeAuthed is declared once and called from exactly two routes, the probe write and the selfcheck fresh read (found ${gateUses} occurrences)`);
+  ok(/app\.get\("\/api\/selfcheck"[\s\S]{0,400}?isOperator: \(req\) => statusProbeAuthed\(req\)/.test(serverSrc), "the second is /api/selfcheck's fresh-run check, which only shortens its cache");
   ok(/app\.post\("\/api\/status\/probe"[\s\S]{0,400}?statusProbeAuthed\(req\)/.test(serverSrc),
     "and the one caller is POST /api/status/probe");
 

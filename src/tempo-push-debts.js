@@ -19,13 +19,14 @@ export const PUSH_INPUT_REFUSED_NOTE = "push unclaimed: input refused";
 export const PUSH_FINALIZE_REFUSED_NOTE = "push unclaimed: finalize refused";
 export const PUSH_CLAIMED_NOTE = "claimed on retry";
 export const PUSH_HANGUP_AFTER_CLAIM_NOTE = "claimed on retry, then disconnected";
+export const PUSH_HANDLER_FAILED_AFTER_CLAIM_NOTE = "claimed on retry, then the handler failed";
 // The charged_failures table reads status 402 as a settlement rejection (the
 // buyer kept their money) and leaves it out of the genuine count. A finalize
 // refusal after the relay confirmed the transfer is the opposite: the money
 // moved. It is recorded as 502 (the claim failed on our side of the relay).
 export const PUSH_FINALIZE_FAILURE_STATUS = 502;
 
-export function createTempoPushDebts({ recordOwed, voidOnClaim, renoteOwed, refundByEvidence, promoteToHangup = () => false, recordChargedFailure, isSynthetic = () => false, slugOf = () => "unknown" }) {
+export function createTempoPushDebts({ recordOwed, voidOnClaim, renoteOwed, refundByEvidence, promoteToHangup = () => false, restateHandlerFailure = () => false, recordChargedFailure, isSynthetic = () => false, slugOf = () => "unknown" }) {
   const base = (req, { hash, payer, amountUsd }) => ({
     slug: slugOf(req) || "unknown",
     network: "tempo",
@@ -61,6 +62,15 @@ export function createTempoPushDebts({ recordOwed, voidOnClaim, renoteOwed, refu
     hungUp(hash, hangupReason) {
       if (typeof hash !== "string" || !hash) return false;
       return promoteToHangup(hash, { from: PUSH_INPUT_REFUSED_NOTE, hangupReason, append: PUSH_HANGUP_AFTER_CLAIM_NOTE }) === true;
+    },
+    /** A claimed push whose handler then answered >= 400 (not a disconnect)
+     *  on a hash that already carries an OWED input-refused row: the row takes
+     *  the handler's status and says the retry was claimed and then failed, so
+     *  a reviewer reads what happened. Sending, paid or void rows are never
+     *  touched. True when the row changed. */
+    handlerFailed(hash, httpStatus) {
+      if (typeof hash !== "string" || !hash) return false;
+      return restateHandlerFailure(hash, { from: PUSH_INPUT_REFUSED_NOTE, httpStatus, append: PUSH_HANDLER_FAILED_AFTER_CLAIM_NOTE }) === true;
     },
     /** At finish: a push credential that was claimed AND served voids its debt. */
     served(req, res) {
