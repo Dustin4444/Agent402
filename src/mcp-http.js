@@ -123,7 +123,7 @@ const PAID_LOOPBACK_TIMEOUT_MS = Math.max(1_000, MCP_REQ_DEADLINE_MS - 2_500);
 // the settle call itself is in flight, the charge goes through and is
 // recorded as owed and refunded. The connector cannot tell which happened at
 // the moment it gives up, so "not charged" would not be a promise it can keep.
-export const PAID_CUTOFF_TEXT = "The call may still have completed and been charged. If it was, the charge is recorded as owed in our refund ledger and repaid after review. Do not retry blindly: a retry is a new paid call.";
+export const PAID_CUTOFF_TEXT = "The call may still have completed and been charged. If it was, the charge is recorded as owed in our refund ledger and repaid after review. Check any payment by its settlement transaction, free, at GET /api/refunds/lookup?tx=<hash>: it answers whether a refund is recorded and, once sent, our refund transaction. Do not retry blindly: a retry is a new paid call.";
 export const UNPAID_CUTOFF_TEXT = "No payment was presented, so nothing was charged.";
 // The RFC 9457 members of a 402 problem document, and nothing else. A paywall
 // 402 body also carries the full PaymentRequired offer (it mirrors the

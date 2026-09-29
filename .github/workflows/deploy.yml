@@ -2492,6 +2492,8 @@ jobs:
           t node scripts/test-svm-clarify.js
           # Refund ledger + planner (idempotent debts, evidence-gated resolution, caps, canary excluded, no silent chain drops — offline)
           t node scripts/test-refund-ledger.js
+          # Refund lookup (exact tx only, unknown == no refund, no payer leak, own rows on my-usage, rate limited - boots its own server)
+          t node scripts/test-refund-lookup.js
           # Daily MPP reconciliation (every mismatch category, unknown never ok, idempotent reruns, words-only public status, operator-only routes — offline)
           t node scripts/test-mpp-reconcile.js
           # Refund pre-send proof (same payer, our payTo, enough value, on a transaction that actually succeeded — offline)
