@@ -121,14 +121,14 @@ const reset = () => { calls = []; _exaSpendReset(); process.env.EXA_API_KEY = "t
      "and a response with no cost field keeps the estimate instead of booking zero");
 }
 
-// --- type "instant" (2026-09-29): accepted, sent, and booked at its own card --
+// --- type "instant" (2026-09-29): accepted, sent, and booked at its own rate --
 {
   reset(); stub(200, { results: [], resolvedSearchType: "instant" });
   await tool("exa-search").handler({ query: "fast answer", type: "instant", numResults: 10 });
   eq(JSON.parse(calls[0].opts.body).type, "instant", "type instant is sent to Exa as written");
-  ok(Math.abs(exaSpendStatus().spentUsd - 0.004) < 1e-9, `an instant search with no costDollars books the instant card price, $0.004 (booked ${exaSpendStatus().spentUsd})`);
+  ok(Math.abs(exaSpendStatus().spentUsd - 0.004) < 1e-9, `an instant search with no costDollars books the instant estimate (booked ${exaSpendStatus().spentUsd})`);
   ok(Math.abs(estimateExaUsd("/search", { type: "instant", numResults: 10 }) - 0.004) < 1e-9 && Math.abs(estimateExaUsd("/search", { type: "instant", numResults: 3, contents: { text: true } }) - 0.007) < 1e-9, "instant estimate = $0.004 plus per-page content, like the other types");
-  ok(Math.abs(estimateExaUsd("/search", { numResults: 10 }) - 0.007) < 1e-9 && Math.abs(estimateExaUsd("/search", { type: "auto", numResults: 10 }) - 0.007) < 1e-9 && Math.abs(estimateExaUsd("/search", { type: "fast", numResults: 10 }) - 0.007) < 1e-9, "control: auto, fast and no type keep the $0.007 card");
+  ok(Math.abs(estimateExaUsd("/search", { numResults: 10 }) - 0.007) < 1e-9 && Math.abs(estimateExaUsd("/search", { type: "auto", numResults: 10 }) - 0.007) < 1e-9 && Math.abs(estimateExaUsd("/search", { type: "fast", numResults: 10 }) - 0.007) < 1e-9, "control: auto, fast and no type keep their estimate");
   ok(Math.abs(estimateExaUsd("/findSimilar", { type: "instant", numResults: 10 }) - 0.007) < 1e-9, "instant pricing applies to /search only");
   reset(); stub(200, { results: [], costDollars: { total: 0.005 } });
   await tool("exa-search").handler({ query: "fast answer", type: "instant" });

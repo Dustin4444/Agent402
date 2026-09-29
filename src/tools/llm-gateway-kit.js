@@ -909,7 +909,7 @@ export const MODEL_COST = [
   // claude-sonnet covers claude-sonnet-5 (standard price confirmed against
   // Anthropic's own release notes 2026-08-10).
   ["anthropic/claude-sonnet-4", { prompt: 3.3, completion: 16.5 }], // live 2026-09-18
-  ["anthropic/claude-sonnet-5.5", { prompt: 2.2, completion: 11 }], // dearest live endpoint (regional), 2026-09-29
+  ["anthropic/claude-sonnet-5.5", { prompt: 2.2, completion: 11 }], // 2026-09-29
   ["anthropic/claude-sonnet", { prompt: 2.2, completion: 11 }], // live 2026-09-18
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],

@@ -86,7 +86,7 @@ function requireKey() {
 // exactly like the other spend guards, and the prepaid balance is the outer
 // bound.
 const EXA_SEARCH_USD = 0.007;   // per request, <= 10 results
-const EXA_INSTANT_USD = 0.004;  // per request, type "instant", <= 10 results (published card, read 2026-09-29)
+const EXA_INSTANT_USD = 0.004;  // per request, type "instant", <= 10 results
 const EXA_ANSWER_USD = 0.005;   // per request
 const EXA_CONTENT_USD = 0.001;  // per page, per content type
 const EXA_DAILY_MAX_USD = () => { const n = Number(process.env.EXA_DAILY_MAX_USD); return Number.isFinite(n) && n >= 0 ? n : 1; };

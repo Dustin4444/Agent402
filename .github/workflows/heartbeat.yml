@@ -303,9 +303,9 @@ jobs:
             '[.rates[]? | select(.scheme=="exact" and (.transferMethod // "eip3009")=="eip3009")] as $r
              | {avalanche: ($r[] | select(.network=="eip155:43114") | .credits | tonumber),
                 sei: ($r[] | select(.network=="eip155:1329") | .credits | tonumber)}
-             | select(.avalanche != null and .sei != null)' 2>/dev/null | head -1 || true)
+             | select(.avalanche != null and .sei != null and .avalanche > 0 and .sei > 0)' 2>/dev/null | head -1 || true)
           if [ -n "$LIVE" ]; then WEIGHTS="$LIVE"; SRC=live
-          elif [ -n "$PAYAI_FALLBACK_WEIGHTS" ] && echo "$PAYAI_FALLBACK_WEIGHTS" | jq -e 'has("avalanche") and has("sei")' >/dev/null 2>&1; then WEIGHTS="$PAYAI_FALLBACK_WEIGHTS"; SRC=fallback; echo "::warning::PayAI live pricing table unreadable - using the PAYAI_FALLBACK_WEIGHTS repo variable"
+          elif [ -n "$PAYAI_FALLBACK_WEIGHTS" ] && echo "$PAYAI_FALLBACK_WEIGHTS" | jq -e '(.avalanche > 0) and (.sei > 0)' >/dev/null 2>&1; then WEIGHTS="$PAYAI_FALLBACK_WEIGHTS"; SRC=fallback; echo "::warning::PayAI live pricing table unreadable - using the PAYAI_FALLBACK_WEIGHTS repo variable"
           else echo "::warning::PayAI credit watch skipped - the live pricing table is unreadable and no PAYAI_FALLBACK_WEIGHTS repo variable is set. Investigate."; exit 0; fi
           echo "PayAI credit weights ($SRC): $WEIGHTS"
           CREDITS=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT" --argjson w "$WEIGHTS" \

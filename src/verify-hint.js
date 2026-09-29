@@ -60,17 +60,18 @@ const bounded = (m) => { if (m.size > MAX_ENTRIES) { const first = m.keys().next
 /** RPCs the balance read tries, in order. An explicit AGENT402_BASE_RPC is
  *  authoritative and used ALONE (an operator's choice, and the seam every test
  *  stub uses, so a stubbed boot can never fall through to a public node).
- *  Unset (production today): Alchemy when a key is configured, then two public
- *  endpoints. A read moves to the next only when the previous one failed
+ *  Unset (production today): two public endpoints, then Alchemy when a key is
+ *  configured. Any caller can trigger a read with a forged header naming any
+ *  address, so the metered provider is the last resort, not the first. A read moves to the next only when the previous one failed
  *  (transport error, non-JSON, or a JSON-RPC error such as a rate limit),
  *  inside the same time budget. */
 export function baseRpcUrls(env = process.env) {
   const override = String(env.AGENT402_BASE_RPC || "").trim();
   if (override) return [override];
   return [
-    env.ALCHEMY_API_KEY ? `https://base-mainnet.g.alchemy.com/v2/${env.ALCHEMY_API_KEY}` : "",
     "https://mainnet.base.org",
     "https://base-rpc.publicnode.com",
+    env.ALCHEMY_API_KEY ? `https://base-mainnet.g.alchemy.com/v2/${env.ALCHEMY_API_KEY}` : "",
   ].filter(Boolean);
 }
 

@@ -82,7 +82,7 @@ ok((await usdcBalanceOnBase(PAYER, { fetchImpl: async () => { throw new Error("r
 ok(decodeBalanceMulticall(encodeFunctionResult({ abi: AGG3, functionName: "aggregate3", result: [{ success: false, returnData: "0x" }] }), 1)[0] === null, "a failed inner call reads as unknown, never zero");
 {
   const urls = baseRpcUrls({ ALCHEMY_API_KEY: "k" });
-  ok(/alchemy/.test(urls[0]) && urls[1] === "https://mainnet.base.org" && urls.length === 3, "RPC order: Alchemy when keyed, then two public endpoints");
+  ok(urls[0] === "https://mainnet.base.org" && /alchemy/.test(urls[2]) && urls.length === 3, "RPC order: two public endpoints first, Alchemy last (a forged header must not buy a metered read first)");
   ok(baseRpcUrls({ ALCHEMY_API_KEY: "k", AGENT402_BASE_RPC: "http://127.0.0.1:1/rpc" }).join() === "http://127.0.0.1:1/rpc", "an explicit AGENT402_BASE_RPC is used alone, so a stubbed boot never reaches a public node");
   ok(baseRpcUrls({}).length === 2 && baseRpcUrls({})[0] === "https://mainnet.base.org", "with no configuration the read still has a public fallback");
 }

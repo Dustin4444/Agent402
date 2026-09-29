@@ -24,9 +24,9 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-// sizes: orientation -> size; the first entry is the default. outputTokenBound
-// is the image-token count each tier was priced for: a render billed above it
-// is logged (the answer is still served, the work is already paid for).
+// sizes: orientation -> size; the first entry is the default. A render whose
+// billed image tokens pass outputTokenBound is logged (the answer is still
+// served, the work is already paid for).
 export const TIERS = {
   "image-gen":         { model: "gpt-image-2", quality: "low",    sizes: { square: "1024x1024" }, maxPromptChars: 1000, timeoutMs: 60_000, outputTokenBound: 700 },
   "image-gen-hd":      { model: "gpt-image-2", quality: "medium", sizes: { square: "1024x1024" }, maxPromptChars: 2000, timeoutMs: 60_000, outputTokenBound: 2300 },
