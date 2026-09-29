@@ -5556,6 +5556,8 @@ const computeFind = async (q, k, meter = null) => {
   // DEFINES the task, so a high score came from common words alone. Without it
   // the miss branch was unreachable for any real capability gap: every one of
   // eighteen impossible tasks scored 4-42 against a floor of 3.
+  // The free single pick links to the paid multi-step decision when it runs here.
+  if (CATALOG["POST /api/decide"]) result.multiStep = { tool: "decide", route: "POST /api/decide", mcp: "decide.plan", note: "need a multi-step plan across every indexed seller, with fallbacks and validated params? call decide" };
   if (result.count === 0 || topScore < FIND_WEAK_SCORE || result.rarestTermCovered === false) {
     if (result.relatedSellers) {
       // A seller-name match IS an answer - point at it instead of recording
@@ -7653,6 +7655,7 @@ const mcpMountOpts = {
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
+  decideFeedback: decideEnabled() ? (args) => { _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() }); return _decideFeedback(args); } : null,
   getLeaderboard: getLeaderboardSnapshot,
   // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
   getMppLeaderboard: mppLeaderboardSnapshot,

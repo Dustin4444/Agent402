@@ -7,6 +7,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
+import { WALLET_ONLY_SLUGS } from "../src/pow.js";
+import { buildDecideTools } from "../src/tools/decide-kit.js";
 import { makeExecuteHandler, executeQuoteUsd, executeBudgetUsd, makeDecideHandler } from "../src/tools/decide-kit.js";
 
 let pass = 0, fail = 0;
@@ -216,6 +218,13 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(ledger.creditState(out.executionCredit.token).state === "pending", "a failed settlement never activates it");
   settle(req, 200);
   ok(ledger.creditState(out.executionCredit.token).state === "active", "a settled 200 does");
+}
+
+// ---- every decide tool is wallet-only: none may run on the free tier ----
+{
+  const tools = buildDecideTools({ getCatalog: () => ({}), ledger });
+  ok(tools.length >= 2 && tools.every((t) => WALLET_ONLY_SLUGS.has(t.slug)), `every decide tool is wallet-only (${tools.map((t) => t.slug).join(", ")})`);
+  ok(tools.find((t) => t.slug === "decide-execute")?.spendsOwnWallet === true, "execute is marked as spending our wallet before settlement");
 }
 
 console.log(`\ntest-decide-execute: ${pass} passed, ${fail} failed`);

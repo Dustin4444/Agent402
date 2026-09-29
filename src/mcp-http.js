@@ -180,7 +180,7 @@ export function mcpPaymentMethods() {
   };
 }
 
-export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, taskStore = null, taskStoreDir = null, path = "/mcp", profile = null }) {
+export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null, decideFeedback = null, taskStore = null, taskStoreDir = null, path = "/mcp", profile = null }) {
   const scoped = profile?.metaTools === false;
   const HIDDEN_WHEN_SCOPED = new Set([META_MCP_NAMES.search_tools, META_MCP_NAMES.find_tool, META_MCP_NAMES.call_tool, META_MCP_NAMES.request_tool, META_MCP_NAMES.list_top_sellers]);
   const listable = (arr) => (scoped ? arr.filter((t) => !HIDDEN_WHEN_SCOPED.has(t.name)) : arr);
@@ -528,6 +528,26 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
           outputSchema: META_OUTPUT_SCHEMAS["server.describe"],
         },
+        ...(decideFeedback ? [{
+          name: "decide.feedback",
+          title: "Report how a decide plan step went",
+          annotations: { title: "Report how a decide plan step went", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          description: "[free] Report whether one step of a decide.plan decision worked (success or failure, optional 1-5 quality and latency). Needs the decisionId and feedbackToken that decide.plan returned; one verdict per step, a later report replaces it. Reports feed tool reliability in future rankings.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              decisionId: { type: "string" },
+              feedbackToken: { type: "string" },
+              step: { type: "integer", minimum: 1 },
+              outcome: { type: "string", enum: ["success", "failure"] },
+              quality: { type: "integer", minimum: 1, maximum: 5 },
+              latencyMs: { type: "integer", minimum: 0 },
+              toolId: { type: "string", description: "Optional: a fallback you used instead of the step's primary tool" },
+            },
+            required: ["decisionId", "feedbackToken", "step", "outcome"],
+            additionalProperties: false,
+          },
+        }] : []),
         ...(getLeaderboard ? [{
           // Dotted Smithery Naming (sellers.list). Prior snake/digit names
           // remain CallTool aliases via resolveListedName.
@@ -938,6 +958,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             missingATool: "Call demand.request (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
             docs: `${baseUrl}/llms.txt`,
           });
+        }
+        if (name === "decide.feedback" && decideFeedback) {
+          try { return mcpJsonResult(decideFeedback(args)); }
+          catch (err) { return { content: [{ type: "text", text: err.statusCode && err.statusCode < 500 ? err.message : "feedback failed" }], isError: true }; }
         }
         if (name === "sellers.list" && getLeaderboard && args.wire === "mpp") {
           // The MPP leaderboard (src/mpp-leaderboard.js) - same row discipline

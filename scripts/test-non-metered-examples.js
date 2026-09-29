@@ -180,6 +180,7 @@ export const METERED_SLUGS = new Set([
   "feedback",        // feedback-kit.js: the verdict is bound to the wallet that paid for the rated call
   "judge",           // paid third-party judgment model; CI holds no key
   "decide",          // decision service + model calls; CI runs no decide service
+  "decide-execute",  // runs plans and pays sellers; CI runs no decide service
   // FRED keyed (503 without FRED_API_KEY / FRED_API_KEY_V2)
   "fred-series", "fred-search", "fred-series-info", "fred-release-calendar",
   "sahm-rule", "cpi-yoy", "unemployment-rate", "fed-funds",

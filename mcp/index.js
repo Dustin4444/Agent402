@@ -75,6 +75,8 @@ const DEFAULT_CURATED = [
   // Search/answer is the front door; long tail stays behind catalog.search/catalog.call.
   "search", "answer", "search-news", "render",
   "stock-quote", "transcribe", "memory-read", "memory-write",
+  // Present only on hosts running the decide service; skipped elsewhere.
+  "decide", "decide-execute",
 ];
 
 // stdout is the MCP protocol channel — all logging goes to stderr.

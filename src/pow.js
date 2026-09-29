@@ -338,6 +338,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Typed judgment: a paid third-party model per call, so never PoW-payable.
   "judge",
   "decide",
+  "decide-execute",
   // Image generation kit: every call burns real upstream inference credit
   // (OpenAI GPT Image API). Same rationale as LLM proxy.
   "image-gen", "image-gen-hd", "image-gen-premium",

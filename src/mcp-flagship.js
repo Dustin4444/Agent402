@@ -23,6 +23,10 @@ export const FLAGSHIP_SLUGS = [
   "transcribe",
   "memory-read",
   "memory-write",
+  // Listed only where the decide service is configured (absent from the
+  // catalog otherwise, and a flagship must be in the catalog to be listed).
+  "decide",
+  "decide-execute",
 ];
 
 // Smithery Naming grades DOT notation (domain.action tree), not snake_case —
@@ -38,6 +42,8 @@ export const FLAGSHIP_MCP_NAMES = {
   transcribe: "audio.transcribe",
   "memory-read": "memory.read",
   "memory-write": "memory.write",
+  decide: "decide.plan",
+  "decide-execute": "decide.execute",
 };
 
 /** Meta tools listed alongside flagships — dotted canonical names. */
@@ -90,11 +96,11 @@ export function resolveListedName(name) {
 
 /** Open-world / egress tools — honest annotations for directory clients. */
 export const FLAGSHIP_OPEN_WORLD = new Set([
-  "search", "answer", "search-news", "render", "stock-quote", "transcribe",
+  "search", "answer", "search-news", "render", "stock-quote", "transcribe", "decide",
 ]);
 
 /** Tools that mutate durable state (not read-only). */
-export const FLAGSHIP_WRITERS = new Set(["memory-write"]);
+export const FLAGSHIP_WRITERS = new Set(["memory-write", "decide-execute"]);
 
 /** initialize.serverInfo description (MCP Implementation.description). */
 export const MCP_SERVER_DESCRIPTION =
