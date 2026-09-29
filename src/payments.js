@@ -1711,7 +1711,7 @@ export function railStatus() {
 // hook - only onAfterVerify sees it (review 2026-08-28: 20 graceful
 // rejections, zero hook firings, zero hints). Tell the buyer WHY on the 402
 // (src/verify-hint.js): read their USDC balance on Base (bounded, <= 1.5 s,
-// at most 4 in flight) and remember a plain-language hint under the failed
+// burst reads coalesced into multicall batches) and remember a plain-language hint under the failed
 // CREDENTIAL's key, which the 402 middleware merges in for that header only.
 async function recordVerifyFailure(ctx, reason) {
   let bucket = "unknown";

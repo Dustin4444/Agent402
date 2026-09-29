@@ -214,6 +214,12 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
 // gemini-3.5-flash-lite (priced like the model it replaces). Both were
 // live-verified to answer with no hidden reasoning at a 64-token budget.
 //
+// 2026-09-29: inception/mercury-2.5 is the third fast-band link (one endpoint,
+// 260k context). Live calls: at effort "low" (what the budget tiers inject) it
+// reasoned ~260 tokens and then answered at a 768-token budget in under a
+// second; at a 64-token budget it spent the budget reasoning, which the chain
+// walks past (isEmptyLength), never a paid empty answer.
+//
 // 2026-09-24: openai/gpt-6-luna leads the fast band. A live call at a
 // 64-token budget with reasoning effort "low" (what the auto tier injects)
 // answered in one sentence with zero reasoning tokens and finish "stop".
@@ -221,10 +227,10 @@ export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
   // fast — cheapest/snappiest serving; right for high-frequency loop turns.
   fast: {
-    code: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    long: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // balanced — the default band. deepseek-chat keeps the code head (proven,
   // cheap); gpt-5.6-luna leads the rest (1M ctx covers `long` natively).
@@ -310,8 +316,9 @@ export const TIERS = {
       "openai/gpt-6-luna",
       // gemini-2.0-flash-lite was removed here 2026-08-04: the model is gone
       // from OpenRouter entirely (verified against the live models list).
-      "google/gemini-2.5-flash-lite", // expires upstream 2026-10-20; ranked/default uses moved to 3.1-flash-lite
+      // gemini-2.5-flash-lite left 2026-09-29 (upstream expiration 2026-10-20): refused by name in RETIRING_MODELS.
       "google/gemini-3.1-flash-lite", // inside this tier's max_price
+      "inception/mercury-2.5", // 2026-09-29, fast-band link; exact id only
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
       // ministral-3b/8b were renamed upstream to the -2512 ids (the bare ids
       // 404 at OpenRouter; live-verified 2026-08-19). Listed with the live id so
@@ -345,8 +352,8 @@ export const TIERS = {
       // claude-3-haiku followed on 2026-09-26 (the live model-id guard failed on it).
       "anthropic/claude-haiku",
       // gemini-flash (bare) and gemini-2.0-flash left OpenRouter (live-verified
-      // 2026-08-19, scripts/test-gateway-model-ids.js); 2.5 + 3.x remain.
-      "google/gemini-2.5-flash",
+      // 2026-08-19, scripts/test-gateway-model-ids.js); gemini-2.5-flash left
+      // 2026-09-29 ahead of its 2026-10-20 upstream expiration (RETIRING_MODELS).
       "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite",
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
       // Meta's Muse models. Glimmer 30B (live 2026-09-23): reasoning mandatory (see REASONING_MODELS). The "-contributor" listings
@@ -388,7 +395,8 @@ export const TIERS = {
       "openai/gpt-4o", "openai/gpt-4.1",
       // claude-sonnet prefix covers claude-sonnet-5 — see MODEL_COST below.
       "anthropic/claude-sonnet", // covers claude-sonnet-4.x and -5; 3.5/3.7-sonnet left OpenRouter (2026-08-19)
-      "google/gemini-2.5-pro", // bare gemini-pro left OpenRouter (2026-08-19)
+      // bare gemini-pro left OpenRouter 2026-08-19; gemini-2.5-pro left 2026-09-29
+      // ahead of its 2026-10-20 upstream expiration (RETIRING_MODELS).
       "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
       "x-ai/grok",
       // gpt-6-sol (live 2026-09-24): fits this tier's bound at its dearest
@@ -689,6 +697,12 @@ export function tierPriceLabel(price) {
  *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
   "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
+  // Gemini 2.5 (OpenRouter expiration_date 2026-10-20). Their family prefixes
+  // left the tiers 2026-09-29; these entries turn a caller naming one into a
+  // 400 that names a live successor on a tier we serve, not an upstream failure.
+  "google/gemini-2.5-flash-lite": { until: "2026-10-20", use: "google/gemini-3.1-flash-lite" },
+  "google/gemini-2.5-flash": { until: "2026-10-20", use: "google/gemini-3.5-flash-lite" },
+  "google/gemini-2.5-pro": { until: "2026-10-20", use: "google/gemini-3.1-pro-preview" },
 });
 export function retiringModel(model) {
   const id = canonicalModelRaw(model).toLowerCase().split(":")[0];
@@ -734,9 +748,18 @@ export function isFlatTier(slug) {
  *  (a flat tier) does not allow `model` but another flat tier does; null when
  *  the route serves the model itself, the model has no flat home, or the model
  *  id carries a variant every tier refuses (it is answered by the 400). */
+// `model: "auto"` on a flat route (2026-09-29: v1-chat answered 400 "Model
+// \"auto\" is not in the gateway allowlist" to real callers) is the auto tier's
+// own spelling for "route this for me", so it is priced and served as the auto
+// tier: the 402 quotes the auto price and the answer carries agent402_router.
+// Never the route tier's caps: the served config is the auto tier's, whatever
+// route the body arrived on.
+export const AUTO_MODEL = "auto";
+export const AUTO_TIER = "v1-chat-auto";
 export function crossTierHome(routeTier, model) {
   if (!isFlatTier(routeTier)) return null;
   const m = canonicalModel(model);
+  if (m === AUTO_MODEL && TIERS[AUTO_TIER]?.router === true) return AUTO_TIER;
   if (!m || tierAllows(routeTier, m)) return null;
   try { refuseCostVariants(m); } catch { return null; }
   const home = tierFor(m);
@@ -769,7 +792,7 @@ export function servedTierFor(routeTier, model, req) {
  *  dearer 402 on a cross-tier model, and a fixed number with no sentence beside
  *  it reads as a promise. ONE copy, read by both surfaces: a price sentence
  *  typed twice is a price sentence that drifts. */
-export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; the answer names it in agent402_tier. The live 402 is always the price.";
+export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; model \"auto\" is quoted and served as the auto tier. The answer names the tier in agent402_tier. The live 402 is always the price.";
 
 /** The additive `agent402_tier` field a cross-tier answer carries. */
 export function crossTierDisclosure(routeTier, servedTier) {
@@ -777,7 +800,9 @@ export function crossTierDisclosure(routeTier, servedTier) {
     route: TIERS[routeTier].route.split(" ")[1],
     served: servedTier,
     priceUsd: TIERS[servedTier].price,
-    note: `The model you named is served by the ${servedTier} tier, so this call was priced and served as that tier.`,
+    note: servedTier === AUTO_TIER
+      ? `Model "auto" is routed by the ${servedTier} tier, so this call was priced and served as that tier.`
+      : `The model you named is served by the ${servedTier} tier, so this call was priced and served as that tier.`,
   };
 }
 
@@ -884,12 +909,12 @@ export const MODEL_COST = [
   // claude-sonnet covers claude-sonnet-5 (standard price confirmed against
   // Anthropic's own release notes 2026-08-10).
   ["anthropic/claude-sonnet-4", { prompt: 3.3, completion: 16.5 }], // live 2026-09-18
+  ["anthropic/claude-sonnet-5.5", { prompt: 2.2, completion: 11 }], // 2026-09-29
   ["anthropic/claude-sonnet", { prompt: 2.2, completion: 11 }], // live 2026-09-18
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-haiku-4.5", { prompt: 1.1, completion: 5.5 }], // live 2026-09-18
   ["anthropic/claude", { prompt: 1, completion: 5 }],
-  ["google/gemini-2.5-pro", { prompt: 1.25, completion: 10 }], // live 2026-08-28
   ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
   // gemini-3.x — explicit entries: the bare "google/gemini" flash-family rate
   // would underestimate them (live 2026-08-04).
@@ -897,6 +922,7 @@ export const MODEL_COST = [
   ["google/gemini-3.5-flash", { prompt: 2, completion: 10 }],
   ["google/gemini-3.6-flash", { prompt: 0.825, completion: 4.125 }], // live endpoints 2026-09-18
   ["google/gemini-3.1-flash-lite", { prompt: 0.4, completion: 2 }],
+  ["inception/mercury-2.5", { prompt: 0.04, completion: 0.15 }], // one live endpoint, 2026-09-29
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }],
   ["x-ai/grok", { prompt: 2.2, completion: 6.6 }], // live endpoints 2026-09-18
@@ -1524,6 +1550,11 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   // API (24h window), not a chat completion this path can serve.
   refuseCostVariants(model);
   if (!tierAllows(tierSlug, model)) {
+    // "auto" reaches here only when the request was not gated at the auto
+    // price (no request, or FREE_MODE): name the route that serves it.
+    if (model === AUTO_MODEL && TIERS[AUTO_TIER]) {
+      throw bad(`Model "auto" is routed by the ${AUTO_TIER} tier - call ${TIERS[AUTO_TIER].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[AUTO_TIER].price)}/call), or send the body here and pay the auto price the 402 quotes.`);
+    }
     const home = tierFor(model);
     throw bad(
       home
@@ -1711,7 +1742,6 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 // of burning a failed attempt per call. (The images route left this table on
 // 2026-09-24 with its Gemini model.) OPENROUTER_FLEX=off is the escape hatch.
 export const FLEX_MODELS = [
-  "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
   "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
   // Both carry an "openai/flex" endpoint tag (live endpoints 2026-09-24).
@@ -1854,6 +1884,11 @@ export const REASONING_MODELS = [
   { id: "google/gemini-3.5-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // Claude Sonnet 5.5 (pro, via the claude-sonnet prefix): reasoning MANDATORY,
+  // default effort high (live catalog 2026-09-29); pro injects "low".
+  { id: "anthropic/claude-sonnet-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // Mercury 2.5: reasoning default-on at medium, "none" supported (live 2026-09-29).
+  { id: "inception/mercury-2.5", efforts: ["none", "low", "medium", "high"] },
   { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
   // Claude Opus 5.5: reasoning MANDATORY, default effort high (live catalog
   // 2026-09-24). Same treatment as opus-5: premium leaves the model default,

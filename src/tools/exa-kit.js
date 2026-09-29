@@ -86,6 +86,7 @@ function requireKey() {
 // exactly like the other spend guards, and the prepaid balance is the outer
 // bound.
 const EXA_SEARCH_USD = 0.007;   // per request, <= 10 results
+const EXA_INSTANT_USD = 0.004;  // per request, type "instant", <= 10 results
 const EXA_ANSWER_USD = 0.005;   // per request
 const EXA_CONTENT_USD = 0.001;  // per page, per content type
 const EXA_DAILY_MAX_USD = () => { const n = Number(process.env.EXA_DAILY_MAX_USD); return Number.isFinite(n) && n >= 0 ? n : 1; };
@@ -120,7 +121,8 @@ export function estimateExaUsd(path, body = {}) {
     const n = Math.max(1, Number(body.numResults) || MAX_RESULTS);
     // Content types requested alongside a search bill per returned page.
     const types = ["text", "highlights", "summary"].filter((k) => body?.contents?.[k]).length;
-    return EXA_SEARCH_USD + n * types * EXA_CONTENT_USD;
+    const base = path === "/search" && body?.type === "instant" ? EXA_INSTANT_USD : EXA_SEARCH_USD;
+    return base + n * types * EXA_CONTENT_USD;
   }
   if (path === "/answer") return EXA_ANSWER_USD;
   if (path === "/contents") {
@@ -326,7 +328,7 @@ export const EXA_TOOLS = [
         properties: {
           query: { type: "string", description: "What to search for, in natural language (max 1000 chars)." },
           numResults: { type: "number", description: `Results to return, 1 to ${MAX_RESULTS} (default ${MAX_RESULTS}).` },
-          type: { type: "string", description: "auto (default), neural, or keyword." },
+          type: { type: "string", description: "auto (default), neural, keyword, fast, or instant (lowest latency, some depth traded for speed)." },
           category: { type: "string", description: `Optional Exa category filter: ${EXA_CATEGORIES.join(", ")} ("research paper" is accepted as an alias of "publication"; Exa retired pdf, github and tweet on 2026-07-23 and they are refused with this list).` },
           includeDomains: { type: "array", description: "Only return results from these domains." },
           excludeDomains: { type: "array", description: "Never return results from these domains." },
@@ -352,7 +354,7 @@ export const EXA_TOOLS = [
       const body = { query, numResults };
       if (i.type !== undefined && i.type !== null && i.type !== "") {
         const t = String(i.type);
-        if (!["auto", "neural", "keyword", "fast"].includes(t)) throw bad('"type" must be auto, neural, keyword or fast');
+        if (!["auto", "neural", "keyword", "fast", "instant"].includes(t)) throw bad('"type" must be auto, neural, keyword, fast or instant');
         body.type = t;
       }
       const category = takeCategory(i.category);

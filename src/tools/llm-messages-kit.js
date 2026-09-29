@@ -30,7 +30,7 @@
 import { createHash } from "node:crypto";
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor,
-  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure,
+  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure, AUTO_MODEL, AUTO_TIER,
   clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   refuseCostVariants, checkBlockCacheControl, meteredQuoteForProbe, costFor,
@@ -160,7 +160,8 @@ export function validateMessagesRequest(input, tierSlug) {
     if (!model && tier.defaultModel) { model = tier.defaultModel; defaultedModel = model; }
     if (!model) throw bad(`"model" is required (e.g. anthropic/claude-sonnet-5). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
-      const home = tierFor(model);
+      // "auto" when not gated at the auto price: name the auto route.
+      const home = model === AUTO_MODEL ? AUTO_TIER : tierFor(model);
       // Not every chat tier has a Messages twin (MESSAGES_PATH_BY_TIER is an
       // explicit map, not a derivation) - a tier added to TIERS alone would
       // otherwise be advertised here at a path that does not exist. Point at

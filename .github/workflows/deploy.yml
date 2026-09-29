@@ -1516,6 +1516,8 @@ jobs:
           t node scripts/test-query-terms.js
           # Revenue ledger unit tests (all-time external accounting, idempotent rescans, CI self-gate)
           t node scripts/test-revenue-ledger.js
+          t node scripts/test-block-clock.js
+          t node scripts/test-payai-credit-watch.js
           t node scripts/test-revenue-fresh-recent.js
           # Settle-fallback chain (Solvador first on its advertised networks -> PayAI -> Solvador last resort; double-settle gate between fallbacks - offline)
           t node scripts/test-settle-fallback.js
@@ -2257,6 +2259,7 @@ jobs:
           t node scripts/test-manifest-resources-dedup.js
           # AVM validity guard (short-window Algorand payment rejected pre-handler, no upstream burn — offline)
           t node scripts/test-avm-validity.js
+          t node scripts/test-image-gen-kit.js
           # Leaderboard chain config (right token on the right rail; testnets excluded — offline)
           t node scripts/test-leaderboard-chains.js
           # Discovery strict-source filters (testnet + junk origins)
@@ -2490,6 +2493,8 @@ jobs:
           t node scripts/test-svm-clarify.js
           # Refund ledger + planner (idempotent debts, evidence-gated resolution, caps, canary excluded, no silent chain drops — offline)
           t node scripts/test-refund-ledger.js
+          # Refund lookup (exact tx only, unknown == no refund, no payer leak, own rows on my-usage, rate limited - boots its own server)
+          t node scripts/test-refund-lookup.js
           # Daily MPP reconciliation (every mismatch category, unknown never ok, idempotent reruns, words-only public status, operator-only routes — offline)
           t node scripts/test-mpp-reconcile.js
           # Refund pre-send proof (same payer, our payTo, enough value, on a transaction that actually succeeded — offline)

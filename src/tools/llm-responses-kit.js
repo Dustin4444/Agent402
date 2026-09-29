@@ -25,7 +25,7 @@
 // neither max_output_tokens nor provider.max_price. Function tools only.
 import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor, meteredQuoteForProbe, costFor,
-  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure,
+  isFlatTier, flatTierQuoteUsd, servedTierFor, crossTierDisclosure, AUTO_MODEL, AUTO_TIER,
   clampToMargin, attemptsFor, serviceTierFor, validateServiceTier, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   defaultReasoningFor, validateReasoning,
@@ -113,7 +113,8 @@ export function validateResponsesRequest(input, tierSlug) {
     if (!model && tier.defaultModel) { model = tier.defaultModel; defaultedModel = model; } // see llm-messages-kit: serve the tier default, never refuse a missing model
     if (!model) throw bad(`"model" is required (e.g. openai/gpt-4o-mini). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
-      const home = tierFor(model);
+      // "auto" when not gated at the auto price: name the auto route.
+      const home = model === AUTO_MODEL ? AUTO_TIER : tierFor(model);
       // RESPONSES_PATH_BY_TIER is an explicit map: a chat tier with no
       // Responses twin would render as "served on undefined". Fall back to
       // that tier's real chat route.

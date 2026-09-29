@@ -8,7 +8,7 @@
 // access itself, so the remaining question is redistribution scope rather
 // than whether we may read the data at all.
 //
-// DBEQ.BASIC is a four-venue consolidation (NYSE Chicago, NYSE National,
+// DBEQ.BASIC is a four-venue consolidation (NYSE Texas, NYSE National,
 // IEX, MIAX Pearl), not the consolidated tape. Prices track the wider market
 // closely; VOLUME DOES NOT, because it counts only those venues. Every tool
 // here says so in its own output rather than letting a partial figure read as
@@ -17,7 +17,7 @@ import { assertPublicUrl } from "./fetch-guard.js";
 
 const HOST = "https://hist.databento.com/v0";
 export const DATASET = "DBEQ.BASIC";
-export const VENUES = "NYSE Chicago, NYSE National, IEX, MIAX Pearl";
+export const VENUES = "NYSE Texas (formerly NYSE Chicago), NYSE National, IEX, MIAX Pearl";
 // Databento prices are fixed-point integers scaled by 1e9.
 const PX = 1e-9;
 // A query is priced by uncompressed bytes. Nothing we issue should cost more

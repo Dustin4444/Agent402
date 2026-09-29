@@ -93,7 +93,7 @@ ok(out.content[0].text === "Hi there!" && out.usage.input_tokens === 22 && !("co
 }
 // nano price-sorts; auto discloses the router
 seen = [];
-await bySlug("v1-chat-nano-messages").handler({ model: "google/gemini-2.5-flash-lite", max_tokens: 32, messages: msg() }, fakeReq);
+await bySlug("v1-chat-nano-messages").handler({ model: "google/gemini-3.1-flash-lite", max_tokens: 32, messages: msg() }, fakeReq);
 ok(seen[0].b.provider?.sort === "price" && seen[0].b.service_tier === "flex", "nano: price sort + flex-first attempt on a flex-eligible model");
 seen = [];
 const autoOut = await bySlug("v1-chat-auto-messages").handler({ max_tokens: 32, messages: msg("hello") }, fakeReq);
@@ -103,15 +103,15 @@ ok(autoOut.agent402_router?.category === "general" && typeof autoOut.agent402_ro
 const nanoTool = bySlug("v1-chat-nano-messages");
 seen = [];
 globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b.model + (b.service_tier ? ":flex" : "")); if (seen.length === 1) return { ok: false, status: 503, text: async () => "busy" }; return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model)) }; };
-const fo = await nanoTool.handler({ model: "google/gemini-2.5-flash-lite", max_tokens: 64, messages: msg() }, fakeReq);
-ok(fo.content[0].text === "Hi there!" && seen.join(",") === "google/gemini-2.5-flash-lite:flex,google/gemini-2.5-flash-lite", `upstream 503 on flex walks to the same model on default (${seen.join(" -> ")})`);
+const fo = await nanoTool.handler({ model: "google/gemini-3.1-flash-lite", max_tokens: 64, messages: msg() }, fakeReq);
+ok(fo.content[0].text === "Hi there!" && seen.join(",") === "google/gemini-3.1-flash-lite:flex,google/gemini-3.1-flash-lite", `upstream 503 on flex walks to the same model on default (${seen.join(" -> ")})`);
 // paid-empty guard: max_tokens + no content walks on (same model's default retry skipped); chain exhausted -> 502
 seen = [];
-globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b.model); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, b.model === "google/gemini-2.5-flash-lite" ? { stop_reason: "max_tokens", content: [{ type: "thinking", thinking: "hmm" }] } : {})) }; };
-const pe = await nanoTool.handler({ model: "google/gemini-2.5-flash-lite", max_tokens: 64, messages: msg() }, fakeReq);
-ok(pe.content[0].text === "Hi there!" && seen.join(",") === "google/gemini-2.5-flash-lite,deepseek/deepseek-chat", `a max_tokens answer with nothing said is never served: chain walked on, same model's default retry skipped (${seen.join(" -> ")})`);
+globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b.model); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, b.model === "google/gemini-3.1-flash-lite" ? { stop_reason: "max_tokens", content: [{ type: "thinking", thinking: "hmm" }] } : {})) }; };
+const pe = await nanoTool.handler({ model: "google/gemini-3.1-flash-lite", max_tokens: 64, messages: msg() }, fakeReq);
+ok(pe.content[0].text === "Hi there!" && seen.join(",") === "google/gemini-3.1-flash-lite,deepseek/deepseek-chat", `a max_tokens answer with nothing said is never served: chain walked on, same model's default retry skipped (${seen.join(" -> ")})`);
 globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, { stop_reason: "max_tokens", content: [] })) }; };
-await nanoTool.handler({ model: "google/gemini-2.5-flash-lite", max_tokens: 64, messages: msg() }, fakeReq).then(() => ok(false, "end-to-end empty must not serve"), (e) => ok(e.statusCode === 502 && /thinking consumed it/.test(e.message), "chain empty end-to-end -> 502 (settlement cancelled)"));
+await nanoTool.handler({ model: "google/gemini-3.1-flash-lite", max_tokens: 64, messages: msg() }, fakeReq).then(() => ok(false, "end-to-end empty must not serve"), (e) => ok(e.statusCode === 502 && /thinking consumed it/.test(e.message), "chain empty end-to-end -> 502 (settlement cancelled)"));
 globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => "busy" });
 await proTool.handler({ model: "anthropic/claude-sonnet-5", max_tokens: 64, messages: msg() }, fakeReq).then(() => ok(false, "pro one-link 503 must not serve"), (e) => ok(e.statusCode === 502, "pro (no fallbacks): upstream 503 -> 502, settlement cancelled"));
 // 4xx upstream -> 502 passthrough message, not a chain walk into infinity
@@ -213,11 +213,11 @@ globalThis.fetch = realFetch;
     const probeSeen = validateMessagesRequest({ ...S, service_tier: "priority" }, pro).probe;
     ok(probeSeen.service_tier === "priority", "the clamp probe carries service_tier so the margin math prices the 2x rate");
     // Outbound: one call carrying service_tier "priority", no flex attempt even
-    // on a flex-eligible model (gemini-2.5-pro is in FLEX_MODELS).
+    // on a flex-eligible model (gemini-3.6-flash is in FLEX_MODELS).
     seen = [];
     globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, { usage: { input_tokens: 22, output_tokens: 7, cost: 0.000114, service_tier: "priority" } })) }; };
     process.env.OPENROUTER_API_KEY = "test-key";
-    const outP = await bySlug("v1-chat-pro-messages").handler({ model: "google/gemini-2.5-pro", max_tokens: 64, messages: msg(), speed: "fast" }, fakeReq);
+    const outP = await bySlug("v1-chat-pro-messages").handler({ model: "google/gemini-3.6-flash", max_tokens: 64, messages: msg(), speed: "fast" }, fakeReq);
     ok(seen.length === 1 && seen[0].service_tier === "priority" && seen[0].speed === undefined && outP.usage?.service_tier === "priority", 'pro messages: speed:"fast" rides upstream as ONE service_tier "priority" (no flex attempt, no speed field); the served tier is reported back');
   }
   const f1 = messagesFingerprint(pro, { ...S, effort: "low" }), f2 = messagesFingerprint(pro, { ...S, effort: "high" }), f0 = messagesFingerprint(pro, S);
@@ -307,6 +307,14 @@ delete process.env.OPENROUTER_API_KEY;
     pbmSeen = [];
     const same = await baseM.handler({ model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: msg() }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
+    // model "auto" (2026-09-29): quoted and served as the auto tier on this wire
+    ok(baseM.tierQuote({ model: "auto", max_tokens: 10, messages: msg() }) === T["v1-chat-auto"].price && bySlug("v1-chat-premium-messages").tierQuote({ model: "auto", max_tokens: 10, messages: msg() }) === T["v1-chat-auto"].price, "model \"auto\" quotes the auto price on flat Messages routes");
+    pbmSeen = [];
+    const au = await bySlug("v1-chat-premium-messages").handler({ model: "auto", max_tokens: 6000, messages: msg() }, reqAt(T["v1-chat-auto"].price));
+    ok(pbmSeen[0]?.max_tokens <= T["v1-chat-auto"].maxTokens && au.agent402_router?.quality === "balanced" && au.agent402_tier?.served === "v1-chat-auto" && au.agent402_tier?.route === "/v1/premium/messages", `auto body served under auto caps with agent402_router (${pbmSeen[0]?.model}, max_tokens ${pbmSeen[0]?.max_tokens})`);
+    pbmSeen = [];
+    let ae = null; try { await baseM.handler({ model: "auto", max_tokens: 10, messages: msg() }, undefined); } catch (x) { ae = x; }
+    ok(ae?.statusCode === 400 && /\/v1\/auto\/messages/.test(ae.message) && pbmSeen.length === 0, "not gated at the auto price: 400 naming /v1/auto/messages, nothing sent upstream");
   } finally { globalThis.fetch = pbmReal; }
 }
 

@@ -269,5 +269,24 @@ export function refundsCreatedBetween(sinceMs, untilMs = Date.now(), { limit = 5
   try { return selectCreatedBetween.all(Number(sinceMs) || 0, Number(untilMs) || Date.now(), limit); } catch { return []; }
 }
 
+// A payer's OWN rows, for identity-bound surfaces only (my-usage, the weekly
+// digest): the caller has already proved the address. EVM addresses match
+// case-insensitively (hex); every other address matches exactly, because
+// base58/base32 rails are case-sensitive and must never be folded.
+const selectForPayerExact = db.prepare(
+  "SELECT evidence, network, priceUsd, status, paidTx, createdAt, resolvedAt FROM refunds WHERE payer = ? ORDER BY id DESC LIMIT ?"
+);
+const selectForPayerEvm = db.prepare(
+  "SELECT evidence, network, priceUsd, status, paidTx, createdAt, resolvedAt FROM refunds WHERE lower(payer) = ? ORDER BY id DESC LIMIT ?"
+);
+export function refundsForPayer(payer, { limit = 50 } = {}) {
+  const p = typeof payer === "string" ? payer.trim() : "";
+  if (!p) return [];
+  const n = Math.max(1, Math.min(500, Number(limit) || 50));
+  try {
+    return /^0x[0-9a-fA-F]{40}$/.test(p) ? selectForPayerEvm.all(p.toLowerCase(), n) : selectForPayerExact.all(p, n);
+  } catch { return []; }
+}
+
 /** Test seam. */
 export function __resetRefunds() { db.exec("DELETE FROM refunds"); }
