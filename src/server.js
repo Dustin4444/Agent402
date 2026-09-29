@@ -292,6 +292,7 @@ import { probeDomain as faProbeDomain } from "./tools/domain-audit-kit.js";
 import { probeRecalls as faProbeRecalls } from "./tools/recall-report-kit.js";
 import { sendEmail as faSendEmail } from "./email.js";
 import { marketsPage } from "./markets.js";
+import { decidePage } from "./decide-page.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
@@ -503,7 +504,7 @@ import { workflowsPage } from "./workflows.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact, esc as escHtml } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider, setDecideLive, ledgerShell, ledgerFooterCompact, esc as escHtml } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -3241,6 +3242,10 @@ app.get("/api/reports/sample/:product", (req, res) => {
 });
 // /markets - one-call front door for the keyless market-data tools (prices read from CATALOG).
 app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
+// /decide - the Agent402 Decide page, served only while the decide tools are
+// in the catalog (the chrome's nav item and homepage door follow the same flag).
+setDecideLive(Boolean(CATALOG["POST /api/decide"]));
+app.get("/decide", (req, res, next) => (CATALOG["POST /api/decide"] ? htmlCache(res, 300, 900).send(decidePage(BASE_URL, CATALOG)) : next()));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
 // Refund lookup (free, src/refund-lookup.js): anyone holding a settlement tx

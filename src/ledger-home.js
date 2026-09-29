@@ -3,7 +3,8 @@
 // transcript, real PoW demo, sell block, index/leaderboard, lane-level
 // demand teaser, FAQ, closing CTA, footer.
 
-import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc, decideLive } from "./ledger-chrome.js";
+import { decideConfig } from "./decide/config.js";
 import { toolList } from "./pages.js";
 import { isComputePayable } from "./pow.js";
 import { RAILS } from "./rails.js";
@@ -120,6 +121,27 @@ const CAPABILITY_CHIPS = [
 ];
 
 
+// Third door: Agent402 Decide, a band under the two doors. Rendered only when
+// the decide tools are live (the chrome flag the server sets at boot); every
+// figure is read from the decide config.
+function decideDoorHtml() {
+  const c = decideConfig();
+  const usd = (n) => `$${Number(n).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return `<div class="hm-milled hm-decide" style="margin-top:20px;padding:28px 32px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px;align-items:center;">
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-family:var(--font-mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);">Agent402 Decide</div>
+      <h2 class="hm-h2" style="font-size:30px;margin:0;">Describe the job. Get the plan.</h2>
+      <p class="hm-lede" style="margin:0;font-size:15.5px;">One call returns which tools to use, in what order, with fallbacks and params that validate, across this catalog and indexed x402 and MPP sellers. Every seller is scored by the same formula. ${esc(usd(c.prices.quick))} to ${esc(usd(c.prices.full))} a decision, returned as credit when Agent402 runs the plan.</p>
+      <a href="/decide" style="font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">See how it decides →</a>
+    </div>
+    <div style="font-family:var(--font-mono);display:flex;flex-direction:column;border:1px solid var(--hairline);background:var(--card);font-size:12.5px;">
+      <a href="/decide" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid var(--hairline);text-decoration:none;color:var(--ink);"><span>POST /api/decide</span><span style="color:var(--accent);">from ${esc(usd(c.prices.quick))}</span></a>
+      <a href="/decide#connect" style="display:flex;justify-content:space-between;padding:11px 16px;border-bottom:1px solid var(--hairline);text-decoration:none;color:var(--ink);"><span>POST /api/decide/execute</span><span style="color:var(--accent);">credit applies</span></a>
+      <a href="/decide#connect" style="display:flex;justify-content:space-between;padding:11px 16px;text-decoration:none;color:var(--ink);"><span>POST /api/decide/feedback</span><span style="color:var(--accent);">free</span></a>
+    </div>
+  </div>`;
+}
+
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { settledOnChain = 0 } = {}) {
   const tools = toolList(catalog);
   const count = tools.length;
@@ -192,7 +214,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 .hm-row { display: grid; grid-template-columns: 170px 1fr 200px; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--hairline); align-items: baseline; }
 .hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: var(--chip-bg); text-decoration: none; }
 .hm-term { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.8; color: var(--on-dark2); white-space: pre-wrap; word-break: break-word; margin: 0; }
-@media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof, .hm-why { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
+@media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors, .hm-decide { grid-template-columns: minmax(0,1fr) !important; } .hm-proof, .hm-why { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
 @media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof, .hm-why { grid-template-columns: 1fr !important; } }
 #hm-demo-in { border: 1px solid var(--dash); border-radius: 10px; }
 #hm-demo-in:focus { border-color: var(--accent); outline: none; }
@@ -307,6 +329,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="display:flex;gap:18px;font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted);flex-wrap:wrap;"><span title="POST-only JSON-RPC endpoint - not a browsable page">/mcp</span><a href="/api/pricing" style="color:var(--dk-muted);text-decoration:none;">/api/pricing</a><a href="/playground" style="color:var(--dk-muted);text-decoration:none;">playground · free</a></div>
     </div>
   </div>
+  ${decideLive() ? decideDoorHtml() : ""}
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:36px 30px 0;">
