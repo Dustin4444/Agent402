@@ -27,6 +27,7 @@ import {
 } from "./revenue-live.js";
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
 import { externalTempoPayments } from "./sales-ledger.js";
+import { createBlockClock, rpcHeaderReader, dateFromAnchors } from "./block-clock.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DB_PATH = process.env.REVENUE_LEDGER_DB || join(HAS_DATA_DIR ? "/data" : "/tmp", "agent402-revenue.db");
@@ -149,17 +150,57 @@ function reclassifyAll() {
 }
 reclassifyAll();
 
+/**
+ * Dates a row that carries no timestamp (rows recorded before syncEvmChain
+ * stored one, or whose block lookup failed). It interpolates between the
+ * chain's own DATED rows on either side, and steps from the nearest one at the
+ * chain's table rate only past the ends. Anchoring on the chain's own
+ * timestamps is what keeps a legacy row's date right after a block-time
+ * change: the old method stepped back from the cursor head at a fixed 2 s per
+ * block, which after Base's move to 200 ms blocks would file every legacy row
+ * days too early. The cursor (when caught up) is one more anchor. Returns a
+ * function block -> ms | null; the anchors are read lazily, once.
+ */
+export function undatedRowDater(chain, wallet, { anchorsFor = datedAnchors } = {}) {
+  let anchors = null;
+  return (block) => {
+    if (block == null) return null;
+    if (!anchors) anchors = anchorsFor(chain, wallet);
+    return dateFromAnchors(Number(block), anchors, BLOCK_MS[chain] || 2000);
+  };
+}
+function datedAnchors(chain, wallet) {
+  const pts = db.prepare("SELECT block, MIN(when_ts) AS ts FROM transfers WHERE chain = ? AND when_ts IS NOT NULL AND block IS NOT NULL GROUP BY block ORDER BY block").all(chain)
+    .map((r) => [Number(r.block), Number(r.ts) * 1000]);
+  const cur = getCursor.get(chain, wallet);
+  if (cur?.caught_up && cur.next_block != null && cur.updated_ts && (!pts.length || cur.next_block > pts[pts.length - 1][0])) {
+    pts.push([Number(cur.next_block), cur.updated_ts * 1000]);
+  }
+  return pts;
+}
+
 /** Record one transfer (idempotent — the PK dedupes replays/rescans). */
 export function recordTransfer(row) {
   upsertTransfer.run({ when_ts: null, payer: null, ...row, external: row.external ? 1 : 0 });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const startBlockFor = (chain, head) => {
+/** Where a NEW cursor starts: the first block at or after the ledger epoch,
+ *  found by block timestamp (src/block-clock.js). A block count at an assumed
+ *  rate starts too late once a chain's blocks get faster (Base Denim: 2 s to
+ *  200 ms), silently skipping the oldest revenue; the timestamp search is right
+ *  either side of that change. Falls back to the rate estimate when no header
+ *  can be read. `getHeader` is injectable for tests. */
+export async function startBlockFor(chain, head, { getHeader = null, epochMs = LEDGER_EPOCH_MS } = {}) {
   const env = parseInt(process.env[`REVENUE_LEDGER_FROM_${chain.toUpperCase()}`] || "", 10);
   if (Number.isFinite(env)) return Math.max(0, env);
-  return Math.max(0, head - Math.ceil((Date.now() - LEDGER_EPOCH_MS) / (BLOCK_MS[chain] || 2000)));
-};
+  const estimate = Math.max(0, head - Math.ceil((Date.now() - epochMs) / (BLOCK_MS[chain] || 2000)));
+  try {
+    const reader = getHeader || rpcHeaderReader((m, p) => rpcCall(EVM[chain].rpcs, m, p, 6000));
+    const at = await createBlockClock(reader, { fallbackMsPerBlock: BLOCK_MS[chain] || 2000 }).blockAtOrAfter(Math.floor(epochMs / 1000), { headNumber: head });
+    return at.source === "chain" ? at.block : Math.min(estimate, at.block);
+  } catch { return estimate; }
+}
 
 /** getLogs window for one chain's ledger sync. Chains whose RPCs enforce a
  *  tighter range declare chunkBlocks (Sei: 1,900) — both other scanners
@@ -245,7 +286,7 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   const c = EVM[chain];
   const head = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", [], 6000), 16);
   const cur = getCursor.get(chain, wallet);
-  let next = cur?.next_block ?? startBlockFor(chain, head);
+  let next = cur?.next_block ?? await startBlockFor(chain, head);
   // Capped at 9,000 blocks like the other two scanners (revenue-scan.js and
   // the live view's recentInbound) — Alchemy rejects getLogs ranges over 10k
   // on some chains (Robinhood, verified 2026-07-08). Without the cap, any
@@ -764,14 +805,11 @@ export function ledgerDaily(wallets, mppTx = null, { withScope = false } = {}) {
   const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;
-    const cur = getCursor.get(chain, wallet);
-    const anchorBlock = cur?.next_block ?? null;
-    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
-    const cadence = BLOCK_MS[chain] || 2000;
+    const dateOf = undatedRowDater(chain, wallet);
     for (const t of rows.all(chain, wallet)) {
       if (t.chain !== chain) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
-      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) ms = dateOf(t.block);
       if (ms == null) { droppedUndateable++; continue; } // undateable row — skip rather than guess
       const day = new Date(ms).toISOString().slice(0, 10);
       const key = `${day}|${chain}`;
@@ -945,14 +983,11 @@ function readExternalPaymentEvents(wallets) {
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE chain = ? AND wallet = ?");
   for (const [chain, wallet] of walletPairs(wallets)) {
     if (!wallet) continue;
-    const cur = getCursor.get(chain, wallet);
-    const anchorBlock = cur?.next_block ?? null;
-    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
-    const cadence = BLOCK_MS[chain] || 2000;
+    const dateOf = undatedRowDater(chain, wallet);
     for (const t of rows.all(chain, wallet)) {
       if (t.chain !== chain || !t.external) continue;
       let ms = t.when_ts ? t.when_ts * 1000 : null;
-      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) ms = dateOf(t.block);
       if (ms == null) continue;
       out.push({ day: new Date(ms).toISOString().slice(0, 10), payer: buyerKey(t.payer || null) });
     }

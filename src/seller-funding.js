@@ -194,10 +194,14 @@ export const FUNDING_DEFAULTS = {
   // How long a wallet stays "circular" for the Bazaar's sake after the last
   // scan that found it so: the Bazaar counts a 30-day window.
   circularWindowMs: 30 * 86_400_000,
-  // The same 30 days in Base blocks (2 s each): the window the netted counts
-  // that third-party figures are reduced by cover.
+  // The same 30 days in Base blocks at 2 s each: the window the netted counts
+  // that third-party figures are reduced by cover. The leaderboard scan
+  // replaces this and the two TTLs below with counts read from block
+  // timestamps (fundingWindowBlocks in src/leaderboard.js), so they stay 30
+  // and 45 days when the block time changes; these are the floors it keeps.
   bazaarWindowBlocks: 1_296_000,
-  // One day of Base blocks: the netted-count bucket.
+  // The netted-count bucket: a fixed block granularity (a day at 2 s). It keys
+  // persisted state, so it stays fixed; only the windows above are measured.
   bucketBlocks: 43_200,
   // A known payer with no pool, no credit and no payment for this many blocks
   // is forgotten (45 days: longer than the 30-day count, so no payer inside it

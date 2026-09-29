@@ -36,16 +36,30 @@ import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chr
 import { applyMetaTrims } from "./seo-meta.js";
 
 import { REPO_URL } from "./repo-link.js";
-// Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
-// wider window surfaces sellers with bursty (vs. constant) traffic — without
-// it, any seller below ~9 calls/sec averaged over a day shows $0 even when
-// their lifetime revenue is real. The scan folds transfers incrementally
+import { createBlockClock, rpcHeaderReader } from "./block-clock.js";
+// The board's window is a span of TIME (24h by default, 7d in production),
+// and the scan finds the block where it starts by BLOCK TIMESTAMP
+// (src/block-clock.js). It used to be a block count at an assumed 2 s per Base
+// block (24h = 43,200, 7d = 302,400); Base's Denim upgrade moves blocks to
+// 200 ms on a date not known in advance, and that count would have become a
+// 17-hour board with nothing failing. A wider window surfaces sellers with
+// bursty (vs. constant) traffic. The scan folds transfers incrementally
 // (see initWalletAccumulator/foldTransfers/finalizeLeaderboard below) so any
-// window is memory-bounded, but the default stays 24h — 7d re-enable is a
-// deliberate staged env flip (SPAN_BLOCKS=302400) after prod verification,
-// not a silent default. ?window= remains the hook for a future deep-cache
-// rollout (30d/all-time) that doesn't require widening this live scan further.
-const SECONDS_PER_BASE_BLOCK = 2;
+// window is memory-bounded.
+//
+// LEADERBOARD_WINDOW_SECONDS sets the window. The older SPAN_BLOCKS is still
+// honoured and read as blocks of the 2 s Base block time it was written
+// against (302400 -> 7d), so the production setting keeps its meaning across
+// the fork rather than silently shrinking with it.
+const LEGACY_SECONDS_PER_BLOCK = 2;
+function windowSecondsFromEnv(env = process.env) {
+  const s = parseInt(env.LEADERBOARD_WINDOW_SECONDS || "", 10);
+  if (Number.isFinite(s) && s > 0) return s;
+  const b = parseInt(env.SPAN_BLOCKS || "", 10);
+  if (Number.isFinite(b) && b > 0) return b * LEGACY_SECONDS_PER_BLOCK;
+  return 86_400;
+}
+export { windowSecondsFromEnv };
 const DEFAULT_BASE_RPCS = [
   "https://mainnet.base.org",
   "https://base-rpc.publicnode.com",
@@ -65,7 +79,8 @@ export const PAYER_BREADTH = { multiSellerMin: 3 };
 
 export const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
-  spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
+  // The window in seconds; the scan resolves its first block by timestamp.
+  windowSeconds: windowSecondsFromEnv(),
   // Free-tier Base RPCs cap eth_getLogs at 10,000 blocks per call; chunk a wide
   // window into ranges no larger than this so it still scans cleanly.
   chunkBlocks: parseInt(process.env.CHUNK_BLOCKS || "9000", 10),
@@ -856,13 +871,13 @@ export { FUNDING_DEFAULTS, posOf, circularWalletsFrom, readSellerFunding, readPa
  * walletEvidence, a fallback for the carried verdict when the state has none.
  * Mutates each row; returns byWallet.
  */
-export function applySellerFunding(byWallet, state, { latest, now = Date.now(), previous = null, circularWindowMs = FUNDING_DEFAULTS.circularWindowMs } = {}) {
+export function applySellerFunding(byWallet, state, { latest, now = Date.now(), previous = null, circularWindowMs = FUNDING_DEFAULTS.circularWindowMs, bazaarWindowBlocks = FUNDING_DEFAULTS.bazaarWindowBlocks } = {}) {
   for (const w of byWallet.values()) {
     const k = String(w.wallet).toLowerCase();
     const ws = state?.wallets?.get?.(k) || null;
     const carried = [ws?.lastCircularAt, previous && typeof previous === "object" ? previous[k]?.lastCircularAt : null].filter((x) => typeof x === "string").sort().pop() || null;
     if (!ws && !carried) continue;
-    w.funding = sellerFundingFigures(w, ws, { latest, now, carriedAt: carried, circularWindowMs });
+    w.funding = sellerFundingFigures(w, ws, { latest, now, carriedAt: carried, circularWindowMs, bazaarWindowBlocks: bazaarWindowBlocks ?? FUNDING_DEFAULTS.bazaarWindowBlocks });
     if (ws) ws.lastCircularAt = w.funding.lastCircularAt;
   }
   return byWallet;
@@ -930,14 +945,21 @@ function rpcHost(url) {
 
 // --- pipeline ---------------------------------------------------------------
 
-/** Render a block count as a human-friendly window label ("5h", "24h", "7d"). */
-export function windowLabelFromBlocks(blocks) {
-  const seconds = (Number(blocks) || 0) * SECONDS_PER_BASE_BLOCK;
+/** Render a window length in seconds as a label ("5h", "24h", "7d"). */
+export function windowLabelFromSeconds(secs) {
+  const seconds = Number(secs) || 0;
   if (seconds <= 0) return "-";
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const hours = seconds / 3600;
   if (hours < 48) return `${Math.round(hours)}h`;
   return `${Math.round(hours / 24)}d`;
+}
+
+/** Label for a snapshot persisted before windows were measured in time: its
+ *  block count was written at the 2 s Base block time. New snapshots carry
+ *  `windowSeconds` and never need this. */
+export function windowLabelFromBlocks(blocks) {
+  return windowLabelFromSeconds((Number(blocks) || 0) * LEGACY_SECONDS_PER_BLOCK);
 }
 
 /**
@@ -969,8 +991,9 @@ export function rankBy(board, sort = "usd") {
 const emptySnapshot = (opts, reason) => ({
   spec: "x402-leaderboard/1",
   asOf: new Date().toISOString(),
-  scannedBlocks: opts.spanBlocks,
-  windowLabel: windowLabelFromBlocks(opts.spanBlocks),
+  scannedBlocks: 0,
+  windowSeconds: opts.windowSeconds,
+  windowLabel: windowLabelFromSeconds(opts.windowSeconds),
   maxCallUsd: opts.maxCallUsd,
   priceMatchMaxUsd: opts.priceMatchMaxUsd,
   scannedSellers: 0,
@@ -979,6 +1002,53 @@ const emptySnapshot = (opts, reason) => ({
   scanSkipped: true,
   reason,
 });
+
+/**
+ * The block range a scan covers. The window is `opts.windowSeconds` of chain
+ * time ending at the head; its first block is the first whose timestamp is
+ * inside it, read from the chain (src/block-clock.js), so the range is right
+ * whatever the chain's block time is and across a change to it. A caller
+ * that pins `opts.spanBlocks` gets exactly that many blocks. When no header
+ * can be read the head still comes from eth_blockNumber and the start is
+ * estimated (`source` says which), so a flaky RPC narrows nothing silently.
+ */
+export async function resolveScanWindow(clock, opts, blockNumber) {
+  let head = null;
+  try { head = await clock.latest(); } catch { /* estimated below */ }
+  const latest = head ? head.number : parseInt(await blockNumber(), 16);
+  if (Number.isFinite(opts.spanBlocks) && opts.spanBlocks > 0) {
+    return { latest, start: Math.max(0, latest - opts.spanBlocks), spanBlocks: opts.spanBlocks, windowSeconds: opts.spanBlocks * LEGACY_SECONDS_PER_BLOCK, source: "pinned" };
+  }
+  const windowSeconds = Number(opts.windowSeconds) > 0 ? Number(opts.windowSeconds) : 86_400;
+  const nowSec = head ? head.timestamp : Math.floor((opts.now ?? Date.now()) / 1000);
+  const at = await clock.blockAtOrAfter(nowSec - windowSeconds, { headNumber: latest });
+  const start = Math.min(latest, at.block);
+  return { latest, start, spanBlocks: latest - start, windowSeconds, source: at.source, headTimestamp: head ? head.timestamp : null };
+}
+
+/**
+ * Block counts for the seller-funding state's time-based windows (the
+ * Bazaar's 30 days, the 30-day credit and 45-day known-payer TTLs), read from
+ * the chain the same way. The FUNDING_DEFAULTS constants are those windows at
+ * 2 s blocks; a count that could not be read from the chain is never allowed
+ * below them, because a narrower TTL prunes state that is still needed.
+ */
+export async function fundingWindowBlocks(clock, latest, nowSec) {
+  const d = 86_400;
+  const blocksBack = async (secs, floor) => {
+    try {
+      const at = await clock.blockAtOrAfter(nowSec - secs, { headNumber: latest });
+      const n = latest - at.block;
+      return at.source === "chain" ? n : Math.max(floor, n);
+    } catch { return floor; }
+  };
+  const month = await blocksBack(30 * d, FUNDING_DEFAULTS.bazaarWindowBlocks);
+  return {
+    bazaarWindowBlocks: month,
+    creditTtlBlocks: month,
+    knownTtlBlocks: await blocksBack(45 * d, FUNDING_DEFAULTS.knownTtlBlocks),
+  };
+}
 
 /**
  * Run the full pipeline once and return a snapshot. Pure data in / data out;
@@ -995,10 +1065,10 @@ export async function runLeaderboard(overrides = {}) {
   if (!chain) throw new Error(`leaderboard: no scan config for chain "${overrides.chain}"`);
   const opts = {
     ...DEFAULTS,
-    // The rail's own tuned span and RPC list win unless the caller is explicit,
-    // because a single SPAN_BLOCKS across chains is meaningless: identical
-    // block counts are 24h on Base and under 7h on Arbitrum.
-    spanBlocks: overrides.spanBlocks ?? (process.env.SPAN_BLOCKS ? DEFAULTS.spanBlocks : chain.spanBlocks),
+    // The rail's own RPC list wins unless the caller is explicit. The window
+    // is TIME, the same on every chain; its first block is found by
+    // timestamp below. A caller may still pin `spanBlocks` (tests, one-off
+    // scripts), which is then taken as given.
     rpcs: overrides.rpcs ?? chain.rpcs,
     ...overrides,
   };
@@ -1046,12 +1116,14 @@ export async function runLeaderboard(overrides = {}) {
   // 2. Query USDC transfers — chunk both the block range AND the wallet array,
   //    since free-tier RPCs limit each.
   const wallets = [...new Set(sellers.map((s) => s.wallet))];
-  onProgress(`[2/3] Scanning ${chain.label} USDC transfers (${opts.spanBlocks} blocks, ${wallets.length} wallets)…`);
-  const latest = parseInt(await rpcCall(opts.rpcs, "eth_blockNumber", []), 16);
+  const clock = createBlockClock(opts.getHeader || rpcHeaderReader((m, p) => rpcCall(opts.rpcs, m, p, { passes: 1 })), { fallbackMsPerBlock: 2000, maxCalls: 80 });
+  const win = await resolveScanWindow(clock, opts, () => rpcCall(opts.rpcs, "eth_blockNumber", []));
+  const latest = win.latest;
+  onProgress(`[2/3] Scanning ${chain.label} USDC transfers (${win.spanBlocks} blocks, ${windowLabelFromSeconds(win.windowSeconds)}${win.source === "chain" ? "" : `, start by ${win.source}`}, ${wallets.length} wallets)…`);
   const padded = wallets.map(pad);
   const walletChunks = [];
   for (let i = 0; i < padded.length; i += opts.walletChunk) walletChunks.push(padded.slice(i, i + opts.walletChunk));
-  const start = latest - opts.spanBlocks;
+  const start = win.start;
   const blockChunks = [];
   for (let from = start; from <= latest; from += opts.chunkBlocks) {
     blockChunks.push([from, Math.min(from + opts.chunkBlocks - 1, latest)]);
@@ -1117,6 +1189,7 @@ export async function runLeaderboard(overrides = {}) {
   // rows stay gross. Base only by default (the router's chain).
   let fundingScan = null;
   let fundingStateUsed = null;
+  let fundingWindows = null;
   const fundingOn = (opts.fundingScan ?? chain.key === "base") && sellerFundingEnabled();
   if (fundingOn) {
     const nowMs = opts.now ?? Date.now();
@@ -1176,7 +1249,8 @@ export async function runLeaderboard(overrides = {}) {
       };
       processSellerFunding(state, byWallet, { throughFor, windowStartBlock: start, gaps: gapRead.gaps, histories: history.histories, classify });
       const pruned = {};
-      pruneFundingState(state, { now: nowMs, latest, counts: pruned, ...held });
+      fundingWindows = await fundingWindowBlocks(clock, latest, win.headTimestamp ?? Math.floor(nowMs / 1000));
+      pruneFundingState(state, { now: nowMs, latest, counts: pruned, ...held, ...fundingWindows });
       const h = history.stats;
       const g = gapRead.stats;
       fundingScan = {
@@ -1208,7 +1282,7 @@ export async function runLeaderboard(overrides = {}) {
     }
     // Always applied, from whatever the state knows: a wallet not read this
     // scan is "behind", and a circular one behind is credited nothing.
-    applySellerFunding(byWallet, state, { latest, now: nowMs, previous: opts.previousWalletEvidence || null });
+    applySellerFunding(byWallet, state, { latest, now: nowMs, previous: opts.previousWalletEvidence || null, bazaarWindowBlocks: fundingWindows?.bazaarWindowBlocks });
     fundingStateUsed = state;
   }
 
@@ -1229,15 +1303,18 @@ export async function runLeaderboard(overrides = {}) {
   for (const [k, prev] of carryAt) {
     if (!walletEvidenceOut[k]) walletEvidenceOut[k] = { callsSettled: 0, uniqueBuyers: 0, circular: false, lastCircularAt: prev.lastCircularAt, carried: true, origins: Array.isArray(prev.origins) ? prev.origins : [] };
   }
-  const windowLabel = windowLabelFromBlocks(opts.spanBlocks);
+  const windowLabel = windowLabelFromSeconds(win.windowSeconds);
 
   return {
     spec: "x402-leaderboard/1",
     asOf: new Date().toISOString(),
-    scannedBlocks: opts.spanBlocks,
+    scannedBlocks: win.spanBlocks,
     windowLabel,
     maxCallUsd: opts.maxCallUsd,
     priceMatchMaxUsd: opts.priceMatchMaxUsd,
+    // The window in time; its first block was found by timestamp ("chain").
+    windowSeconds: win.windowSeconds,
+    windowStartSource: win.source,
     scannedSellers: sellers.length,
     walletsQueried: wallets.length,
     bazaarTotal: total,
@@ -1573,8 +1650,9 @@ export function getLeaderboardSnapshot() {
     spec: "x402-leaderboard/1",
     asOf: new Date().toISOString(),
     warming: true,
-    scannedBlocks: DEFAULTS.spanBlocks,
-    windowLabel: windowLabelFromBlocks(DEFAULTS.spanBlocks),
+    scannedBlocks: 0,
+    windowSeconds: DEFAULTS.windowSeconds,
+    windowLabel: windowLabelFromSeconds(DEFAULTS.windowSeconds),
     maxCallUsd: DEFAULTS.maxCallUsd,
     leaderboard: [],
     cache: {
