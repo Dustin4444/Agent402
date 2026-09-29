@@ -290,10 +290,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           THRESH: ${{ vars.PAYAI_QUOTA_WARN || 800 }}
+          # Credits per exact settlement, by rail. Read live from PayAI's own
+          # published table (facilitator.payai.network/pricing, refreshed
+          # daily) on every run; these are used only when it cannot be read,
+          # and are that table's snapshot of 2026-09-22 (docs.payai.network,
+          # x402/facilitators/pricing).
+          PAYAI_FALLBACK_WEIGHTS: '{"avalanche":0.10,"sei":0.59}'
         run: |
           CUT=2026-09-21
-          CREDITS=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT" \
-            '[.days[] | select(.day >= $cut) | select(.chain=="avalanche" or .chain=="sei") | (.extTx + .intTx) * (if .chain=="avalanche" then 0.09 else 0.43 end)] | add // 0 | . * 100 | round / 100') \
+          # CAIP-2 ids of the two rails PayAI is first-tried on.
+          LIVE=$(curl -s --max-time 15 -H 'Accept: application/json' https://facilitator.payai.network/pricing | jq -ce \
+            '[.rates[]? | select(.scheme=="exact" and (.transferMethod // "eip3009")=="eip3009")] as $r
+             | {avalanche: ($r[] | select(.network=="eip155:43114") | .credits | tonumber),
+                sei: ($r[] | select(.network=="eip155:1329") | .credits | tonumber)}
+             | select(.avalanche != null and .sei != null)' 2>/dev/null | head -1 || true)
+          if [ -n "$LIVE" ]; then WEIGHTS="$LIVE"; SRC=live; else WEIGHTS="$PAYAI_FALLBACK_WEIGHTS"; SRC=fallback; echo "::warning::PayAI live pricing table unreadable - using the fallback weights"; fi
+          echo "PayAI credit weights ($SRC): $WEIGHTS"
+          CREDITS=$(curl -s --max-time 20 "$PROD/api/revenue/daily" | jq -e --arg cut "$CUT" --argjson w "$WEIGHTS" \
+            '[.days[] | select(.day >= $cut) | select(.chain=="avalanche" or .chain=="sei") | (.extTx + .intTx) * $w[.chain]] | add // 0 | . * 100 | round / 100') \
             || { echo "::warning::PayAI credit watch UNREADABLE - /api/revenue/daily missing or unparseable. NOT skipping silently: investigate."; exit 0; }
           echo "PayAI weighted credits since $CUT: $CREDITS (warn at $THRESH)"
           TITLE="PayAI credit allowance HIGH"
