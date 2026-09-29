@@ -37,10 +37,14 @@ export async function* ndjsonRows(body) {
 export async function syncIndex({ index, store, source, embed, now = Date.now() }) {
   const seen = new Set();
   const changed = [];
-  let complete = false, total = 0;
+  let complete = false, total = 0, dupes = 0;
   for await (const row of ndjsonRows(await source())) {
     if (row && row.__end) { complete = true; total = row.rows; break; }
     if (!row || typeof row.id !== "string") continue;
+    // An id seen earlier in this same stream is skipped: the first row wins,
+    // and a batch never names one row twice (Postgres refuses an upsert that
+    // touches the same row twice, which would fail the whole sync).
+    if (seen.has(row.id)) { dupes++; continue; }
     seen.add(row.id);
     const prev = index.rows.get(row.id);
     if (!prev || prev.contentHash !== row.contentHash || prev.lastLiveAt !== row.lastLiveAt || prev.health !== row.health) {
@@ -71,7 +75,7 @@ export async function syncIndex({ index, store, source, embed, now = Date.now() 
       break;
     }
   }
-  return { complete, streamed: seen.size, declared: total, changed: changed.length, removed, embedded, embedError, rows: index.size, vectors: index.vectors.count, at: now };
+  return { complete, streamed: seen.size, duplicates: dupes, declared: total, changed: changed.length, removed, embedded, embedError, rows: index.size, vectors: index.vectors.count, at: now };
 }
 
 /** Load a persisted index at boot. */

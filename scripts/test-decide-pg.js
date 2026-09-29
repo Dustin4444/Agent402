@@ -10,6 +10,8 @@
 import pg from "pg";
 import { migrate, MIGRATIONS } from "../services/decide/migrations.js";
 import { PgToolStore } from "../services/decide/tool-store.js";
+import { syncIndex } from "../services/decide/sync.js";
+import { ToolIndex } from "../services/decide/tool-index.js";
 
 const URL_ = process.env.DECIDE_TEST_PG_URL || "";
 if (!URL_) {
@@ -54,6 +56,19 @@ await admin.query("DROP TABLE IF EXISTS decide_decision_steps, decide_decisions,
   const loaded = [];
   await store.load((row, v) => loaded.push(v));
   ok(loaded.length === 1200 && loaded.every((v) => v && v.length === 512 && v[0] === 3), "vectors read back intact");
+  await pool.end();
+}
+
+// ---- a stream that repeats an id syncs (Postgres refuses to upsert one row twice in a batch) ----
+{
+  const pool = mk();
+  const store = new PgToolStore(pool);
+  const row = (id, h) => ({ id, contentHash: h, name: id, description: "d", slug: id, inputSchema: { properties: {} }, rails: ["x402"], priceUsd: 0.001, lastLiveAt: Date.now() });
+  const body = [row("dup1", "a"), row("dup1", "b"), row("solo", "c")].map((r) => JSON.stringify(r)).join("\n") + "\n" + JSON.stringify({ __end: true, rows: 3 }) + "\n";
+  const res = await syncIndex({ index: new ToolIndex(), store, source: async () => body, embed: async () => { throw new Error("no embed here"); } });
+  ok(res.complete && res.duplicates === 1 && res.rows === 2, `a repeated id is skipped and the sync completes (${JSON.stringify({ complete: res.complete, duplicates: res.duplicates, rows: res.rows })})`);
+  const { rows } = await pool.query("SELECT content_hash FROM decide_tools WHERE id = 'dup1'");
+  ok(rows.length === 1 && rows[0].content_hash === "a", "the first row for an id wins");
   await pool.end();
 }
 

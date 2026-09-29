@@ -47,11 +47,15 @@ export function fromPrivateNetwork(req) {
 /** Rows for every priced local tool, then every routable outside tool. */
 export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date.now() } = {}) {
   let n = 0;
+  // One row per id: the same route can reach the crawl twice (a seller listed
+  // under two origins that resolve to one row id), and the service stores rows
+  // by id.
+  const emitted = new Set();
   for (const def of Object.values(catalog || {})) {
     // The decision tools never recommend themselves.
     if (/^decide(?:-|$)/.test(String(def?.slug || ""))) continue;
     const row = localToolRow(def, { baseUrl, networks, now, executable: executableStep(def) });
-    if (row) yield row;
+    if (row && !emitted.has(row.id)) { emitted.add(row.id); yield row; }
     if (++n % YIELD_EVERY === 0) await yieldLoop();
   }
   const mppOrigins = new Set(mppDualStackOrigins().map((o) => String(o).replace(/\/+$/, "")));
@@ -63,7 +67,7 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
         lastLiveAt: liveProofAt(t),
         mppOrigins,
       });
-      if (row) yield row;
+      if (row && !emitted.has(row.id)) { emitted.add(row.id); yield row; }
       if (++n % YIELD_EVERY === 0) await yieldLoop();
     }
   }

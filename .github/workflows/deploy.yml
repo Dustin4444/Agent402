@@ -2109,6 +2109,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      # A throwaway Postgres for the decide service's storage test.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: decide
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: decide_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U decide"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -2265,6 +2279,7 @@ jobs:
           t node scripts/test-decide-feedback.js
           t node scripts/test-decide-site.js
           t node scripts/test-decide-cost.js
+          DECIDE_TEST_PG_URL=postgres://decide@127.0.0.1:5432/decide_test t node scripts/test-decide-pg.js
           t node scripts/test-image-gen-kit.js
           # Leaderboard chain config (right token on the right rail; testnets excluded — offline)
           t node scripts/test-leaderboard-chains.js
