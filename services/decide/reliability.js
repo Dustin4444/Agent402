@@ -18,6 +18,8 @@ export class Reliability {
     this.stats = new Map();  // toolId -> { successes, failures, latency_p95_ms, lastSuccessAt }
     this.lat = new Map();    // toolId -> recent latencies
     this.dirty = new Set();
+    this.seen = new Set();   // today's counted (tool, payer, source, outcome)
+    this.seenDay = "";
   }
 
   get(id) { return this.stats.get(id) || null; }
@@ -26,10 +28,20 @@ export class Reliability {
     for (const r of rows) this.stats.set(r.tool_id, { successes: Number(r.successes) || 0, failures: Number(r.failures) || 0, fbSuccesses: Number(r.fb_successes) || 0, fbFailures: Number(r.fb_failures) || 0, latency_p95_ms: r.latency_p95_ms ?? null, lastSuccessAt: r.last_success_at ? new Date(r.last_success_at).getTime() : null });
   }
 
-  record({ toolId, ok, latencyMs = null, source = "execution", now = Date.now() }) {
+  /** `by` identifies who paid for the run or filed the report (a short hash).
+   *  One observation per tool, per payer, per outcome, per UTC day counts:
+   *  buying the same tool twenty times through us, or filing twenty reports,
+   *  moves it no further than doing it once. Observations with no `by` share
+   *  one anonymous slot. */
+  record({ toolId, ok, latencyMs = null, source = "execution", by = null, now = Date.now() }) {
     if (typeof toolId !== "string" || !toolId || toolId.length > 64) return false;
     const w = WEIGHT[source];
     if (!w) return false;
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (day !== this.seenDay) { this.seenDay = day; this.seen = new Set(); }
+    const key = `${toolId}|${String(by || "anon").slice(0, 64)}|${source}|${ok ? 1 : 0}`;
+    if (this.seen.has(key)) return false;
+    if (this.seen.size < 500_000) this.seen.add(key);
     const s = this.stats.get(toolId) || { successes: 0, failures: 0, fbSuccesses: 0, fbFailures: 0, latency_p95_ms: null, lastSuccessAt: null };
     if (source === "feedback") {
       // Reports are kept apart: the ranker lets them nudge a tool by a bounded

@@ -18,7 +18,7 @@ const throwsWith = (fn, status, frag, m) => { let e = null; try { fn(); } catch 
 // ---- reliability ----
 {
   const r = new Reliability();
-  for (let i = 0; i < 10; i++) r.record({ toolId: "t", ok: true, latencyMs: 100 + i * 10, source: "execution" });
+  for (let i = 0; i < 10; i++) r.record({ toolId: "t", ok: true, latencyMs: 100 + i * 10, source: "execution", by: `p${i}` });
   const s = r.get("t");
   ok(s.successes > 9 && s.failures === 0 && s.latency_p95_ms >= 180, `execution successes count and set p95 latency (${JSON.stringify(s)})`);
   r.record({ toolId: "u", ok: false, source: "feedback" });
@@ -33,8 +33,8 @@ const throwsWith = (fn, status, frag, m) => { let e = null; try { fn(); } catch 
   // Reliability feeds the score, neutrally.
   const row = (id, fp) => ({ id, priceUsd: 0.01, schemaQuality: 0.8, lastLiveAt: 1, health: 0.7, firstParty: fp });
   const rel = new Reliability();
-  for (let i = 0; i < 20; i++) rel.record({ toolId: "good", ok: true, latencyMs: 100, source: "execution" });
-  for (let i = 0; i < 20; i++) rel.record({ toolId: "bad", ok: false, source: "execution" });
+  for (let i = 0; i < 20; i++) rel.record({ toolId: "good", ok: true, latencyMs: 100, source: "execution", by: `p${i}` });
+  for (let i = 0; i < 20; i++) rel.record({ toolId: "bad", ok: false, source: "execution", by: `p${i}` });
   const scored = scoreCandidates([{ row: row("bad", true), fit: 0.8 }, { row: row("good", false), fit: 0.8 }], { reliability: (id) => rel.get(id), weights: DEFAULTS.weights, now: 2, halfLifeHours: 72 });
   ok(scored[0].row.id === "good", "observed reliability outranks at equal fit, whoever sells the tool");
 }
@@ -42,10 +42,10 @@ const throwsWith = (fn, status, frag, m) => { let e = null; try { fn(); } catch 
 // ---- a flood of bad reports cannot sink a tool ----
 {
   const rel = new Reliability();
-  for (let i = 0; i < 500; i++) rel.record({ toolId: "victim", ok: false, source: "feedback" });
+  for (let i = 0; i < 500; i++) rel.record({ toolId: "victim", ok: false, source: "feedback", by: `r${i}` });
   const flooded = reliabilityScore(rel.get("victim"), null);
   ok(flooded >= 0.7 - FEEDBACK_SWING - 1e-9, `500 failure reports move an unmeasured tool by at most ${FEEDBACK_SWING} (${flooded})`);
-  for (let i = 0; i < 30; i++) rel.record({ toolId: "victim", ok: true, latencyMs: 100, source: "execution" });
+  for (let i = 0; i < 30; i++) rel.record({ toolId: "victim", ok: true, latencyMs: 100, source: "execution", by: `p${i}` });
   ok(reliabilityScore(rel.get("victim"), null) > 0.85, "our own observed successes outweigh the reports");
 }
 
@@ -111,6 +111,19 @@ ok(ledger.db.prepare("SELECT tool_id FROM feedback WHERE decision_id='d1' AND st
   try { sendObservations([{ toolId: "x", ok: true, source: "execution" }], { send: async () => { throw new Error("service down"); } }); } catch { threw = true; }
   await flush();
   ok(!threw, "a dead decide service cannot fail the request that reports to it");
+}
+
+// ---- self-purchase: one counted observation per tool, payer and day ----
+{
+  const r = new Reliability();
+  for (let i = 0; i < 20; i++) r.record({ toolId: "mine", ok: true, source: "execution", by: "p-self", now: 1_800_000_000_000 + i });
+  ok(r.get("mine").successes === 1, `20 self-bought runs from one payer in a day count once (${r.get("mine").successes})`);
+  for (let i = 0; i < 5; i++) r.record({ toolId: "mine", ok: true, source: "execution", by: `p${i}`, now: 1_800_000_000_000 });
+  ok(Math.round(r.get("mine").successes) === 6, "five other payers count five more");
+  r.record({ toolId: "mine", ok: true, source: "execution", by: "p-self", now: 1_800_000_000_000 + 86_400_000 });
+  ok(r.get("mine").successes > 5.8, "the same payer counts again the next day");
+  for (let i = 0; i < 50; i++) r.record({ toolId: "rival", ok: false, source: "feedback", by: "p-attacker", now: 1_800_000_000_000 });
+  ok(r.get("rival").fbFailures === 1, "fifty reports from one buyer against a rival count once");
 }
 
 // ---- the MCP path shares the HTTP limiter (feedback moves ranking) ----

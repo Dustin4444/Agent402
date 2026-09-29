@@ -35,6 +35,14 @@ const cfg = decideConfig({});
   ok(reliabilityScore({ successes: 0, failures: 0 }, 0.9) === 0.9 && reliabilityScore({ successes: 20, failures: 0 }, 0.1) > 0.9, "reliability: crawler health until observations accumulate, then observed success");
   ok(priceScore(0.01, 0.01) === 0.5 && priceScore(0.001, 0.01) > priceScore(0.1, 0.01), "cheaper scores higher, relative to the step's median");
   ok(freshnessScore(NOW, NOW, 72) === 1 && freshnessScore(NOW - 72 * 3600_000, NOW, 72) === 0.5 && freshnessScore(null, NOW, 72) === 0, "freshness halves per half-life; unknown is zero");
+  // Planned with a live window, freshness is a pass mark: our rows (stamped live
+  // at every export) and an outside row probed six days ago score the same.
+  const fresh = { ...fp, lastLiveAt: NOW };
+  const sixDays = { ...tp, lastLiveAt: NOW - 6 * 86_400_000 };
+  const w = scoreCandidates([{ row: fresh, fit: 0.8 }, { row: sixDays, fit: 0.8 }], { reliability: () => stats, weights: cfg.weights, now: NOW, halfLifeHours: 72, liveWithinHours: cfg.liveWithinHours });
+  const { readFileSync } = await import("node:fs");
+  ok(/liveWithinHours: cfg\.liveWithinHours/.test(readFileSync(new URL("../services/decide/planner.js", import.meta.url), "utf8")), "the planner scores freshness against the live window");
+  ok(w[0].score === w[1].score, `inside the live window a six-day-old outside proof scores the same freshness as our own rows (${w.map((x) => x.parts.freshness).join(" = ")})`);
 }
 
 // ---- params ----

@@ -166,7 +166,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const scored = scoreCandidates(s.candidates.map((c) => ({ row: c.row, fit: fitAt(judgedStepIndex[i], c) })),
-      { reliability, weights: cfg.weights, now, halfLifeHours: cfg.freshnessHalfLifeHours });
+      { reliability, weights: cfg.weights, now, halfLifeHours: cfg.freshnessHalfLifeHours, liveWithinHours: cfg.liveWithinHours });
     const viable = scored.filter((x) => x.fit > GAP_FIT);
     rankingLog.push({ step: i + 1, top: scored.slice(0, 5).map((x) => ({ id: x.row.id, score: x.score, parts: x.parts })) });
     if (!viable.length) { gaps.push(s.purpose); continue; }

@@ -23,8 +23,14 @@ export function priceScore(priceUsd, refPriceUsd) {
   return Math.round((1 / (1 + priceUsd / ref)) * 1000) / 1000;
 }
 
-export function freshnessScore(lastLiveAt, now, halfLifeHours) {
+/** With `windowHours`, freshness is a pass mark: 1 for any row with a live
+ *  proof inside the window, 0 otherwise. Our own tools are stamped live at
+ *  every export and outside rows only when a probe runs, so a decaying score
+ *  would favour the first party by construction; inside the window every row
+ *  is equally fresh. */
+export function freshnessScore(lastLiveAt, now, halfLifeHours, windowHours = null) {
   if (!Number.isFinite(lastLiveAt) || lastLiveAt <= 0) return 0;
+  if (Number.isFinite(windowHours) && windowHours > 0) return now - lastLiveAt <= windowHours * 3_600_000 ? 1 : 0;
   const hours = Math.max(0, (now - lastLiveAt) / 3_600_000);
   return Math.round(Math.pow(0.5, hours / halfLifeHours) * 1000) / 1000;
 }
@@ -41,7 +47,7 @@ function median(xs) {
  * @param cands [{ row, fit }]  fit in 0..1
  * @param ctx { reliability: (toolId) => stats|null, weights, now, halfLifeHours }
  */
-export function scoreCandidates(cands, { reliability = () => null, weights, now = Date.now(), halfLifeHours = 72 }) {
+export function scoreCandidates(cands, { reliability = () => null, weights, now = Date.now(), halfLifeHours = 72, liveWithinHours = null }) {
   const ref = median(cands.map((c) => c.row.priceUsd));
   return cands.map(({ row, fit }) => {
     const parts = {
@@ -49,7 +55,7 @@ export function scoreCandidates(cands, { reliability = () => null, weights, now 
       reliability: reliabilityScore(reliability(row.id), row.health),
       price: priceScore(row.priceUsd, ref),
       schema: Number(row.schemaQuality) || 0,
-      freshness: freshnessScore(row.lastLiveAt, now, halfLifeHours),
+      freshness: freshnessScore(row.lastLiveAt, now, halfLifeHours, liveWithinHours),
     };
     let total = 0;
     for (const [k, w] of Object.entries(weights)) total += (Number(w) || 0) * (parts[k] ?? 0);

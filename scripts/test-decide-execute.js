@@ -344,6 +344,7 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   await new Promise((r) => setTimeout(r, 20));
   globalThis.fetch = realFetch2;
   ok(obs.some((o) => o.toolId === out.steps[0].attempts[0].id && o.ok === false), "a leg that may have been paid and then failed is reported as a failure of that tool");
+  ok(obs.length > 0 && obs.every((o) => /^[0-9a-f]{16}$/.test(o.by || "") && o.by !== "0xreal"), "every observation names its payer by a short one-way hash, never the address");
   ok(pays.length === 1 && pays[0].url === "https://s1.example/x", `the real router paid once and no fallback seller was paid (${pays.length} payment(s))`);
   ok(out.steps[0].status === "failed" && out.steps[0].attempts[0].mayHavePaid === true, "the paid-then-failed leg is recognised through the real router's error");
   ok(out.spentUsd >= 0.01 * 1.05 - 1e-9, `...and its signed amount is booked (${out.spentUsd})`);

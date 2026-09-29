@@ -15,7 +15,7 @@ import { recordWish } from "../wish.js";
 import { payerFromRequest } from "../payer.js";
 import { openDecideLedger, hashToken } from "../decide/ledger.js";
 import { validateParams } from "../decide/params.js";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { dispatchable } from "./route-execute.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
 import { evmCredentialBudgetMs } from "../evm-validity.js";
@@ -83,6 +83,9 @@ const roundUsd = (x) => Math.round(x * 1e6) / 1e6;
 
 /** Fire-and-forget: reliability observations to the decide service. Never
  *  awaited by a paid request, never able to fail one. */
+/** Who an observation came from, as a short one-way hash (never the payer). */
+export const observerId = (payer) => (payer ? createHash("sha256").update(String(payer)).digest("hex").slice(0, 16) : null);
+
 export function sendObservations(observations, { send = callService } = {}) {
   if (!observations.length || !decideEnabled()) return;
   Promise.resolve().then(() => send("/internal/observations", { observations }, { timeoutMs: 5000 })).catch(() => {});
@@ -301,8 +304,8 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     sendObservations(results.flatMap((r) => [
       // A leg that may have been paid and still failed is the worst outcome a
       // seller can give: it counts against the tool like any tool-side failure.
-      ...(r.attempts || []).filter((a) => a.error && (a.toolFault || a.mayHavePaid)).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
-      ...(r.status === "ok" ? [{ toolId: r.tool.id, ok: true, latencyMs: r.latencyMs, source: "execution" }] : []),
+      ...(r.attempts || []).filter((a) => a.error && (a.toolFault || a.mayHavePaid)).map((a) => ({ toolId: a.id, ok: false, source: "execution", by: observerId(payer) })),
+      ...(r.status === "ok" ? [{ toolId: r.tool.id, ok: true, latencyMs: r.latencyMs, source: "execution", by: observerId(payer) }] : []),
     ]));
     const okSteps = results.filter((r) => r.status === "ok").length;
     const nothingSpent = spent === 0 && !mayHaveSpentOutside;
@@ -367,7 +370,7 @@ export function makeFeedbackHandler({ ledger, send = callService, now = () => Da
     if (!ids.includes(toolId)) throw bad('"toolId" must be the step\'s tool or one of its fallbacks');
     const replaced = ledger.saveFeedback({ decisionId, step, toolId, outcome, quality, latencyMs, now: now() });
     // A replaced verdict is not counted twice.
-    if (!replaced) sendObservations([{ toolId, ok: outcome === "success", source: "feedback" }], { send });
+    if (!replaced) sendObservations([{ toolId, ok: outcome === "success", source: "feedback", by: observerId(d.payer) }], { send });
     return { ok: true, decisionId, step, toolId, outcome, replaced };
   };
 }

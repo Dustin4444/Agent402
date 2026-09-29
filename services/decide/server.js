@@ -176,7 +176,7 @@ export const routes = {
     const b = await readJson(req);
     const list = Array.isArray(b.observations) ? b.observations.slice(0, 64) : [];
     let accepted = 0;
-    for (const o of list) if (state.reliability.record({ toolId: o?.toolId, ok: o?.ok === true, latencyMs: Number(o?.latencyMs), source: o?.source })) accepted++;
+    for (const o of list) if (state.reliability.record({ toolId: o?.toolId, ok: o?.ok === true, latencyMs: Number(o?.latencyMs), source: o?.source, by: typeof o?.by === "string" ? o.by : null })) accepted++;
     return { accepted };
   },
   "POST /internal/decision-cost": async (req) => {
