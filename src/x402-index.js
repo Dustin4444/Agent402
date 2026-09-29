@@ -7329,6 +7329,23 @@ export function crawlToolsByOrigin() {
   return out;
 }
 
+/** Every routable outside seller's buy candidates, under the router's own
+ *  seller filter (routable, not an alias or superseded origin, not this host,
+ *  not removed at the owner's request). A generator, so the decision index
+ *  export can yield between entries instead of holding the loop. */
+export function* routableRemoteEntries({ baseUrl = "" } = {}) {
+  const aliases = computeAliasOrigins(cache);
+  const selfBase = String(baseUrl || "").replace(/\/+$/, "").toLowerCase();
+  const isSelf = (origin) => {
+    const o = String(origin).replace(/\/+$/, "").toLowerCase();
+    return (selfBase && o === selfBase) || o === "https://agent402.tools";
+  };
+  for (const [origin, v] of cache) {
+    if (!v || typeof v !== "object" || !isRoutable(v) || aliases.has(origin) || isSelf(origin) || isRemovedOrigin(origin)) continue;
+    yield [origin, decoratedRemoteTools(v)];
+  }
+}
+
 export function sellerEntry(originOrHost) {
   const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
   if (!q) return null;

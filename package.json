@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "node scripts/test-kit2.js && node scripts/test-convert.js && node scripts/test-memory.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "start:decide": "node services/decide/server.js"
   },
   "repository": {
     "type": "git",

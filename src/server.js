@@ -320,7 +320,8 @@ import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
+import { decideIndexExportHandler } from "./decide/index-export.js";
+import { NETWORKS as PAY_NETWORKS, buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -4761,6 +4762,13 @@ app.post("/__operator/stall-profile", async (req, res) => {
     res.status(500).json({ error: "profile failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
+// Unified tool index for the decide service (src/decide/index-export.js):
+// internal, token-gated, 404 without DECIDE_INTERNAL_TOKEN.
+app.get("/__internal/decide/tools.ndjson", decideIndexExportHandler({
+  getCatalog: () => CATALOG,
+  baseUrl: BASE_URL,
+  getNetworks: () => enabledNetworks(NETWORK).map((n) => PAY_NETWORKS[n]).filter(Boolean),
+}));
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
