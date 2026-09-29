@@ -49,6 +49,10 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
       PRIMARY KEY (decision_id, step)
     );
     CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at);
+    CREATE TABLE IF NOT EXISTS seller_spend (
+      run_id TEXT NOT NULL, seller TEXT NOT NULL, micro INTEGER NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS seller_spend_seller ON seller_spend (seller, created_at);
     CREATE INDEX IF NOT EXISTS runs_status ON runs (status, created_at);
   `);
 
@@ -60,6 +64,8 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
   // Retention: decisions, credits, runs and feedback older than 30 days go.
   {
     const cut = Date.now() - 30 * 86_400_000;
+    db.prepare("DELETE FROM decisions WHERE created_at < ?").run(cut);
+    db.prepare("DELETE FROM seller_spend WHERE created_at < ?").run(cut);
     db.prepare("DELETE FROM credits WHERE expires_at < ?").run(cut);
     db.prepare("DELETE FROM runs WHERE created_at < ?").run(cut);
     db.prepare("DELETE FROM feedback WHERE created_at < ?").run(cut);
@@ -86,6 +92,8 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     payerRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE payer = ? AND status = 'running' AND created_at >= ?"),
     globalSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE created_at >= ?"),
     globalRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE status = 'running' AND created_at >= ?"),
+    sellerSpend: db.prepare("INSERT INTO seller_spend (run_id, seller, micro, created_at) VALUES (?,?,?,?)"),
+    sellerSince: db.prepare("SELECT COALESCE(SUM(micro),0) AS s FROM seller_spend WHERE seller = ? AND created_at >= ?"),
   };
 
   return {
@@ -93,11 +101,12 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     saveDecision({ decisionId, depth, priceUsd, payer, plan, costViaUsd, feedbackHash = null, now = Date.now() }) {
       st.saveDecision.run(decisionId, now, depth, micro(priceUsd), payer || null, JSON.stringify(plan), micro(costViaUsd), feedbackHash);
     },
-    /** True when `token` is the feedback token minted with this decision. */
-    feedbackTokenOk(decisionId, token) {
+    /** True when `token` is the feedback token minted with this decision, the
+     *  decision's payment settled, and it is no older than `maxAgeMs`. */
+    feedbackTokenOk(decisionId, token, { now = Date.now(), maxAgeMs = 7 * 86_400_000 } = {}) {
       if (typeof token !== "string" || !token) return false;
       const r = st.getDecision.get(String(decisionId || ""));
-      return !!r && !!r.feedback_hash && r.feedback_hash === hashToken(token);
+      return !!r && !!r.feedback_hash && r.feedback_hash === hashToken(token) && r.settled === 1 && now - r.created_at <= maxAgeMs;
     },
     /** One verdict per (decision, step); a later report replaces it. Returns
      *  true when this replaced an earlier one. */
@@ -144,6 +153,9 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     getRun(id) { const r = st.getRun.get(id); return r ? { ...r, budgetUsd: usd(r.budget_micro), spentUsd: usd(r.spent_micro), creditUsd: usd(r.credit_micro), steps: JSON.parse(r.steps_json) } : null; },
     /** Spent in the window plus everything still running (its whole budget). */
     payerExposureUsd(payer, sinceMs, now = Date.now()) { return usd(st.payerSince.get(payer || "", sinceMs).s + st.payerRunning.get(payer || "", now - RUN_MAX_MS).s); },
+    /** What an outside seller was paid (or may have been paid) through runs. */
+    noteSellerSpend({ runId, seller, amountUsd, now = Date.now() }) { if (seller && amountUsd > 0) st.sellerSpend.run(runId, String(seller), micro(amountUsd), now); },
+    sellerSpendUsd(seller, sinceMs) { return usd(st.sellerSince.get(String(seller || ""), sinceMs).s); },
     globalExposureUsd(sinceMs, now = Date.now()) { return usd(st.globalSince.get(sinceMs).s + st.globalRunning.get(now - RUN_MAX_MS).s); },
   };
 }

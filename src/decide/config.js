@@ -22,7 +22,10 @@ export const DEFAULTS = Object.freeze({
   cacheTtlMs: 10 * 60_000,
   credit: { percentOfFee: 100, ttlHours: 24 },
   routingFeePct: 5,
-  execute: { perCallMaxUsd: 3, perWalletHourUsd: 10, globalDayUsd: 100, stepTimeoutMs: 45000, externalStepTimeoutMs: 60000, runDeadlineMs: 240000 },
+  // Execution ceilings. The daily global ceiling is shared: one payer may use at
+  // most perPayerDayShare of it, and one outside seller may receive at most
+  // perSellerDayUsd a day, so no single actor can exhaust it for everyone.
+  execute: { perCallMaxUsd: 3, perWalletHourUsd: 10, globalDayUsd: 100, perPayerDayShare: 0.1, perSellerDayUsd: 20, stepTimeoutMs: 45000, externalStepTimeoutMs: 60000, runDeadlineMs: 240000 },
   // Model used to decompose tasks and judge fit (through OpenRouter).
   model: "google/gemini-3.1-flash-lite",
   modelFallback: "anthropic/claude-haiku-4.5",

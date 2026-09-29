@@ -132,6 +132,19 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   const out = await exec({ decisionId: "d2" }, mkReq("0xi"));
   routerMode = "ok";
   ok(calls.filter((c) => c[0] === "router").length === 1 && out.steps[0].status === "failed", "a committed external payment stops the step: no second paid seller");
+  ok(ledger.sellerSpendUsd("s1.example", clock - 1) > 0, "...and what that seller may have been paid counts toward its daily ceiling");
+}
+
+// ---- one outside seller cannot take more than its daily ceiling ----
+{
+  calls.length = 0;
+  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { perSellerDayUsd: 0.001 } });
+  const planS = [{ step: 1, purpose: "x", tool: tool("e9", { firstParty: false, seller: "capped.example", endpoint: "https://capped.example/x", priceUsd: 0.01 }), fallbacks: [tool("a")], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dS", depth: "plan", priceUsd: 0.02, plan: planS, costViaUsd: 0.05, now: clock });
+  ledger.markDecisionSettled("dS");
+  const out = await exec({ decisionId: "dS" }, mkReq("0xseller"));
+  delete process.env.DECIDE_CONFIG;
+  ok(!calls.some((c) => c[0] === "router") && /daily execution ceiling/.test(out.steps[0].attempts?.[0]?.skipped || ""), "a seller over its daily ceiling is skipped before any payment; the fallback runs instead");
 }
 
 // ---- nothing succeeds: 502, not charged, credit restored ----
@@ -269,6 +282,8 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(!calls.length, "...and no tool ran");
   process.env.DECIDE_CONFIG = JSON.stringify({ execute: { globalDayUsd: 1 } });
   await throwsWith(() => exec({ decisionId: "d6" }, mkReq("0xother")), 429, "paused for everyone", "the global daily ceiling refuses too");
+  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { globalDayUsd: 100, perPayerDayShare: 0.01, perWalletHourUsd: 100 } });
+  await throwsWith(() => exec({ decisionId: "d6" }, mkReq("0xshare")), 429, "daily execution ceiling", "one wallet may use only its share of the global daily ceiling");
   process.env.DECIDE_CONFIG = JSON.stringify({ execute: { perCallMaxUsd: 0.5 } });
   ok(executeBudgetUsd({ maxBudgetUsd: 10 }, ledger.getDecision("d6")) === 0.5, "per-call ceiling caps the budget whatever the caller asks");
   delete process.env.DECIDE_CONFIG;
