@@ -270,13 +270,16 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
           break;
         } catch (e) {
           const timedOut = e?.statusCode === 504 && /did not answer within/.test(String(e?.message));
-          const maybePaid = timedOut || e?.committed === true || /no other seller is tried/.test(String(e?.message));
+          const maybePaid = timedOut || e?.committed === true || e?.paidUnanswered === true || /no other seller is tried/.test(String(e?.message));
           attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500, toolFault: !(e?.statusCode >= 400 && e?.statusCode < 500), ...(maybePaid ? { mayHavePaid: true } : {}) });
           if (maybePaid) {
             // The payment may have left (or may still leave: a timed-out leg is
             // not cancelled). Book its worst case and try no other paid seller.
             mayHaveSpentOutside = true;
-            spent = roundUsd(spent + maxUsd * (1 + cfg.routingFeePct / 100));
+            // What the signed credential could move, when the payer said; else the cap.
+            const signed = Number(e?.signedUsd);
+            const exposure = Number.isFinite(signed) && signed >= 0 && !timedOut ? Math.min(signed, maxUsd) : maxUsd;
+            spent = roundUsd(spent + exposure * (1 + cfg.routingFeePct / 100));
             break;
           }
         }
@@ -295,7 +298,11 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
       ledger.finishRun({ runId, status: "failed", spentUsd: spent, steps: results, now: now() });
       // A credit comes back only when nothing left our wallet.
       if (redeemed && nothingSpent) ledger.restoreCredit(input.creditToken, runId);
-      throw Object.assign(bad(`No step of the plan could be run (${results.map((r) => `step ${r.step}: ${r.reason || (r.attempts || []).map((a) => a.error || a.skipped).join(" / ")}`).join("; ").slice(0, 600)}). Nothing was charged.`, 502), { steps: results });
+      // Caused by the caller's own inputs (skipped steps, params that do not
+      // fit, 4xx answers) with nothing spent: a 400, which the spend-then-fail
+      // breaker does not count. A tool-side failure or any spend: a 502.
+      const callerCaused = nothingSpent && results.every((r) => r.status === "skipped" || (r.attempts || []).every((a) => a.skipped || (a.status >= 400 && a.status < 500)));
+      throw Object.assign(bad(`No step of the plan could be run (${results.map((r) => `step ${r.step}: ${r.reason || (r.attempts || []).map((a) => a.error || a.skipped).join(" / ")}`).join("; ").slice(0, 600)}). Nothing was charged.`, callerCaused ? 400 : 502), { steps: results });
     }
     ledger.finishRun({ runId, status: okSteps === results.length ? "complete" : "partial", spentUsd: spent, steps: results.map(({ result, ...r }) => r), now: now() });
     // Unspent funds (what was paid plus the credit, less what was spent)

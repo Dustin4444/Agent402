@@ -58,12 +58,18 @@ export const MIGRATIONS = [
         tool_id TEXT PRIMARY KEY,
         successes INT NOT NULL DEFAULT 0,
         failures INT NOT NULL DEFAULT 0,
-        fb_successes INT NOT NULL DEFAULT 0,
-        fb_failures INT NOT NULL DEFAULT 0,
         latency_p95_ms INT,
         last_success_at TIMESTAMPTZ,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+    `,
+  },
+  {
+    id: 2,
+    name: "separate buyer-report counts on reliability",
+    sql: `
+      ALTER TABLE decide_tool_reliability ADD COLUMN IF NOT EXISTS fb_successes INT NOT NULL DEFAULT 0;
+      ALTER TABLE decide_tool_reliability ADD COLUMN IF NOT EXISTS fb_failures INT NOT NULL DEFAULT 0;
     `,
   },
 ];

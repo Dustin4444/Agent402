@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
 import { buildDecideTools } from "../src/tools/decide-kit.js";
+import { buildRouteExecuteTool, EXEC_TIERS } from "../src/tools/route-execute.js";
 import { makeExecuteHandler, executeQuoteUsd, executeBudgetUsd, makeDecideHandler } from "../src/tools/decide-kit.js";
 
 let pass = 0, fail = 0;
@@ -289,6 +290,39 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(ledger.creditState(out.executionCredit.token).state === "pending", "a failed settlement never activates it");
   settle(req, 200);
   ok(ledger.creditState(out.executionCredit.token).state === "active", "a settled 200 does");
+}
+
+// ---- the REAL router: a seller that settles and then errors is a paid leg ----
+{
+  const pays = [];
+  const realRouter = buildRouteExecuteTool({
+    getCatalog: () => ({}), baseUrl: "https://agent402.tools", tier: EXEC_TIERS.find((t) => t.slug === "route-execute-pro"),
+    externalEnabled: () => true, externalChains: () => ["base"],
+    resolveExternal: async (task, { onlyUrl }) => [{ seller: new URL(onlyUrl).origin, url: onlyUrl, method: "POST", price: "$0.01", priceUsd: 0.01, networks: ["eip155:8453"], wire: "x402" }],
+    payExternal: async (url, opts) => { pays.push({ url, maxAtomic: opts.maxAtomic }); throw Object.assign(new Error("seller settled then answered 500"), { statusCode: 502, committed: true, signedUsd: 0.01 }); },
+  });
+  const catalogR = { rx: realRouter, b: catalog.b };
+  const planP = [{ step: 1, purpose: "x", tool: tool("e1", { firstParty: false, seller: "s1.example", endpoint: "https://s1.example/x", priceUsd: 0.01 }), fallbacks: [tool("e2", { firstParty: false, seller: "s2.example", endpoint: "https://s2.example/x", priceUsd: 0.01 })], dependsOn: [] },
+    { step: 2, purpose: "y", tool: tool("b"), fallbacks: [], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dReal", depth: "plan", priceUsd: 0.02, plan: planP, costViaUsd: 0.05, now: clock });
+  ledger.markDecisionSettled("dReal");
+  const c = ledger.mintCredit({ decisionId: "dReal", amountUsd: 0.05, ttlMs: 3600_000, now: clock });
+  ledger.activateCredit(c.hash);
+  const execReal = makeExecuteHandler({ ledger, getCatalog: () => catalogR, now });
+  const req = { ...mkReq("0xreal"), __meteredQuoteUsd: 0.001 };
+  const out = await execReal({ decisionId: "dReal", creditToken: c.token }, req);
+  ok(pays.length === 1 && pays[0].url === "https://s1.example/x", `the real router paid once and no fallback seller was paid (${pays.length} payment(s))`);
+  ok(out.steps[0].status === "failed" && out.steps[0].attempts[0].mayHavePaid === true, "the paid-then-failed leg is recognised through the real router's error");
+  ok(out.spentUsd >= 0.01 * 1.05 - 1e-9, `...and its signed amount is booked (${out.spentUsd})`);
+  settle(req, 402);
+  ok(ledger.creditState(c.token).state === "redeemed", "a settlement that fails after a paid leg does not restore the credit");
+}
+
+// ---- a run that fails only on the caller's own inputs is a 400 ----
+{
+  ledger.saveDecision({ decisionId: "dIn", depth: "quick", priceUsd: 0.005, plan: [{ step: 1, purpose: "x", tool: tool("a"), fallbacks: [], dependsOn: [] }], costViaUsd: 0.01, now: clock });
+  ledger.markDecisionSettled("dIn");
+  await throwsWith(() => exec({ decisionId: "dIn", params: { 1: { nope: 1 } } }, mkReq("0xin")), 400, "No step", "params that fit no tool: 400 (not counted as a spend-then-fail)");
 }
 
 // ---- every decide tool is wallet-only: none may run on the free tier ----

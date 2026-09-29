@@ -4921,8 +4921,14 @@ function injectionForms(text) {
       return e === "&lt;" ? "<" : e === "&gt;" ? ">" : e === "&amp;" ? "&" : " ";
     })
     .toLowerCase();
-  const flat = decoded.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff<>`_*~|]/g, " ").replace(/\s+/g, " ");
-  return [decoded, flat];
+  // Invisible characters are DELETED (a zero-width split inside a word must
+  // rejoin it); markup punctuation becomes a space. Underscores are left as
+  // they are: identifiers like max_priority_fee are honest listing text.
+  // An invisible character may split a word (delete it) or two words (read it
+  // as a space): both readings are checked.
+  const INVIS = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]/g;
+  const flatten = (x) => x.replace(/[\u0000-\u001f\u007f-\u009f<>`*~|]/g, " ").replace(/\s+/g, " ");
+  return [decoded.replace(INVIS, ""), flatten(decoded.replace(INVIS, "")), flatten(decoded.replace(INVIS, " "))];
 }
 export function looksLikeListingInjection(text) {
   const t = String(text || "");

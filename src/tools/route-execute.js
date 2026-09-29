@@ -543,6 +543,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             const unanswered = e?.paidUnanswered === true;
             if (spentMaybe || unanswered) __paidAttempts++;
             const signedUsd = Number(e?.signedUsd);
+            // Carry the payer's own stamps onto the error a caller sees: an
+            // in-process caller (the decide executor) must know a payment may
+            // have left, or it would treat the leg as unpaid and pay another.
+            if (spentMaybe) lastErr.committed = true;
+            if (unanswered) lastErr.paidUnanswered = true;
+            if (spentMaybe && Number.isFinite(signedUsd) && signedUsd >= 0) lastErr.signedUsd = signedUsd;
             adjustSpend(spendHandle, spentMaybe ? (e?.signedUsd != null && Number.isFinite(signedUsd) && signedUsd >= 0 ? signedUsd : cap) : 0);
             if (hasNext && !spentMaybe && !unanswered && chain !== "tempo") {
               console.warn(e?.refused

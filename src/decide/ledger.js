@@ -54,7 +54,9 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
 
   // A run still "running" when this process starts was cut off by a restart:
   // it will never finish, and must not hold spend-ceiling headroom forever.
-  db.prepare("UPDATE runs SET status = 'abandoned', finished_at = ? WHERE status = 'running'").run(Date.now());
+  // Its whole budget is booked as spent: a cut-off run may have paid sellers,
+  // and an unknown spend must count against the ceilings, not vanish.
+  db.prepare("UPDATE runs SET status = 'abandoned', spent_micro = budget_micro, finished_at = ? WHERE status = 'running'").run(Date.now());
   // Retention: decisions, credits, runs and feedback older than 30 days go.
   {
     const cut = Date.now() - 30 * 86_400_000;
