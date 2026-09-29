@@ -30,15 +30,15 @@ export function decidePage(baseUrl, catalog) {
   const p = c.prices;
   const canonical = `${baseUrl}/decide`;
   const title = "Agent402 Decide: a plan for any job";
-  const description = `Describe a job and get a call-ready plan over this catalog and indexed x402 and MPP sellers: which tools, in what order, with fallbacks and params that validate. ${usd(p.quick)} to ${usd(p.full)} per decision; the fee comes back as credit when Agent402 runs the plan.`;
+  const description = `Describe a job and get a call-ready plan over this catalog and outside x402 sellers with a recently verified 402: which tools, in what order, with fallbacks and params that validate. ${usd(p.quick)} to ${usd(p.full)} per decision; the fee comes back as credit when Agent402 runs the plan.`;
   const curl = `curl -X POST ${baseUrl}/api/decide \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ task: DECIDE_EXAMPLE_TASK, depth: "plan" })}'`;
   const example = JSON.stringify(exampleResponse(), null, 2);
   const liveDays = Math.round(c.liveWithinHours / 24);
 
   const faqs = [
     { q: "What does a decision return?", a: `A plan: each step names its tool, endpoint, price, input params that validate against that tool's schema, and fallbacks. Plus a cost and latency estimate, a confidence score, and any needs no indexed tool covers (gaps). Depth "full" adds a compiled prompt an agent can run as is.` },
-    { q: "Does Agent402 favour its own tools?", a: `No. The score formula has no first-party term: every tool is scored on fit, observed reliability, price, schema quality and freshness with the same weights. Every tool in a plan carries firstParty, so you always see whose it is.` },
-    { q: "Which outside sellers can appear?", a: `Indexed x402 and MPP sellers whose route answered a live 402 within the last ${liveDays} days and whose input schema is known. Anything the index cannot cover is listed in gaps.` },
+    { q: "How are Agent402's own tools ranked?", a: `By the same formula as every other seller's, with the same weights: fit to the step, observed reliability, price, schema quality and a freshness pass mark. The formula has no term for who sells a tool, the model that judges fit sees the same bounded description for every tool, and every tool in a plan carries firstParty, so you always see whose it is.` },
+    { q: "Which outside sellers can appear?", a: `Outside x402 sellers (including sellers that also accept MPP) whose route answered a live 402 within the last ${liveDays} days and whose input schema is known. Anything the index cannot cover is listed in gaps.` },
     { q: "How does the credit work?", a: `The decision fee comes back as a credit worth ${c.credit.percentOfFee}% of it, valid ${c.credit.ttlHours} hours, toward running that plan with POST /api/decide/execute. Unspent budget from a run returns as credit until the same window closes.` },
     { q: "What does running a plan cost?", a: `Our tools at list price. Outside tools at the seller's price plus a ${c.routingFeePct}% routing fee, paid on your behalf. Spend stops at your budget, fallbacks run in order, and a run where no step succeeds is not charged.` },
   ];
@@ -67,8 +67,8 @@ export function decidePage(baseUrl, catalog) {
   const sec = (inner, pad = "56px 30px 0") => `<section style="max-width:1180px;margin:0 auto;padding:${pad};">${inner}</section>`;
 
   const steps = [
-    ["01 · Index", "Every tool, one index", `This catalog plus indexed x402 and MPP sellers, each with its price, rails, chains and input schema. Outside tools need a live 402 in the last ${liveDays} days.`],
-    ["02 · Rank", "One formula for every seller", "Fit to the job, observed reliability, price, schema quality and freshness, with the same weights for every tool. No first-party term."],
+    ["01 · Index", "This catalog and outside sellers", `This catalog plus outside x402 sellers, each with its price, rails, chains and input schema. Outside tools need a live 402 in the last ${liveDays} days.`],
+    ["02 · Rank", "One formula for every seller", "Fit to the job, observed reliability, price, schema quality and a freshness pass mark, with the same weights for every tool and no term for who sells it."],
     ["03 · Plan", "Steps you can call", "The job split into steps, each with a primary tool and fallbacks, params that validate against the tool's schema, and a cost and latency estimate. Gaps are named."],
     ["04 · Run", "Yourself, or through us", `Call the plan directly, or send it to /api/decide/execute. Outside steps are paid on your behalf at the seller's price plus ${c.routingFeePct}%, and the decision fee comes back as credit.`],
   ];
@@ -88,7 +88,7 @@ export function decidePage(baseUrl, catalog) {
       <div>
         <div class="dc-num">Agent402 Decide</div>
         <h1 style="font-weight:800;font-size:48px;line-height:.98;letter-spacing:-.035em;margin:0 0 18px;color:var(--ink);">Describe the job. Get the plan.</h1>
-        <p style="font-size:18px;line-height:1.55;color:var(--muted);margin:0 0 18px;">One paid call returns a call-ready plan over this catalog and indexed x402 and MPP sellers: which tools, in what order, with fallbacks and params that validate. Run it yourself, or have Agent402 run it and the fee comes back as credit.</p>
+        <p style="font-size:18px;line-height:1.55;color:var(--muted);margin:0 0 18px;">One paid call returns a call-ready plan over this catalog and outside x402 sellers with a recently verified 402: which tools, in what order, with fallbacks and params that validate. Run it yourself, or have Agent402 run it and the fee comes back as credit.</p>
         <p style="font-size:14px;line-height:1.6;color:var(--muted);margin:0 0 22px;">${usd(p.quick)} to ${usd(p.full)} per decision, paid per request in USDC over <a href="/what-is-x402" style="color:var(--ink);">x402</a> or <a href="/what-is-mpp" style="color:var(--ink);">MPP</a>, or with <a href="/credits" style="color:var(--ink);">card credits</a>. No account.</p>
         <div style="display:flex;gap:11px;flex-wrap:wrap;">
           <a href="#connect" style="background:var(--btn-bg);color:var(--btn-fg);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO YOUR AGENT →</a>
@@ -109,9 +109,9 @@ ${sec(`<h2 class="dc-h2">How it decides.</h2><p class="dc-lede">A plan is only u
 ${sec(`<h2 class="dc-h2">Three depths.</h2><p class="dc-lede">Priced by how much of the plan you want. Each decision's fee returns as a ${c.credit.percentOfFee}% credit, valid ${c.credit.ttlHours} hours, toward running it.</p>
   <div class="dc-depths">${depths.map(([d, pr, t]) => `<div class="dc-card"><div class="dc-num">depth "${esc(d)}"</div><div class="dc-price">${usd(pr)}</div><p>${esc(t)}</p></div>`).join("")}</div>`)}
 ${sec(`<div style="background:var(--surface);border:1px solid var(--hairline);padding:40px;">
-  <h2 class="dc-h2" style="color:var(--on-dark);">Neutral by construction.</h2>
-  <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 14px;max-width:760px;">The score formula has no first-party term: our tools and every outside seller's are scored on the same five signals with the same weights. Every tool in a plan carries <code>firstParty</code>, so the source is disclosed rather than hidden.</p>
-  <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0;max-width:760px;">What we earn comes from running plans, not from choosing tools: our tools at list price, outside tools at the seller's price plus a disclosed ${c.routingFeePct}% routing fee. Outcomes you report through <code>/api/decide/feedback</code> feed reliability, within a bounded range.</p>
+  <h2 class="dc-h2" style="color:var(--on-dark);">One formula, disclosed.</h2>
+  <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 14px;max-width:760px;">Our tools and every outside seller's are scored on the same five signals with the same weights, and the formula has no term for who sells a tool. The model that judges fit sees the same bounded description for every tool, and every tool in a plan carries <code>firstParty</code>, so the source is disclosed.</p>
+  <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0;max-width:760px;">What we charge is on the page: the decision fee by depth, our tools at list price when a plan runs through us, and outside tools at the seller's price plus a disclosed ${c.routingFeePct}% routing fee. Reliability counts what we observe, one observation per payer per day, and reports through <code>/api/decide/feedback</code> can move a tool only within a bounded range.</p>
 </div>`)}
 ${sec(`<div id="connect"><h2 class="dc-h2">Connect.</h2><p class="dc-lede">Three routes, the same on every surface.</p>
   <div style="border:1px solid var(--hairline);background:var(--card);font-family:var(--font-mono);font-size:13px;">

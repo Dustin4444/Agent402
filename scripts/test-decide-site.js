@@ -50,7 +50,7 @@ ok(page.includes(`${c.credit.ttlHours} hours`), "page quotes the credit window f
 ok(page.includes(`<link rel="canonical" href="${BASE}/decide"`), "canonical is /decide");
 ok(page.includes('"FAQPage"'), "FAQ JSON-LD present");
 ok(!/—/.test(page), "no em dashes");
-ok(page.includes("no first-party term") || page.includes("No first-party term"), "neutrality stated");
+ok(page.includes("no term for who sells") && page.includes("firstParty") && !/Neutral by construction/.test(page), "neutrality stated as what the code guarantees, not as an absolute");
 const bumped = decideConfig({ DECIDE_CONFIG: JSON.stringify({ prices: { quick: 0.007 } }) });
 ok(bumped.prices.quick === 0.007, "config override path reachable (control for the derivation check)");
 

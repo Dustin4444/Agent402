@@ -131,7 +131,7 @@ function decideDoorHtml() {
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div style="font-family:var(--font-mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);">Agent402 Decide</div>
       <h2 class="hm-h2" style="font-size:30px;margin:0;">Describe the job. Get the plan.</h2>
-      <p class="hm-lede" style="margin:0;font-size:15.5px;">One call returns which tools to use, in what order, with fallbacks and params that validate, across this catalog and indexed x402 and MPP sellers. Every seller is scored by the same formula. ${esc(usd(c.prices.quick))} to ${esc(usd(c.prices.full))} a decision, returned as credit when Agent402 runs the plan.</p>
+      <p class="hm-lede" style="margin:0;font-size:15.5px;">One call returns which tools to use, in what order, with fallbacks and params that validate, across this catalog and outside x402 sellers. Every seller is scored by the same formula. ${esc(usd(c.prices.quick))} to ${esc(usd(c.prices.full))} a decision, returned as credit when Agent402 runs the plan.</p>
       <a href="/decide" style="font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">See how it decides →</a>
     </div>
     <div style="font-family:var(--font-mono);display:flex;flex-direction:column;border:1px solid var(--hairline);background:var(--card);font-size:12.5px;">

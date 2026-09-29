@@ -20,7 +20,7 @@ import { dispatchable } from "./route-execute.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
 import { evmCredentialBudgetMs } from "../evm-validity.js";
 
-export const NEUTRALITY_NOTE = "The score formula has no first-party term: every tool is scored on fit, observed reliability, price, schema quality and freshness with the same weights. Outside tools are eligible when a live 402 was seen within the configured window and their input schema is known. Every tool carries firstParty, so the source is disclosed.";
+export const NEUTRALITY_NOTE = "Every candidate is scored by one formula with the same weights: fit to the step, observed reliability, price, schema quality and a freshness pass mark. It has no term for who sells the tool, and every tool carries firstParty. Fit is judged from the same bounded description for every tool; reliability counts one observation per payer per day. Outside tools are eligible when a live 402 was seen within the configured window and their input schema is known.";
 
 const serviceUrl = () => String(process.env.DECIDE_SERVICE_URL || "").replace(/\/+$/, "");
 const token = () => String(process.env.DECIDE_INTERNAL_TOKEN || "");
@@ -406,7 +406,7 @@ export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now 
       price: `$${priceForDepth("quick").toFixed(3)}`,
       quote: (body) => decideQuoteUsd(body),
       description:
-        "Describe a job and get a call-ready plan: which tools, across this catalog and indexed x402/MPP sellers with a recent live 402, solve it end to end, in what order, with fallbacks, input params that validate against each tool's schema, and cost/latency estimates. Priced by depth: quick (one best tool), plan (steps + fallbacks), full (plan + params + compiled prompt). The fee comes back as a credit toward running the plan with POST /api/decide/execute. The ranking formula has no first-party term; every tool carries firstParty. Uncovered needs are listed in gaps.",
+        "Describe a job and get a call-ready plan: which tools, across this catalog and outside x402 sellers with a recently verified 402, solve it end to end, in what order, with fallbacks, input params that validate against each tool's schema, and cost/latency estimates. Priced by depth: quick (one best tool), plan (steps + fallbacks), full (plan + params + compiled prompt). The fee comes back as a credit toward running the plan with POST /api/decide/execute. The ranking formula has no first-party term; every tool carries firstParty. Uncovered needs are listed in gaps.",
       tags: ["agents", "routing", "planning", "discovery", "x402"],
       discovery: {
         bodyType: "json",
