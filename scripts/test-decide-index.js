@@ -5,7 +5,7 @@
 //   node scripts/test-decide-index.js
 
 import { localToolRow, remoteToolRow, cleanText, embedText, schemaQuality, FIRST_PARTY_SELLER } from "../src/decide/tool-rows.js";
-import { decideTokenOk } from "../src/decide/index-export.js";
+import { decideTokenOk, fromPrivateNetwork } from "../src/decide/index-export.js";
 import { VectorStore, quantize, toBytes, fromBytes, DIMS } from "../services/decide/vectors.js";
 import { LexicalIndex, tokenize } from "../services/decide/lexical.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
@@ -114,6 +114,8 @@ ok(!idx.vectors.has("tp"), "changed row text invalidates its old vector");
 // ---- internal export gate ----
 ok(!decideTokenOk({ headers: { authorization: "Bearer x" } }, "") && !decideTokenOk({ headers: { authorization: "Bearer short" } }, "short"), "no token (or a short one) configured: the export is closed");
 const T = "t".repeat(32);
+ok(fromPrivateNetwork({ headers: { host: "agent402.railway.internal:8080" } }) && fromPrivateNetwork({ headers: { host: "127.0.0.1:3000" } }), "the export answers on the private network and loopback");
+ok(!fromPrivateNetwork({ headers: { host: "agent402.tools" } }) && !fromPrivateNetwork({ headers: { host: "agent402.railway.internal", "x-forwarded-for": "1.2.3.4" } }) && !fromPrivateNetwork({ headers: {} }), "...and never on the public host or through the edge (a forwarded request, even naming the internal host)");
 ok(decideTokenOk({ headers: { authorization: `Bearer ${T}` } }, T) && !decideTokenOk({ headers: { authorization: `Bearer ${"u".repeat(32)}` } }, T), "the export opens only for the configured token");
 
 // ---- injection screen: case, entities and invisible characters ----

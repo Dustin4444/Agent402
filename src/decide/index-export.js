@@ -26,6 +26,17 @@ export function decideTokenOk(req, token = process.env.DECIDE_INTERNAL_TOKEN) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** True only for a request that did not come through the public edge: a
+ *  private-network host (Railway routes public traffic by host name, so a
+ *  *.railway.internal host cannot arrive from outside) or loopback, and no
+ *  forwarding header. The token is still required on top of this. */
+export function fromPrivateNetwork(req) {
+  const h = req.headers || {};
+  if (h["x-forwarded-for"] || h["x-real-ip"] || h["x-railway-edge"] || h["forwarded"]) return false;
+  const host = String(h.host || "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  return host.endsWith(".railway.internal") || host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
 /** Rows for every priced local tool, then every routable outside tool. */
 export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date.now() } = {}) {
   let n = 0;
@@ -56,7 +67,7 @@ let exporting = false;
 /** Express handler for GET /__internal/decide/tools.ndjson */
 export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks }) {
   return async (req, res) => {
-    if (!decideTokenOk(req)) return res.status(404).json({ error: "Not found" });
+    if (!fromPrivateNetwork(req) || !decideTokenOk(req)) return res.status(404).json({ error: "Not found" });
     if (exporting) return res.status(429).set("Retry-After", "60").json({ error: "export already running" });
     exporting = true;
     let rows = 0;

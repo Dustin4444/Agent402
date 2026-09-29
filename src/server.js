@@ -7670,7 +7670,12 @@ const mcpMountOpts = {
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
-  decideFeedback: decideEnabled() && decideLedger() ? (args) => { _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() }); return _decideFeedback(args); } : null,
+  // The same per-IP limiter as POST /api/decide/feedback: feedback moves ranking.
+  decideFeedback: decideEnabled() && decideLedger() ? (args, ctx = {}) => {
+    if (decideFeedbackLimiter.check(ctx.ip || "?").limited) throw Object.assign(new Error("Too many reports from this address. Try again shortly."), { statusCode: 429 });
+    _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() });
+    return _decideFeedback(args);
+  } : null,
   getLeaderboard: getLeaderboardSnapshot,
   // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
   getMppLeaderboard: mppLeaderboardSnapshot,

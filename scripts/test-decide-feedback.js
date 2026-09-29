@@ -113,5 +113,14 @@ ok(ledger.db.prepare("SELECT tool_id FROM feedback WHERE decision_id='d1' AND st
   ok(!threw, "a dead decide service cannot fail the request that reports to it");
 }
 
+// ---- the MCP path shares the HTTP limiter (feedback moves ranking) ----
+{
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const mcp = readFileSync(new URL("../src/mcp-http.js", import.meta.url), "utf8");
+  const wiring = server.slice(server.indexOf("decideFeedback: decideEnabled()"), server.indexOf("decideFeedback: decideEnabled()") + 400);
+  ok(/decideFeedbackLimiter\.check\(ctx\.ip/.test(wiring) && /decideFeedback\(args, \{ ip \}\)/.test(mcp), "decide.feedback over MCP is checked against the same per-IP limiter as the HTTP route");
+}
+
 console.log(`\ntest-decide-feedback: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

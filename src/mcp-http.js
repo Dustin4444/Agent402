@@ -960,7 +960,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           });
         }
         if (name === "decide.feedback" && decideFeedback) {
-          try { return mcpJsonResult(decideFeedback(args)); }
+          try { return mcpJsonResult(decideFeedback(args, { ip })); }
           catch (err) { return { content: [{ type: "text", text: err.statusCode && err.statusCode < 500 ? err.message : "feedback failed" }], isError: true }; }
         }
         if (name === "sellers.list" && getLeaderboard && args.wire === "mpp") {
