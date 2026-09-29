@@ -172,7 +172,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     const scored = scoreCandidates(s.candidates.map((c) => ({ row: c.row, fit: fitAt(judgedStepIndex[i], c) })),
       { reliability, weights: cfg.weights, now, halfLifeHours: cfg.freshnessHalfLifeHours, liveWithinHours: cfg.liveWithinHours });
     const viable = scored.filter((x) => x.fit > GAP_FIT);
-    rankingLog.push({ step: i + 1, top: scored.slice(0, 5).map((x) => ({ id: x.row.id, score: x.score, parts: x.parts })) });
+    rankingLog.push({ step: i + 1, retrieved: s.candidates.length, retrievedFirstParty: s.candidates.filter((c) => c.row.firstParty).length, top: scored.slice(0, 5).map((x) => ({ id: x.row.id, score: x.score, parts: x.parts })) });
     if (!viable.length) { gaps.push(s.purpose); continue; }
     newStepOf[i + 1] = plan.length + 1;
     const primary = viable[0];
