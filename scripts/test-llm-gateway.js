@@ -1516,6 +1516,52 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   } finally { globalThis.fetch = realFetch; delete process.env.OPENROUTER_API_KEY; }
 }
 
+// ---- model "auto" on a flat route (2026-09-29) -----------------------------
+// v1-chat answered 400 'Model "auto" is not in the gateway allowlist' to real
+// callers. Now every flat route quotes the AUTO price for it and, once gated
+// there, serves it under the auto tier's caps with agent402_router. Never the
+// route tier's (dearer) caps for the auto price, and never at all when the
+// request was not gated at the auto price.
+{
+  const { servedTierFor, AUTO_TIER } = await import("../src/tools/llm-gateway-kit.js");
+  const byS = (s) => LLM_GATEWAY_TOOLS.find((t) => t.slug === s);
+  const AUTO = TIERS["v1-chat-auto"];
+  const m = msg1("hi");
+  for (const s of ["v1-chat-nano", "v1-chat", "v1-chat-pro", "v1-chat-premium"]) {
+    ok(byS(s).tierQuote({ model: "auto", messages: m }) === AUTO.price, `${s} route + model "auto" quotes the auto price ($${AUTO.price})`);
+    ok(servedTierFor(s, "auto", { __meteredQuoteUsd: AUTO.price }) === AUTO_TIER, `${s}: gated at the auto price -> served as the auto tier`);
+  }
+  ok(servedTierFor("v1-chat-nano", "auto", { __meteredQuoteUsd: TIERS["v1-chat-nano"].price }) === "v1-chat-nano", "gated at the nano price (below auto) -> not served as auto");
+  ok(byS("v1-chat-auto").tierQuote === undefined && byS("v1-chat-metered").tierQuote === undefined, "the auto and metered routes are unchanged (no tierQuote)");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); seen.push(b); return { ok: true, status: 200, text: async () => JSON.stringify({ id: "g", object: "chat.completion", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6, cost: 0.00001 } }), headers: { get: () => "application/json" } }; };
+  const reqAt = (usd) => ({ header: () => undefined, headers: {}, ip: "127.0.0.1", ...(usd == null ? {} : { __meteredQuoteUsd: usd }) });
+  try {
+    seen = [];
+    const out = await byS("v1-chat-premium").handler({ model: "auto", messages: m, max_tokens: 6000 }, reqAt(AUTO.price));
+    const b = seen[0];
+    ok(b && b.model === AUTO_RANKINGS.balanced.general[0], `served the auto ranking's head (${b?.model})`);
+    ok(b?.max_tokens <= AUTO.maxTokens, `auto's output cap applies, not premium's (${b?.max_tokens} <= ${AUTO.maxTokens})`);
+    ok(JSON.stringify(b?.provider?.max_price) === JSON.stringify(AUTO.maxPrice), "auto's provider.max_price rides upstream");
+    ok(out.agent402_router?.category === "general" && out.agent402_router?.quality === "balanced", `the answer carries agent402_router (${JSON.stringify(out.agent402_router)})`);
+    ok(out.agent402_tier?.served === AUTO_TIER && out.agent402_tier?.priceUsd === AUTO.price && out.agent402_tier?.route === "/v1/premium/chat/completions", `and agent402_tier names the auto tier (${JSON.stringify(out.agent402_tier)})`);
+    seen = [];
+    const q = await byS("v1-chat").handler({ model: "auto", quality: "fast", messages: msg1("def f(x): return x") }, reqAt(AUTO.price));
+    ok(q.agent402_router?.quality === "fast" && q.agent402_router?.category === "code" && seen[0]?.model === AUTO_RANKINGS.fast.code[0], "the quality knob works through a flat route");
+    for (const [label, r] of [["no request (route-execute)", undefined], ["no stashed price (FREE_MODE)", reqAt(null)], ["gated at the nano price", reqAt(TIERS["v1-chat-nano"].price)]]) {
+      seen = [];
+      let e = null; try { await byS("v1-chat-nano").handler({ model: "auto", messages: m }, r); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && /routed by the v1-chat-auto tier/.test(e.message) && /\/v1\/auto\/chat\/completions/.test(e.message) && seen.length === 0, `${label}: 400 naming the auto route, nothing sent upstream`);
+    }
+    // control: an explicit model on its own route is untouched
+    seen = [];
+    const plain = await byS("v1-chat").handler({ model: "openai/gpt-4o-mini", messages: m }, reqAt(TIERS["v1-chat"].price));
+    ok(plain.agent402_router === undefined && plain.agent402_tier === undefined && seen[0]?.model === "openai/gpt-4o-mini", "control: an explicit base model on the base route is served as before");
+  } finally { globalThis.fetch = realFetch; delete process.env.OPENROUTER_API_KEY; }
+}
+
 // ---- Meta Muse (2026-09-23) -------------------------------------------------
 {
   const { refuseCostVariants, defaultReasoningFor } = await import("../src/tools/llm-gateway-kit.js");

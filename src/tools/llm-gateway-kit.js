@@ -734,9 +734,18 @@ export function isFlatTier(slug) {
  *  (a flat tier) does not allow `model` but another flat tier does; null when
  *  the route serves the model itself, the model has no flat home, or the model
  *  id carries a variant every tier refuses (it is answered by the 400). */
+// `model: "auto"` on a flat route (2026-09-29: v1-chat answered 400 "Model
+// \"auto\" is not in the gateway allowlist" to real callers) is the auto tier's
+// own spelling for "route this for me", so it is priced and served as the auto
+// tier: the 402 quotes the auto price and the answer carries agent402_router.
+// Never the route tier's caps: the served config is the auto tier's, whatever
+// route the body arrived on.
+export const AUTO_MODEL = "auto";
+export const AUTO_TIER = "v1-chat-auto";
 export function crossTierHome(routeTier, model) {
   if (!isFlatTier(routeTier)) return null;
   const m = canonicalModel(model);
+  if (m === AUTO_MODEL && TIERS[AUTO_TIER]?.router === true) return AUTO_TIER;
   if (!m || tierAllows(routeTier, m)) return null;
   try { refuseCostVariants(m); } catch { return null; }
   const home = tierFor(m);
@@ -769,7 +778,7 @@ export function servedTierFor(routeTier, model, req) {
  *  dearer 402 on a cross-tier model, and a fixed number with no sentence beside
  *  it reads as a promise. ONE copy, read by both surfaces: a price sentence
  *  typed twice is a price sentence that drifts. */
-export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; the answer names it in agent402_tier. The live 402 is always the price.";
+export const PRICED_BY_MODEL_NOTE = "Flat per call for the models this tier serves. A body naming another flat tier's model (nano, base, pro, premium) is quoted at that tier's price in the 402 and served under that tier; model \"auto\" is quoted and served as the auto tier. The answer names the tier in agent402_tier. The live 402 is always the price.";
 
 /** The additive `agent402_tier` field a cross-tier answer carries. */
 export function crossTierDisclosure(routeTier, servedTier) {
@@ -777,7 +786,9 @@ export function crossTierDisclosure(routeTier, servedTier) {
     route: TIERS[routeTier].route.split(" ")[1],
     served: servedTier,
     priceUsd: TIERS[servedTier].price,
-    note: `The model you named is served by the ${servedTier} tier, so this call was priced and served as that tier.`,
+    note: servedTier === AUTO_TIER
+      ? `Model "auto" is routed by the ${servedTier} tier, so this call was priced and served as that tier.`
+      : `The model you named is served by the ${servedTier} tier, so this call was priced and served as that tier.`,
   };
 }
 
@@ -1524,6 +1535,11 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
   // API (24h window), not a chat completion this path can serve.
   refuseCostVariants(model);
   if (!tierAllows(tierSlug, model)) {
+    // "auto" reaches here only when the request was not gated at the auto
+    // price (no request, or FREE_MODE): name the route that serves it.
+    if (model === AUTO_MODEL && TIERS[AUTO_TIER]) {
+      throw bad(`Model "auto" is routed by the ${AUTO_TIER} tier - call ${TIERS[AUTO_TIER].route.split(" ")[1]} (price $${tierPriceLabel(TIERS[AUTO_TIER].price)}/call), or send the body here and pay the auto price the 402 quotes.`);
+    }
     const home = tierFor(model);
     throw bad(
       home

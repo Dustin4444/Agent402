@@ -315,6 +315,8 @@ export function makeGeminiHandler(tierSlug) {
     // Price by model: the chat handler served another flat tier's config
     // because this request was gated at that tier's price; say so here too.
     if (data?.agent402_tier) out.agent402_tier = { ...data.agent402_tier, route: GEMINI_PATH_BY_TIER[tierSlug] };
+    // model "auto" (routed by the auto tier): carry the router's disclosure too.
+    if (data?.agent402_router) out.agent402_router = data.agent402_router;
     return out;
   };
 }

@@ -185,6 +185,31 @@ try {
   const plainBody = await plain.json().catch(() => ({}));
   ok(plain.status === 503 && /not configured/.test(plainBody.error || ""), `base model at the base price is served on the base tier as before (${plain.status})`);
 
+  // 5b. model "auto" on every flat route and wire: the 402 quotes the AUTO
+  // price, a payment at it is served as the auto tier, and a nano-priced
+  // payment (below auto) with an auto body is refused at the paywall.
+  const G = [{ role: "user", parts: [{ text: "hi" }] }];
+  const autoQuotes = {
+    chat: await quoteOf("/v1/chat/completions", { model: "auto", messages: MSG }),
+    nano: await quoteOf("/v1/nano/chat/completions", { model: "auto", messages: MSG }),
+    pro: await quoteOf("/v1/pro/chat/completions", { model: "auto", messages: MSG }),
+    premium: await quoteOf("/v1/premium/chat/completions", { model: "auto", messages: MSG }),
+    messages: await quoteOf("/v1/messages", { model: "auto", max_tokens: 64, messages: MSG }),
+    responses: await quoteOf("/v1/responses", { model: "auto", input: "hi" }),
+    gemini: await quoteOf("/v1/gemini", { model: "auto", contents: G }),
+  };
+  ok(Object.values(autoQuotes).every((q) => q.status === 402 && q.amounts.length === 1 && q.amounts[0] === "10000" && q.tempo === "10000"),
+    `model "auto" quotes the auto price on every flat route and wire (${Object.entries(autoQuotes).map(([k, q]) => `${k} ${q.amounts.join("/")}`).join(", ")})`);
+  const autoAccept = autoQuotes.chat.pr.accepts.find((a) => a.scheme === "exact" && a.network === "eip155:8453");
+  const autoPaid = await post("/v1/chat/completions", { model: "auto", messages: MSG }, { "payment-signature": credential(autoQuotes.chat.pr, autoAccept, "0x" + "dd".repeat(32)) });
+  const autoPaidBody = await autoPaid.json().catch(() => ({}));
+  ok(autoPaid.status === 503 && /not configured/.test(autoPaidBody.error || ""), `paid at the auto price: validated under the auto tier and reached the upstream key check (${autoPaid.status} ${String(autoPaidBody.error || "").slice(0, 60)})`);
+  const nanoQ = await quoteOf("/v1/nano/chat/completions", { model: "openai/gpt-5.6-luna", messages: MSG });
+  const nanoAccept = nanoQ.pr.accepts.find((a) => a.scheme === "exact" && a.network === "eip155:8453");
+  const v2 = verifies;
+  const cheap = await post("/v1/nano/chat/completions", { model: "auto", messages: MSG }, { "payment-signature": credential(nanoQ.pr, nanoAccept, "0x" + "ee".repeat(32)) });
+  ok(nanoQ.amounts[0] === "3000" && cheap.status === 402 && verifies === v2, `a nano-price payment with an auto body is refused at the paywall (${cheap.status}, verifies +${verifies - v2})`);
+
   ok(settles === 0 && relayCalls === 0, `nothing settled and no relay was called (settles ${settles}, relay ${relayCalls})`);
 
   // 6. from source: a charged-but-failed debt records the price THIS request was

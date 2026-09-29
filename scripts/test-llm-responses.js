@@ -223,6 +223,14 @@ delete process.env.OPENROUTER_API_KEY;
     pbmSeen = [];
     const same = await baseR.handler({ model: "openai/gpt-4o-mini", input: "hi" }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
+    // model "auto" (2026-09-29): quoted and served as the auto tier on this wire
+    ok(baseR.tierQuote({ model: "auto", input: "hi" }) === T["v1-chat-auto"].price && nanoR.tierQuote({ model: "auto", input: "hi" }) === T["v1-chat-auto"].price, "model \"auto\" quotes the auto price on flat Responses routes");
+    pbmSeen = [];
+    const au = await bySlug("v1-chat-pro-responses").handler({ model: "auto", input: "hi", max_output_tokens: 3000 }, reqAt(T["v1-chat-auto"].price));
+    ok(pbmSeen[0]?.max_output_tokens <= T["v1-chat-auto"].maxTokens && au.agent402_router?.quality === "balanced" && au.agent402_tier?.served === "v1-chat-auto" && au.agent402_tier?.route === "/v1/pro/responses", `auto body served under auto caps with agent402_router (${pbmSeen[0]?.model}, max_output_tokens ${pbmSeen[0]?.max_output_tokens})`);
+    pbmSeen = [];
+    let ae = null; try { await baseR.handler({ model: "auto", input: "hi" }, undefined); } catch (x) { ae = x; }
+    ok(ae?.statusCode === 400 && /\/v1\/auto\/responses/.test(ae.message) && pbmSeen.length === 0, "not gated at the auto price: 400 naming /v1/auto/responses, nothing sent upstream");
   } finally { globalThis.fetch = pbmReal; }
 }
 

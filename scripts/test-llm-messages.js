@@ -307,6 +307,14 @@ delete process.env.OPENROUTER_API_KEY;
     pbmSeen = [];
     const same = await baseM.handler({ model: "anthropic/claude-haiku-4.5", max_tokens: 10, messages: msg() }, reqAt(0.02)).catch((e) => ({ threw: `${e?.statusCode} ${e?.message}` }));
     ok(JSON.stringify(pbmSeen[0]?.provider?.max_price) === JSON.stringify(T["v1-chat"].maxPrice) && same.agent402_tier === undefined, "a same-tier model keeps the base config and carries no agent402_tier");
+    // model "auto" (2026-09-29): quoted and served as the auto tier on this wire
+    ok(baseM.tierQuote({ model: "auto", max_tokens: 10, messages: msg() }) === T["v1-chat-auto"].price && bySlug("v1-chat-premium-messages").tierQuote({ model: "auto", max_tokens: 10, messages: msg() }) === T["v1-chat-auto"].price, "model \"auto\" quotes the auto price on flat Messages routes");
+    pbmSeen = [];
+    const au = await bySlug("v1-chat-premium-messages").handler({ model: "auto", max_tokens: 6000, messages: msg() }, reqAt(T["v1-chat-auto"].price));
+    ok(pbmSeen[0]?.max_tokens <= T["v1-chat-auto"].maxTokens && au.agent402_router?.quality === "balanced" && au.agent402_tier?.served === "v1-chat-auto" && au.agent402_tier?.route === "/v1/premium/messages", `auto body served under auto caps with agent402_router (${pbmSeen[0]?.model}, max_tokens ${pbmSeen[0]?.max_tokens})`);
+    pbmSeen = [];
+    let ae = null; try { await baseM.handler({ model: "auto", max_tokens: 10, messages: msg() }, undefined); } catch (x) { ae = x; }
+    ok(ae?.statusCode === 400 && /\/v1\/auto\/messages/.test(ae.message) && pbmSeen.length === 0, "not gated at the auto price: 400 naming /v1/auto/messages, nothing sent upstream");
   } finally { globalThis.fetch = pbmReal; }
 }
 

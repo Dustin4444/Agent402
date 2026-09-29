@@ -184,6 +184,14 @@ ok(chatToGemini({}, M).candidates[0].finishReason === "FINISH_REASON_UNSPECIFIED
     pbmSeen = [];
     let e = null; try { await baseG.handler({ model: OPUS, contents }, reqAt(0.02)); } catch (x) { e = x; }
     ok(e?.statusCode === 400 && e.message.includes("/v1/premium/gemini") && pbmSeen.length === 0, "gated at the base price: the 400 re-pointed at the premium Gemini route, nothing sent upstream");
+    // model "auto" (2026-09-29): quoted and served as the auto tier, router disclosure carried on this wire
+    ok(baseG.tierQuote({ model: "auto", contents }) === TIERS["v1-chat-auto"].price && baseG.tierQuote({ model: "models/auto", contents }) === TIERS["v1-chat-auto"].price, "model \"auto\" (body or Google-shaped path) quotes the auto price");
+    pbmSeen = [];
+    const au = await baseG.handler({ model: "auto", contents, generationConfig: { maxOutputTokens: 3000 } }, reqAt(TIERS["v1-chat-auto"].price));
+    ok(pbmSeen[0]?.max_tokens <= TIERS["v1-chat-auto"].maxTokens && au.agent402_router?.quality === "balanced" && au.agent402_tier?.served === "v1-chat-auto" && au.agent402_tier?.route === "/v1/gemini", `auto body served under auto caps with agent402_router (${pbmSeen[0]?.model}, max_tokens ${pbmSeen[0]?.max_tokens})`);
+    pbmSeen = [];
+    let ae = null; try { await baseG.handler({ model: "auto", contents }, undefined); } catch (x) { ae = x; }
+    ok(ae?.statusCode === 400 && ae.message.includes("/v1/auto/gemini") && pbmSeen.length === 0, "not gated at the auto price: 400 re-pointed at /v1/auto/gemini, nothing sent upstream");
   } finally { globalThis.fetch = pbmReal; delete process.env.OPENROUTER_API_KEY; }
 }
 
