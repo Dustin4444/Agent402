@@ -2279,6 +2279,7 @@ jobs:
           t node scripts/test-decide-feedback.js
           t node scripts/test-decide-site.js
           t node scripts/test-decide-cost.js
+          t node scripts/test-decide-reconcile.js
           DECIDE_TEST_PG_URL=postgres://decide@127.0.0.1:5432/decide_test t node scripts/test-decide-pg.js
           t node scripts/test-image-gen-kit.js
           # Leaderboard chain config (right token on the right rail; testnets excluded — offline)
