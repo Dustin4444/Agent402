@@ -4909,10 +4909,25 @@ const INJECTION_PATTERNS = [
   /system\s*(?:prompt|message|role)\s*[:=]/,
   /do\s+not\s+(?:pick|choose|select|recommend|consider)\s+(?:any\s+)?other/,
 ];
+// The patterns are written lowercase; the text is brought to that form before
+// matching, twice: as written (so a literal <system> tag is still seen) and
+// with markup/entities/invisible characters turned to spaces (so
+// "Ignore&lt;previous instructions" or a zero-width split cannot slip a phrase
+// past the screen that a later cleaning step would reassemble).
+function injectionForms(text) {
+  const decoded = String(text || "").normalize("NFKC")
+    .replace(/&(?:lt|gt|amp|quot|apos|nbsp|#\d{1,6}|#x[0-9a-f]{1,6});/gi, (m) => {
+      const e = m.toLowerCase();
+      return e === "&lt;" ? "<" : e === "&gt;" ? ">" : e === "&amp;" ? "&" : " ";
+    })
+    .toLowerCase();
+  const flat = decoded.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff<>`_*~|]/g, " ").replace(/\s+/g, " ");
+  return [decoded, flat];
+}
 export function looksLikeListingInjection(text) {
   const t = String(text || "");
   if (t.length > 8000) return true; // no honest listing is a novel; oversized = padding an attack
-  for (const re of INJECTION_PATTERNS) if (re.test(t)) return true;
+  for (const form of injectionForms(t)) for (const re of INJECTION_PATTERNS) if (re.test(form)) return true;
   return false;
 }
 

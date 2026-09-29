@@ -21,7 +21,7 @@ import { PgToolStore, MemoryToolStore } from "./tool-store.js";
 import { migrate } from "./migrations.js";
 import { syncIndex, loadIndex } from "./sync.js";
 import { embedTexts, embedBudgetStatus } from "./embed.js";
-import { decideConfig } from "./config.js";
+import { decideConfig } from "../../src/decide/config.js";
 import { makeLlm } from "./llm.js";
 import { buildDecision, parseDecideInput, cacheKeyFor } from "./planner.js";
 import { MemoryDecisionStore, PgDecisionStore, makeGate, makeDecisionCache } from "./decision-store.js";

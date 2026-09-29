@@ -53,11 +53,12 @@ const catalog = {
     calls.push(["router", input]);
     if (routerMode === "committed") throw Object.assign(new Error("seller settled then failed"), { statusCode: 502, committed: true });
     if (routerMode === "fail") throw Object.assign(new Error("no seller"), { statusCode: 502 });
+    if (routerMode === "hang") return new Promise(() => {});
     return { result: { ext: true }, receipt: { underlyingPriceUsd: 0.018, seller: "seller.example" } };
   } },
 };
 const exec = makeExecuteHandler({ ledger, getCatalog: () => catalog, now });
-function settle(req, status = 200) { for (const fn of req.__onFinalStatus || []) fn(status); }
+function settle(req, status = 200) { for (const fn of req.__onSettled || []) fn(status === 200); }
 function mkReq(payer = "0xabc") { return { headers: {}, ip: payer }; }
 
 ledger.saveDecision({ decisionId: "d1", depth: "plan", priceUsd: 0.02, payer: "0xabc", plan, costViaUsd: 0.031, now: clock });
@@ -157,23 +158,92 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   await exec({ decisionId: "d4", creditToken: c.token }, req);
   ok(ledger.creditState(c.token).state === "redeemed", "redeemed during the run");
   settle(req, 402);
-  ok(ledger.creditState(c.token).state === "active", "settlement failed afterwards: the credit is restored");
+  ok(ledger.creditState(c.token).state === "redeemed", "settlement failed after the run spent money: the credit is forfeited, not restored (no credit funds run after run)");
 }
 
-// ---- concurrent redemption: spend only what was actually paid ----
+// ---- concurrent redemption: a credit raced away refuses the run, uncharged ----
 {
   const plan5 = [{ step: 1, purpose: "x", tool: tool("a", { priceUsd: 0.01 }), fallbacks: [], dependsOn: [] }, { step: 2, purpose: "y", tool: tool("c", { priceUsd: 0.01 }), fallbacks: [], dependsOn: [] }];
   ledger.saveDecision({ decisionId: "d5", depth: "plan", priceUsd: 0.02, plan: plan5, costViaUsd: 0.02, now: clock });
   ledger.markDecisionSettled("d5");
-  const c = ledger.mintCredit({ decisionId: "d5", amountUsd: 0.01, ttlMs: 3600_000, now: clock });
+  const c = ledger.mintCredit({ decisionId: "d5", amountUsd: 0.02, ttlMs: 3600_000, now: clock });
   ledger.activateCredit(c.hash);
-  ledger.redeemCredit(c.token, "d5", "someone-else", clock); // taken between quote and run
-  // quote was made while the credit was active: paid = 0.02 - 0.01 = 0.01
-  const realAvail = ledger.creditAvailableUsd;
-  ledger.creditAvailableUsd = () => 0.01; // what the quote saw
-  const out = await exec({ decisionId: "d5", creditToken: c.token }, mkReq("0xl"));
-  ledger.creditAvailableUsd = realAvail;
-  ok(out.budgetUsd === 0.01 && out.spentUsd <= 0.01 && out.creditAppliedUsd === 0, "a credit lost to a concurrent run shrinks the budget to what this buyer paid");
+  // N racers all quoted $0.001 (the credit covered the budget); the gate stashed that.
+  const racers = Array.from({ length: 4 }, () => ({ ...mkReq("0xrace"), __meteredQuoteUsd: 0.001 }));
+  calls.length = 0;
+  const outcomes = await Promise.allSettled(racers.map((r) => exec({ decisionId: "d5", creditToken: c.token }, r)));
+  const won = outcomes.filter((o) => o.status === "fulfilled");
+  const refused = outcomes.filter((o) => o.status === "rejected" && o.reason.statusCode === 409);
+  ok(won.length === 1 && refused.length === 3, `one racer runs on the credit, the rest are refused 409 before spending (${won.length} ran, ${refused.length} refused)`);
+  ok(calls.filter((x) => x[0] === "a").length === 1, "only the winning run called a tool");
+  ok(won[0].value.paidUsd === 0.001 && won[0].value.spentUsd <= 0.021, "the winner spends at most what was paid plus the credit");
+}
+
+// ---- what was paid is the settled quote, never a recomputation ----
+{
+  const planQ = [{ step: 1, purpose: "x", tool: tool("a", { priceUsd: 0.01 }), fallbacks: [], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dQ", depth: "quick", priceUsd: 0.005, plan: planQ, costViaUsd: 0.01, now: clock });
+  ledger.markDecisionSettled("dQ");
+  const req = { ...mkReq("0xq"), __meteredQuoteUsd: 0.004 };
+  await throwsWith(() => exec({ decisionId: "dQ" }, req), 409, "no longer available", "a settled quote below the budget with no credit behind it is refused, uncharged");
+}
+
+// ---- a timed-out or committed external leg books its worst case and stops ----
+{
+  routerMode = "hang";
+  const planT = [{ step: 1, purpose: "x", tool: tool("e1", { firstParty: false, seller: "s1.example", endpoint: "https://s1.example/x", priceUsd: 0.01 }), fallbacks: [tool("e2", { firstParty: false, seller: "s2.example", endpoint: "https://s2.example/x", priceUsd: 0.01 })], dependsOn: [] },
+    { step: 2, purpose: "y", tool: tool("a"), fallbacks: [], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dT", depth: "plan", priceUsd: 0.02, plan: planT, costViaUsd: 0.05, now: clock });
+  ledger.markDecisionSettled("dT");
+  const execFast = makeExecuteHandler({ ledger, getCatalog: () => catalog, now, runBudgetMs: () => 30_000 });
+  calls.length = 0;
+  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { externalStepTimeoutMs: 1200 } });
+  const out = await execFast({ decisionId: "dT" }, mkReq("0xt"));
+  delete process.env.DECIDE_CONFIG;
+  routerMode = "ok";
+  ok(calls.filter((x) => x[0] === "router").length === 1, "a timed-out external leg is not followed by another paid seller");
+  ok(out.steps[0].attempts[0].mayHavePaid === true && out.spentUsd >= 0.015 * 1.05 - 1e-9, `...and its worst case is booked against the budget (${out.spentUsd})`);
+}
+
+// ---- report products never run as a plan step ----
+{
+  const planR = [{ step: 1, purpose: "x", tool: tool("rep"), fallbacks: [tool("b")], dependsOn: [] }];
+  catalog.rep = { slug: "rep", route: "POST /api/rep", price: "$0.60", discovery: { bodyType: "json" }, handler: async () => { calls.push(["rep"]); return {}; } };
+  ledger.saveDecision({ decisionId: "dR", depth: "quick", priceUsd: 0.005, plan: planR, costViaUsd: 0.7, now: clock });
+  ledger.markDecisionSettled("dR");
+  calls.length = 0;
+  const execR = makeExecuteHandler({ ledger, getCatalog: () => catalog, now, isComposite: (slug) => slug === "rep" });
+  const out = await execR({ decisionId: "dR" }, mkReq("0xr"));
+  ok(!calls.some((x) => x[0] === "rep") && out.steps[0].tool.slug === "b" && /report product/.test(out.steps[0].attempts[0].skipped), "a report composite is skipped (it runs only as a direct call); the fallback runs");
+}
+
+// ---- first-party steps never receive the paying request ----
+{
+  let seen = "unset";
+  catalog.spy = { slug: "spy", route: "POST /api/spy", price: "$0.01", discovery: { bodyType: "json" }, handler: async (p, r) => { seen = r; return {}; } };
+  ledger.saveDecision({ decisionId: "dS", depth: "quick", priceUsd: 0.005, plan: [{ step: 1, purpose: "x", tool: tool("spy"), fallbacks: [], dependsOn: [] }], costViaUsd: 0.01, now: clock });
+  ledger.markDecisionSettled("dS");
+  await exec({ decisionId: "dS" }, { ...mkReq("0xs"), headers: { "payment-signature": "secret" } });
+  ok(seen === undefined, "a first-party step is called without the request object");
+}
+
+// ---- a repriced first-party tool is charged at its live price ----
+{
+  catalog.a.price = "$0.02";
+  ledger.saveDecision({ decisionId: "dP", depth: "quick", priceUsd: 0.005, plan: [{ step: 1, purpose: "x", tool: tool("a", { priceUsd: 0.01 }), fallbacks: [], dependsOn: [] }], costViaUsd: 0.05, now: clock });
+  ledger.markDecisionSettled("dP");
+  const out = await exec({ decisionId: "dP" }, mkReq("0xp"));
+  catalog.a.price = "$0.01";
+  ok(out.steps[0].costUsd === 0.02, "cost uses the live catalog price, not the plan's stored one");
+}
+
+// ---- stale running rows and the caps ----
+{
+  const now0 = Date.now();
+  ledger.createRun({ runId: "old", decisionId: "d1", payer: "0xstale", budgetUsd: 2.5, creditUsd: 0, now: now0 - 20 * 60_000 });
+  ok(ledger.payerExposureUsd("0xstale", now0 - 3_600_000, now0) === 0, "a run 'running' past the longest possible run no longer holds cap headroom");
+  const reopened = openDecideLedger(join(dir, "ledger.db"));
+  ok(reopened.getRun("old").status === "abandoned", "a restart marks cut-off runs abandoned");
 }
 
 // ---- no roll-forward: a decision past its window returns no leftover credit ----
@@ -187,7 +257,8 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
 
 // ---- caps, refused before spending ----
 {
-  const plan6 = [{ step: 1, purpose: "x", tool: tool("a", { priceUsd: 2 }), fallbacks: [], dependsOn: [] }];
+  catalog.big = { slug: "big", route: "POST /api/big", price: "$2", discovery: { bodyType: "json" }, handler: async (p) => { calls.push(["big", p]); return { ok: 1 }; } };
+  const plan6 = [{ step: 1, purpose: "x", tool: tool("big", { priceUsd: 2 }), fallbacks: [], dependsOn: [] }];
   ledger.saveDecision({ decisionId: "d6", depth: "quick", priceUsd: 0.005, plan: plan6, costViaUsd: 2, now: clock });
   ledger.markDecisionSettled("d6");
   process.env.DECIDE_CONFIG = JSON.stringify({ execute: { perWalletHourUsd: 3, globalDayUsd: 100 } });

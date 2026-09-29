@@ -41,7 +41,7 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
     for (const t of tools) {
       const row = remoteToolRow(t, {
         requestContract: unpackRequestContract(t),
-        injected: looksLikeListingInjection(`${t.name || ""} ${t.description || ""}`),
+        injected: looksLikeListingInjection(`${t.name || ""} ${t.description || ""} ${t.sellerName || ""} ${t.category || ""} ${t.route || ""}`),
         lastLiveAt: liveProofAt(t),
         mppOrigins,
       });
@@ -64,7 +64,11 @@ export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks }) {
       res.status(200).set({ "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
       for await (const row of unifiedRows({ catalog: getCatalog(), baseUrl, networks: getNetworks() })) {
         if (res.destroyed) break;
-        if (!res.write(JSON.stringify(row) + "\n")) await new Promise((r) => res.once("drain", r));
+        if (!res.write(JSON.stringify(row) + "\n")) {
+          // A socket that closes while we wait never drains: wait on either.
+          await new Promise((r) => { const done = () => { res.off("drain", done); res.off("close", done); res.off("error", done); r(); }; res.once("drain", done); res.once("close", done); res.once("error", done); });
+          if (res.destroyed) break;
+        }
         rows++;
       }
       res.end(JSON.stringify({ __end: true, rows }) + "\n");

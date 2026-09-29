@@ -9,7 +9,7 @@
 //   TARGET_URL=http://127.0.0.1:PORT node scripts/decide-golden-eval.mjs [--depth plan] [--out file.json]
 
 import { writeFileSync } from "node:fs";
-import { validateParams } from "../services/decide/params.js";
+import { validateParams } from "../src/decide/params.js";
 
 const TARGET = (process.env.TARGET_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };

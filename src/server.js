@@ -324,7 +324,13 @@ import { decideIndexExportHandler } from "./decide/index-export.js";
 import { buildDecideTools, decideEnabled, makeFeedbackHandler } from "./tools/decide-kit.js";
 import { openDecideLedger } from "./decide/ledger.js";
 let _decideLedger = null;
-const decideLedger = () => (_decideLedger ||= openDecideLedger());
+// A ledger that cannot open (bad file, unwritable path) leaves the feature
+// off rather than taking the whole app down at boot.
+const decideLedger = () => {
+  if (_decideLedger !== null) return _decideLedger || null;
+  try { _decideLedger = openDecideLedger(); } catch (e) { console.error("[decide] ledger failed to open - decide stays off:", String(e?.message || e).slice(0, 200)); _decideLedger = false; }
+  return _decideLedger || null;
+};
 import { NETWORKS as PAY_NETWORKS, buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -528,7 +534,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 // Listed only with a key, like every other env-gated kit: a tool we cannot serve
 // must not appear in the catalog, on /api/pricing, or in a 402's offer.
 const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
-const DECIDE_TOOLS_ENABLED = decideEnabled() ? buildDecideTools({ getCatalog: () => CATALOG, ledger: decideLedger() }) : [];
+const DECIDE_TOOLS_ENABLED = decideEnabled() && decideLedger() ? buildDecideTools({ getCatalog: () => CATALOG, ledger: decideLedger() }) : [];
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CVE_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED, ...DECIDE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
@@ -5789,7 +5795,7 @@ app.post("/api/find", (req, res) => {
 const decideFeedbackLimiter = createRateLimiter("decide-feedback", { perMin: 30, perHour: 600 });
 let _decideFeedback = null;
 app.post("/api/decide/feedback", express.json({ limit: "4kb" }), (req, res) => {
-  if (!decideEnabled()) return res.status(404).json({ error: "Not found" });
+  if (!decideEnabled() || !decideLedger()) return res.status(404).json({ error: "Not found" });
   if (decideFeedbackLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many reports from this address. Try again shortly." });
   try {
     _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() });
@@ -7655,7 +7661,7 @@ const mcpMountOpts = {
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
-  decideFeedback: decideEnabled() ? (args) => { _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() }); return _decideFeedback(args); } : null,
+  decideFeedback: decideEnabled() && decideLedger() ? (args) => { _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() }); return _decideFeedback(args); } : null,
   getLeaderboard: getLeaderboardSnapshot,
   // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
   getMppLeaderboard: mppLeaderboardSnapshot,
@@ -9351,12 +9357,13 @@ for (const tool of ALL_KIT) {
       // is what stops a wallet whose payments never settle from draining the
       // upstream wallet one call at a time. Same doctrine as the idempotency
       // cache's commit-on-finish.
-      // Generic post-settlement hooks (decide credits): each runs once with
-      // the FINAL status, so work that must follow a settled 200 cannot
-      // follow a handler success whose settlement then failed.
-      if (Array.isArray(req.__onFinalStatus) && req.__onFinalStatus.length) {
-        const hooks = req.__onFinalStatus;
-        res.on("finish", () => { for (const fn of hooks) { try { fn(res.statusCode); } catch { /* never break a response */ } } });
+      // Post-settlement hooks (decide credits): each runs once with whether
+      // the payment SETTLED, via onSettleOutcome, so it also runs when the
+      // buyer hung up after the answer, and never on a handler success whose
+      // settlement then failed.
+      if (Array.isArray(req.__onSettled) && req.__onSettled.length) {
+        const hooks = req.__onSettled;
+        onSettleOutcome(req, res, () => { const ok = res.statusCode === 200; for (const fn of hooks) { try { fn(ok); } catch { /* never break a response */ } } });
       }
       if (req.__externalSpend) {
         const handles = Array.isArray(req.__externalSpends) && req.__externalSpends.length ? req.__externalSpends : [req.__externalSpend];

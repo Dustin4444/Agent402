@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 
 const micro = (usd) => Math.round(Number(usd) * 1e6);
+const RUN_MAX_MS = 15 * 60_000;
 const usd = (m) => Math.round(Number(m)) / 1e6;
 export const hashToken = (t) => createHash("sha256").update(String(t)).digest("hex");
 
@@ -48,8 +49,19 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
       PRIMARY KEY (decision_id, step)
     );
     CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at);
+    CREATE INDEX IF NOT EXISTS runs_status ON runs (status, created_at);
   `);
 
+  // A run still "running" when this process starts was cut off by a restart:
+  // it will never finish, and must not hold spend-ceiling headroom forever.
+  db.prepare("UPDATE runs SET status = 'abandoned', finished_at = ? WHERE status = 'running'").run(Date.now());
+  // Retention: decisions, credits, runs and feedback older than 30 days go.
+  {
+    const cut = Date.now() - 30 * 86_400_000;
+    db.prepare("DELETE FROM credits WHERE expires_at < ?").run(cut);
+    db.prepare("DELETE FROM runs WHERE created_at < ?").run(cut);
+    db.prepare("DELETE FROM feedback WHERE created_at < ?").run(cut);
+  }
   // Added after the first schema: the hash of the decision's feedback token.
   try { db.exec("ALTER TABLE decisions ADD COLUMN feedback_hash TEXT"); } catch { /* already there */ }
 
@@ -68,9 +80,10 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     finishRun: db.prepare("UPDATE runs SET status = ?, spent_micro = ?, steps_json = ?, finished_at = ? WHERE id = ?"),
     getRun: db.prepare("SELECT * FROM runs WHERE id = ?"),
     payerSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE payer = ? AND created_at >= ?"),
-    payerRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE payer = ? AND status = 'running'"),
+    // A run older than the longest possible run is not "running" for the caps.
+    payerRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE payer = ? AND status = 'running' AND created_at >= ?"),
     globalSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE created_at >= ?"),
-    globalRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE status = 'running'"),
+    globalRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE status = 'running' AND created_at >= ?"),
   };
 
   return {
@@ -128,7 +141,7 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     finishRun({ runId, status, spentUsd, steps, now = Date.now() }) { st.finishRun.run(status, micro(spentUsd), JSON.stringify(steps || []), now, runId); },
     getRun(id) { const r = st.getRun.get(id); return r ? { ...r, budgetUsd: usd(r.budget_micro), spentUsd: usd(r.spent_micro), creditUsd: usd(r.credit_micro), steps: JSON.parse(r.steps_json) } : null; },
     /** Spent in the window plus everything still running (its whole budget). */
-    payerExposureUsd(payer, sinceMs) { return usd(st.payerSince.get(payer || "", sinceMs).s + st.payerRunning.get(payer || "").s); },
-    globalExposureUsd(sinceMs) { return usd(st.globalSince.get(sinceMs).s + st.globalRunning.get().s); },
+    payerExposureUsd(payer, sinceMs, now = Date.now()) { return usd(st.payerSince.get(payer || "", sinceMs).s + st.payerRunning.get(payer || "", now - RUN_MAX_MS).s); },
+    globalExposureUsd(sinceMs, now = Date.now()) { return usd(st.globalSince.get(sinceMs).s + st.globalRunning.get(now - RUN_MAX_MS).s); },
   };
 }

@@ -9,7 +9,7 @@ import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
 import { makeFeedbackHandler, makeExecuteHandler, sendObservations } from "../src/tools/decide-kit.js";
 import { Reliability, WEIGHT } from "../services/decide/reliability.js";
 import { scoreCandidates } from "../services/decide/rank.js";
-import { DEFAULTS } from "../services/decide/config.js";
+import { DEFAULTS } from "../src/decide/config.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.log("FAIL -", m); } };

@@ -7,8 +7,8 @@
 
 import { scoreCandidates, reliabilityScore, priceScore, freshnessScore } from "../services/decide/rank.js";
 import { buildDecision, parseDecideInput, cacheKeyFor, compilePrompt } from "../services/decide/planner.js";
-import { validateParams, skeletonParams, pruneParams } from "../services/decide/params.js";
-import { DEFAULTS, decideConfig, priceForDepth } from "../services/decide/config.js";
+import { validateParams, skeletonParams, pruneParams } from "../src/decide/params.js";
+import { DEFAULTS, decideConfig, priceForDepth } from "../src/decide/config.js";
 import { makeDecisionCache, makeGate, MemoryDecisionStore } from "../services/decide/decision-store.js";
 import { extractJson, judgePrompt } from "../services/decide/llm.js";
 import { ToolIndex } from "../services/decide/tool-index.js";

@@ -10,13 +10,15 @@
 //
 // Listed only when DECIDE_SERVICE_URL and DECIDE_INTERNAL_TOKEN are set.
 
-import { decideConfig, priceForDepth, DEPTHS } from "../../services/decide/config.js";
+import { decideConfig, priceForDepth, DEPTHS } from "../decide/config.js";
 import { recordWish } from "../wish.js";
 import { payerFromRequest } from "../payer.js";
 import { openDecideLedger, hashToken } from "../decide/ledger.js";
-import { validateParams } from "../../services/decide/params.js";
+import { validateParams } from "../decide/params.js";
 import { randomUUID, randomBytes } from "node:crypto";
 import { dispatchable } from "./route-execute.js";
+import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
+import { evmCredentialBudgetMs } from "../evm-validity.js";
 
 const serviceUrl = () => String(process.env.DECIDE_SERVICE_URL || "").replace(/\/+$/, "");
 const token = () => String(process.env.DECIDE_INTERNAL_TOKEN || "");
@@ -60,8 +62,11 @@ function fileGaps(gaps, req) {
 
 // Keyed like the router's spend guard: signed payer, else the verified Tempo
 // sender, else the client ip, so no caller is unkeyed.
-const payerOf = (req) => (req ? payerFromRequest(req) || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : null) || (req.ip ? `ip:${req.ip}` : null) : null);
-const onFinal = (req, fn) => { if (req && typeof req === "object") (req.__onFinalStatus ||= []).push(fn); };
+const payerOf = (req) => (req ? payerFromRequest(req) || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : null) || (req.creditsKeyId ? `credits:${req.creditsKeyId}` : null) || (req.ip ? `ip:${req.ip}` : null) : null);
+// Runs fn(settledOk) once the paid response's settlement outcome is known,
+// including a client that hung up after the handler answered (the server
+// resolves __onSettled through hangup-settlement's onSettleOutcome).
+const onSettled = (req, fn) => { if (req && typeof req === "object") (req.__onSettled ||= []).push(fn); };
 const roundUsd = (x) => Math.round(x * 1e6) / 1e6;
 
 /** Fire-and-forget: reliability observations to the decide service. Never
@@ -91,10 +96,10 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
     let executionCredit = null;
     if (amount > 0 && out.plan?.length) {
       const c = ledger.mintCredit({ decisionId: out.decisionId, amountUsd: amount, ttlMs: cfg.credit.ttlHours * 3_600_000, payer, now: now() });
-      onFinal(req, (status) => { if (status === 200) { ledger.activateCredit(c.hash); ledger.markDecisionSettled(out.decisionId); } });
+      onSettled(req, (settledOk) => { if (settledOk) { ledger.activateCredit(c.hash); ledger.markDecisionSettled(out.decisionId); } });
       executionCredit = { amountUsd: c.amountUsd, expiresAt: new Date(c.expiresAt).toISOString(), token: c.token, redeemWith: "POST /api/decide/execute { decisionId, creditToken }", activeAfterPaymentSettles: true };
     } else {
-      onFinal(req, (status) => { if (status === 200) ledger.markDecisionSettled(out.decisionId); });
+      onSettled(req, (settledOk) => { if (settledOk) ledger.markDecisionSettled(out.decisionId); });
     }
     return {
       ...out,
@@ -141,7 +146,12 @@ async function withTimeout(promise, ms, label) {
   } finally { clearTimeout(t); }
 }
 
-export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() }) {
+function priceOfDef(def) {
+  const n = Number(String(def?.price ?? "").replace(/^\$/, ""));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(), isComposite = (slug) => EXPENSIVE_COMPOSITE_SLUGS.has(slug), runBudgetMs = (req) => evmCredentialBudgetMs(req) }) {
   return async function executeHandler(input, req) {
     const cfg = decideConfig();
     const decisionId = String(input?.decisionId || "");
@@ -152,70 +162,110 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
     if (input.params != null && (typeof input.params !== "object" || Array.isArray(input.params))) throw bad('"params" must be an object keyed by step number');
     const payer = payerOf(req);
     const t = now();
+    const startedAt = Date.now();
     const budget = executeBudgetUsd(input, d, cfg);
-    const creditAtQuote = ledger.creditAvailableUsd(input.creditToken, d.id, t);
-    const paid = Math.max(0.001, roundUsd(budget - creditAtQuote));
+    if (budget <= 0) throw bad("Nothing to execute: the plan has no priced steps; pass maxBudgetUsd", 400);
+
+    // WHAT WAS PAID is the quote the payment gate settled against (stashed on
+    // the request by every gate), never a recomputation: a credit raced away
+    // since the quote would otherwise make an unpaid budget spendable.
+    const quoted = Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0 ? req.__meteredQuoteUsd : executeQuoteUsd(input, { ledger, now: t });
+    const creditAssumed = roundUsd(Math.max(0, budget - quoted));
 
     // Caps, checked before anything is spent (a >= 400 is never charged).
-    if (budget <= 0) throw bad("Nothing to execute: the plan has no priced steps; pass maxBudgetUsd", 400);
     if (payer && ledger.payerExposureUsd(payer, t - 3_600_000) + budget > cfg.execute.perWalletHourUsd) throw bad(`This wallet has reached its hourly execution ceiling ($${cfg.execute.perWalletHourUsd}); nothing was charged`, 429);
     if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for the rest of the day; nothing was charged", 429);
 
     const runId = `run_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
-    const redeemed = creditAtQuote > 0 ? ledger.redeemCredit(input.creditToken, d.id, runId, t) : 0;
-    // The buyer paid budget minus the credit seen at quote time. If the credit
-    // was taken by a concurrent run since, spend only what was paid.
-    const spendable = roundUsd(Math.min(budget, paid + redeemed));
+    let redeemed = 0;
+    if (creditAssumed > 0) {
+      redeemed = ledger.redeemCredit(input.creditToken, d.id, runId, t);
+      // The price assumed this credit; if it is gone (used by another run,
+      // expired), refuse before spending anything. Not charged.
+      if (redeemed + 1e-9 < creditAssumed) {
+        if (redeemed) ledger.restoreCredit(input.creditToken, runId);
+        throw bad("The execution credit this price assumed is no longer available (already used or expired); nothing was charged - request a fresh quote", 409);
+      }
+    }
+    const spendable = roundUsd(Math.min(budget, quoted + redeemed));
     ledger.createRun({ runId, decisionId: d.id, payer, budgetUsd: spendable, creditUsd: redeemed, now: t });
+
+    // One deadline for the whole run, inside what the buyer's payment can
+    // still settle (EVM credentials expire), and never past the ceiling.
+    const creditMs = runBudgetMs(req);
+    const deadline = startedAt + Math.min(Number.isFinite(creditMs) && creditMs > 0 ? creditMs : Infinity, cfg.execute.runDeadlineMs ?? 240_000);
+    const left = () => deadline - Date.now();
 
     const catalog = getCatalog();
     const bySlug = new Map(Object.values(catalog).map((def) => [def.slug, def]));
     const router = bySlug.get("route-execute-pro");
     let spent = 0;
+    let mayHaveSpentOutside = false; // an external payment whose outcome we cannot know
     const results = [];
     const outputs = {};
     for (const step of d.plan) {
       const params = stepParams(step, input.params);
-      const missingRef = Object.values(params).map((v) => (typeof v === "string" ? REF.exec(v) : null)).find((m) => m && !outputs[m[1]]);
-      if (missingRef || Object.values(params).some((v) => typeof v === "string" && REF.test(v))) {
-        results.push({ step: step.step, status: "skipped", reason: `needs the output of step ${(missingRef || Object.values(params).map((v) => REF.exec(String(v))).find(Boolean))[1]}: pass params for this step` });
-        continue;
-      }
+      const ref = Object.values(params).map((v) => (typeof v === "string" ? REF.exec(v) : null)).find(Boolean);
+      if (ref) { results.push({ step: step.step, status: "skipped", reason: `needs the output of step ${ref[1]}: pass params for this step` }); continue; }
       let done = null;
       const attempts = [];
       for (const tool of [step.tool, ...(step.fallbacks || [])]) {
-        const cost = tool.firstParty ? tool.priceUsd : roundUsd(tool.priceUsd * (1 + cfg.routingFeePct / 100));
+        if (left() < 5000) { attempts.push({ id: tool.id, skipped: "the run's time budget is spent" }); break; }
+        const def = tool.firstParty ? bySlug.get(tool.slug) : null;
+        const listPrice = tool.firstParty ? priceOfDef(def) : tool.priceUsd;
+        if (tool.firstParty && listPrice === null) { attempts.push({ id: tool.id, skipped: "no longer in the catalog" }); continue; }
+        const cost = tool.firstParty ? listPrice : roundUsd(listPrice * (1 + cfg.routingFeePct / 100));
         if (spent + cost > spendable + 1e-9) { attempts.push({ id: tool.id, skipped: "over the remaining budget" }); continue; }
         const v = validateParams(tool.inputSchema, params);
         if (!v.ok) { attempts.push({ id: tool.id, skipped: `params do not fit: ${v.errors.slice(0, 3).join("; ")}` }); continue; }
-        try {
-          const t0 = Date.now();
-          if (tool.firstParty) {
-            const def = bySlug.get(tool.slug);
-            // The router's own dispatch rules, plus: a tool priced from its body
-            // (tierQuote) is never run from a flat budget.
-            const why = !def ? "no longer in the catalog" : (!dispatchable(def).ok ? dispatchable(def).why : (typeof def.tierQuote === "function" ? "priced per request; call it directly" : null));
-            if (why) { attempts.push({ id: tool.id, skipped: why }); continue; }
-            const result = await withTimeout(Promise.resolve(def.handler(params, req)), cfg.execute.stepTimeoutMs, tool.slug);
+        const t0 = Date.now();
+        if (tool.firstParty) {
+          // The router's dispatch rules, plus: nothing priced per request and
+          // no report composite (those carry their own spend guards and run
+          // only as direct calls).
+          const why = !dispatchable(def).ok ? dispatchable(def).why
+            : typeof def.tierQuote === "function" ? "priced per request; call it directly"
+            : isComposite(def.slug) ? "a report product; call it directly"
+            : null;
+          if (why) { attempts.push({ id: tool.id, skipped: why }); continue; }
+          try {
+            // No request object: a step must not see (or act on) the paying
+            // request's credential, payer or settle hooks.
+            const result = await withTimeout(Promise.resolve(def.handler(params)), Math.min(cfg.execute.stepTimeoutMs, left()), tool.slug);
             spent = roundUsd(spent + cost);
             done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: true }, costUsd: cost, result, latencyMs: Date.now() - t0 };
-          } else {
-            if (!router) { attempts.push({ id: tool.id, skipped: "external execution is not enabled on this host" }); continue; }
-            const maxUsd = Math.min(roundUsd((spendable - spent) / (1 + cfg.routingFeePct / 100)), cfg.execute.perCallMaxUsd);
-            const r = await withTimeout(router.handler({ task: `${step.purpose} (${tool.name})`, include: "external", target: tool.endpoint, params, maxUsd }, req), cfg.execute.stepTimeoutMs + 15_000, tool.seller);
-            const underlying = Number(r?.receipt?.underlyingPriceUsd) || tool.priceUsd;
-            const fee = roundUsd(underlying * cfg.routingFeePct / 100);
-            spent = roundUsd(spent + underlying + fee);
-            done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(underlying + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
+            break;
+          } catch (e) {
+            // A 4xx means our request was wrong for this tool, not that the tool
+            // is unreliable; only a failure on the tool's side counts against it.
+            attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500, toolFault: !(e?.statusCode >= 400 && e?.statusCode < 500) });
+            continue;
           }
+        }
+        if (!router) { attempts.push({ id: tool.id, skipped: "external execution is not enabled on this host" }); continue; }
+        // The most this leg may pay: the planned price with room for a small
+        // live-price drift, never the whole remaining budget (a leg whose
+        // outcome is unknown is booked at this worst case).
+        const maxUsd = Math.min(roundUsd((spendable - spent) / (1 + cfg.routingFeePct / 100)), roundUsd(listPrice * 1.5), cfg.execute.perCallMaxUsd);
+        try {
+          const r = await withTimeout(router.handler({ task: `${step.purpose} (${tool.name})`, include: "external", target: tool.endpoint, params, maxUsd }, req), Math.min(left(), cfg.execute.externalStepTimeoutMs), tool.seller);
+          const underlying = Number(r?.receipt?.underlyingPriceUsd);
+          const paidOut = Number.isFinite(underlying) && underlying > 0 ? underlying : maxUsd; // unknown: book the worst case
+          const fee = roundUsd(paidOut * cfg.routingFeePct / 100);
+          spent = roundUsd(spent + paidOut + fee);
+          done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(paidOut + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
           break;
         } catch (e) {
-          // A 4xx means our request was wrong for this tool, not that the tool
-          // is unreliable; only a failure on the tool's side counts against it.
-          attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500, toolFault: !(e?.statusCode >= 400 && e?.statusCode < 500) });
-          // An external payment that may have left the wallet is never
-          // followed by another paid seller for the same step.
-          if (!tool.firstParty && (e?.committed === true || /no other seller is tried/.test(String(e?.message)))) break;
+          const timedOut = e?.statusCode === 504 && /did not answer within/.test(String(e?.message));
+          const maybePaid = timedOut || e?.committed === true || /no other seller is tried/.test(String(e?.message));
+          attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500, toolFault: !(e?.statusCode >= 400 && e?.statusCode < 500), ...(maybePaid ? { mayHavePaid: true } : {}) });
+          if (maybePaid) {
+            // The payment may have left (or may still leave: a timed-out leg is
+            // not cancelled). Book its worst case and try no other paid seller.
+            mayHaveSpentOutside = true;
+            spent = roundUsd(spent + maxUsd * (1 + cfg.routingFeePct / 100));
+            break;
+          }
         }
       }
       if (done) { outputs[String(step.step)] = done.result; results.push({ step: step.step, status: "ok", ...done, ...(attempts.length ? { attempts } : {}) }); }
@@ -223,33 +273,35 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
     }
 
     sendObservations(results.flatMap((r) => [
-      ...(r.attempts || []).filter((a) => a.error && a.toolFault).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
+      ...(r.attempts || []).filter((a) => a.error && a.toolFault && !a.mayHavePaid).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
       ...(r.status === "ok" ? [{ toolId: r.tool.id, ok: true, latencyMs: r.latencyMs, source: "execution" }] : []),
     ]));
     const okSteps = results.filter((r) => r.status === "ok").length;
+    const nothingSpent = spent === 0 && !mayHaveSpentOutside;
     if (!okSteps) {
       ledger.finishRun({ runId, status: "failed", spentUsd: spent, steps: results, now: now() });
-      if (redeemed) ledger.restoreCredit(input.creditToken, runId);
+      // A credit comes back only when nothing left our wallet.
+      if (redeemed && nothingSpent) ledger.restoreCredit(input.creditToken, runId);
       throw Object.assign(bad(`No step of the plan could be run (${results.map((r) => `step ${r.step}: ${r.reason || (r.attempts || []).map((a) => a.error || a.skipped).join(" / ")}`).join("; ").slice(0, 600)}). Nothing was charged.`, 502), { steps: results });
     }
     ledger.finishRun({ runId, status: okSteps === results.length ? "complete" : "partial", spentUsd: spent, steps: results.map(({ result, ...r }) => r), now: now() });
-    // Unspent budget returns as a credit on the same decision, live once this
-    // payment settles and expiring with the decision; a settlement that fails
-    // puts the redeemed credit back.
-    // The leftover keeps the DECISION's expiry (never a fresh window), so a
-    // credit cannot be rolled forward run after run.
-    const leftover = roundUsd(spendable - spent);
+    // Unspent funds (what was paid plus the credit, less what was spent)
+    // return as a credit on the same decision, live once this payment settles
+    // and expiring WITH the decision, so a credit is never rolled forward.
+    const leftover = roundUsd(quoted + redeemed - spent);
     const decisionExpiry = d.createdAt + cfg.credit.ttlHours * 3_600_000;
     let leftoverCredit = null;
     if (leftover >= 0.001 && decisionExpiry > now() + 60_000) {
       const c = ledger.mintCredit({ decisionId: d.id, amountUsd: leftover, expiresAt: decisionExpiry, payer, now: now() });
-      onFinal(req, (status) => { if (status === 200) ledger.activateCredit(c.hash); });
+      onSettled(req, (settledOk) => { if (settledOk) ledger.activateCredit(c.hash); });
       leftoverCredit = { amountUsd: c.amountUsd, expiresAt: new Date(c.expiresAt).toISOString(), token: c.token, activeAfterPaymentSettles: true };
     }
-    if (redeemed) onFinal(req, (status) => { if (status !== 200) ledger.restoreCredit(input.creditToken, runId); });
+    // A settlement that fails after this run spent money forfeits the credit:
+    // restoring it would let the same credit fund run after run.
+    if (redeemed && nothingSpent) onSettled(req, (settledOk) => { if (!settledOk) ledger.restoreCredit(input.creditToken, runId); });
     return {
       runId, decisionId: d.id, status: okSteps === results.length ? "complete" : "partial",
-      steps: results, budgetUsd: spendable, spentUsd: spent, paidUsd: paid, creditAppliedUsd: redeemed,
+      steps: results, budgetUsd: spendable, spentUsd: spent, paidUsd: quoted, creditAppliedUsd: redeemed,
       routingFeePct: cfg.routingFeePct, leftoverCredit,
     };
   };

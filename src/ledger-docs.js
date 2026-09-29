@@ -13,7 +13,7 @@ import { docsLayoutHtml, DOCS_LAYOUT_CSS, docPrevNextHtml, DOCS_SEARCH_SCRIPT } 
 import { RAILS_PAREN } from "./rails.js";
 import { toolList } from "./pages.js";
 import { isComputePayable } from "./pow.js";
-import { decideConfig } from "../services/decide/config.js";
+import { decideConfig } from "./decide/config.js";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 

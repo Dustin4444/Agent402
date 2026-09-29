@@ -67,6 +67,10 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "filing-report",
   // linkedin-article = the research pipeline + synthesis + image generation.
   "linkedin-article",
+  // decide-execute runs a whole plan (our tools and paid outside sellers)
+  // before its own payment settles: the same spend-then-fail, drain and abort
+  // guards as a report.
+  "decide-execute",
   // Media tiers: one upstream call each, but a flat per-call cost is spent BEFORE
   // settlement, so an unsettled repeat is free to the caller and real to us.
   // Being in this set also marks them longRunning (EVM exact only) - a 40-240 s

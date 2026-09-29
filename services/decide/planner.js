@@ -12,8 +12,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { scoreCandidates } from "./rank.js";
 import { decomposePrompt, judgePrompt, paramsPrompt } from "./llm.js";
-import { validateParams, pruneParams, skeletonParams } from "./params.js";
-import { DEPTHS } from "./config.js";
+import { validateParams, pruneParams, skeletonParams } from "../../src/decide/params.js";
+import { DEPTHS } from "../../src/decide/config.js";
 
 const DEFAULT_LATENCY_MS = { firstParty: 1500, thirdParty: 4000 };
 const WHOLE_TASK_FIT = 0.85;

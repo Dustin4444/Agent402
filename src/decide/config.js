@@ -22,7 +22,7 @@ export const DEFAULTS = Object.freeze({
   cacheTtlMs: 10 * 60_000,
   credit: { percentOfFee: 100, ttlHours: 24 },
   routingFeePct: 5,
-  execute: { perCallMaxUsd: 3, perWalletHourUsd: 10, globalDayUsd: 100, stepTimeoutMs: 45000 },
+  execute: { perCallMaxUsd: 3, perWalletHourUsd: 10, globalDayUsd: 100, stepTimeoutMs: 45000, externalStepTimeoutMs: 60000, runDeadlineMs: 240000 },
   // Model used to decompose tasks and judge fit (through OpenRouter).
   model: "google/gemini-3.1-flash-lite",
   modelFallback: "anthropic/claude-haiku-4.5",

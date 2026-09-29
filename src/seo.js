@@ -363,7 +363,7 @@ const fmtExecTierUsd = (n) => {
   return s3.endsWith("0") ? n.toFixed(2) : s3;
 };
 
-import { decideConfig as _decideConfig } from "../services/decide/config.js";
+import { decideConfig as _decideConfig } from "./decide/config.js";
 const decidePrices = () => _decideConfig().prices;
 const decideRoutingFeePct = () => _decideConfig().routingFeePct;
 

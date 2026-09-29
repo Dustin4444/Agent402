@@ -35,7 +35,9 @@ export function cleanText(s, max) {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
 
-const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+const SAFE_FIELD_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+const RESERVED = new Set(["__proto__", "constructor", "prototype"]);
+const SAFE_FIELD = { test: (k) => SAFE_FIELD_RE.test(k) && !RESERVED.has(k) };
 
 function hostOf(origin) {
   try { return new URL(origin).host.toLowerCase(); } catch { return ""; }
@@ -55,17 +57,19 @@ function contentHash(row) {
   return createHash("sha1").update(JSON.stringify([ROW_VERSION, embedText(row), row.priceUsd, row.networks, row.rails, row.endpoint, row.method])).digest("hex").slice(0, 16);
 }
 
-/** 0..1: how well a buyer can construct a call from what the row declares. */
+/** 0..1: how well a buyer can construct a call from what the row declares.
+ *  Only facts both kinds of row can carry count: whether the inputs are
+ *  declared, and whether they are typed. (Examples are not scored: outside
+ *  rows never carry seller example values, by policy, so scoring them would
+ *  favour our own rows.) */
 export function schemaQuality(row) {
   const props = row.inputSchema?.properties || {};
   const n = Object.keys(props).length;
-  const typed = n ? Object.values(props).filter((p) => p && typeof p.type === "string").length / n : 0;
+  const typed = n ? Object.values(props).filter((p) => p && typeof p.type === "string").length / n : 1;
   let q = 0;
-  if (row.inputSchemaState === "declared" || row.inputSchemaState === "absent") q += 0.4;
-  else if (row.inputSchemaState === "partial") q += 0.2;
-  q += 0.3 * typed;
-  if (row.hasExample) q += 0.2;
-  if (row.hasOutputSchema) q += 0.1;
+  if (row.inputSchemaState === "declared" || row.inputSchemaState === "absent") q += 0.6;
+  else if (row.inputSchemaState === "partial") q += 0.3;
+  q += 0.4 * typed;
   return Math.round(Math.min(1, q) * 1000) / 1000;
 }
 
@@ -124,7 +128,9 @@ export function localToolRow(def, { baseUrl = "https://agent402.tools", networks
     hasOutputSchema: !!def.discovery?.output?.example,
     modelBacked: def.modelBacked === true,
     lastLiveAt: now,
-    health: 1,
+    // No privileged health prior: our rows start where an unmeasured outside
+    // row does, and move only on observed reliability.
+    health: null,
   });
 }
 
@@ -140,8 +146,10 @@ export function remoteToolRow(t, { requestContract = null, injected = false, las
   const origin = typeof t.seller === "string" ? t.seller.replace(/\/+$/, "") : "";
   const host = hostOf(origin);
   if (!host || !/^https:\/\//.test(origin)) return null;
-  const route = typeof t.route === "string" ? t.route : "";
-  if (!route.startsWith("/") || /[{}]/.test(route)) return null;
+  const rawRoute = typeof t.route === "string" ? t.route : "";
+  if (!rawRoute.startsWith("/") || /[{}]/.test(rawRoute) || rawRoute.length > 512) return null;
+  let route;
+  try { const u = new URL(rawRoute, origin); if (u.origin !== new URL(origin).origin) return null; route = `${u.pathname}${u.search}`; } catch { return null; }
   const priceUsd = priceNumber(t.price);
   if (priceUsd === null || priceUsd <= 0) return null;
   const method = String(t.method || "POST").toUpperCase();
