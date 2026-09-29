@@ -321,7 +321,7 @@ import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
 import { decideIndexExportHandler } from "./decide/index-export.js";
-import { DECIDE_TOOLS, decideEnabled } from "./tools/decide-kit.js";
+import { buildDecideTools, decideEnabled } from "./tools/decide-kit.js";
 import { NETWORKS as PAY_NETWORKS, buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -525,7 +525,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 // Listed only with a key, like every other env-gated kit: a tool we cannot serve
 // must not appear in the catalog, on /api/pricing, or in a 402's offer.
 const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
-const DECIDE_TOOLS_ENABLED = decideEnabled() ? DECIDE_TOOLS : [];
+const DECIDE_TOOLS_ENABLED = decideEnabled() ? buildDecideTools({ getCatalog: () => CATALOG }) : [];
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CVE_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED, ...DECIDE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
@@ -1352,7 +1352,8 @@ function withDispatchSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.sellers)) return snapshot;
   return { ...snapshot, sellers: snapshot.sellers.map((sel) => (sel?.local ? sel : withDispatchFields(sel))) };
 }
-async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null } = {}) {
+async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null, onlyUrl = null } = {}) {
+  const sameUrl = (u) => { try { return new URL(u).href === new URL(onlyUrl).href; } catch { return false; } };
   // Filled by the dispatch gate below; read by route-execute when nothing
   // resolves, so the refusal can say which world it is in.
   const gateDrops = { total: 0, byReason: {} };
@@ -1433,16 +1434,17 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // that survived the post-filter were whichever one or two happened to
     // win a tie-break, and a Solana seller with the best-matching name could
     // sit at position 40 and never be tried (2026-09-02).
-    const { results } = await routeQueryAsync({ query: task, top: 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: onlyUrl ? 200 : 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks)
         && r.networks.some((n) => SOLANA_NETWORK_LABELS.has(String(n || "").toLowerCase())))
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .filter((r) => !onlyUrl || sameUrl(r.url))
       .slice(0, 5)
       .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
-    const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: onlyUrl ? 200 : 20, include: "external", ...indexCtx() });
     // The SAME evidence object every public label reads (dispatchEvidence):
     // settled and payers (the best single wallet's figures), the chain-join
     // address and the binding (every figure kept against the wallet it was
@@ -1457,6 +1459,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // `urlTemplate`, because an agent that knows the parameter can use them.
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .filter((r) => !onlyUrl || sameUrl(r.url))
       .map((r) => ({ ...r, settled: ev.settled.get(norm(r.seller)) || 0, payers: ev.payers.get(norm(r.seller)), binding: ev.binding.get(norm(r.seller)) || null }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
@@ -1490,9 +1493,11 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
+  if (onlyUrl) candidates = candidates.filter((r) => sameUrl(r.url));
   // Judged order over gated candidates (src/tool-judge.js); injection-screened text only.
+  // A pinned target was already chosen by a decision; it is not re-judged.
   let judgedSelection = null;
-  if (candidates.length) {
+  if (candidates.length && !onlyUrl) {
     const hostOfSeller = (u) => { try { return new URL(u).host; } catch { return String(u || ""); } };
     const ordered = await orderByJudgment(task, candidates, (r) => {
       const desc = String(r.description || r.name || "");
@@ -9327,10 +9332,17 @@ for (const tool of ALL_KIT) {
       // is what stops a wallet whose payments never settle from draining the
       // upstream wallet one call at a time. Same doctrine as the idempotency
       // cache's commit-on-finish.
+      // Generic post-settlement hooks (decide credits): each runs once with
+      // the FINAL status, so work that must follow a settled 200 cannot
+      // follow a handler success whose settlement then failed.
+      if (Array.isArray(req.__onFinalStatus) && req.__onFinalStatus.length) {
+        const hooks = req.__onFinalStatus;
+        res.on("finish", () => { for (const fn of hooks) { try { fn(res.statusCode); } catch { /* never break a response */ } } });
+      }
       if (req.__externalSpend) {
-        const handle = req.__externalSpend;
+        const handles = Array.isArray(req.__externalSpends) && req.__externalSpends.length ? req.__externalSpends : [req.__externalSpend];
         res.on("finish", () => {
-          try { resolveExternalSpend(handle, res.statusCode === 200); } catch { /* never break a response */ }
+          for (const handle of handles) { try { resolveExternalSpend(handle, res.statusCode === 200); } catch { /* never break a response */ } }
         });
       }
 

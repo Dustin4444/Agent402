@@ -35,12 +35,12 @@ ok(/resolved\.push\(\{[^\n]*wire: r\.wire/.test(fn), "the resolved candidate car
 // lacks the requested model is skipped BEFORE the probe, and the model reaches
 // the resolver from route-execute's params. Pinned from source because the
 // offline router tests inject the resolver and cannot see the call site.
-ok(/wantModel = null \} = \{\}\)/.test(fn.slice(0, 200)), "resolveExternalSeller accepts wantModel");
+ok(/wantModel = null(?:, onlyUrl = null)? \} = \{\}\)/.test(fn.slice(0, 220)), "resolveExternalSeller accepts wantModel");
 ok(/served\.verdict === "not-served"/.test(fn) && fn.indexOf('served.verdict === "not-served"') < fn.indexOf("await assertPublicUrl(r.url)"),
   "a not-served verdict skips the candidate BEFORE probing it, and only that verdict skips (unknown never does)");
 ok(fn.indexOf("sellerRouteRefusedRecently(r.url, chain)") < fn.indexOf("sellerServesModel(r.url, wantModel)"), "the refusal memo is consulted first (cheaper: no fetch)");
 const rx = readFileSync(new URL("../src/tools/route-execute.js", import.meta.url), "utf8");
-ok(/const wantModel = typeof input\.params\?\.model === "string"/.test(rx) && /limit: MAX_CANDIDATES, wantModel \}/.test(rx),
+ok(/const wantModel = typeof input\.params\?\.model === "string"/.test(rx) && /limit: MAX_CANDIDATES, wantModel(?: \}|, \.\.\.\(target \? \{ onlyUrl: target \} : \{\}\) \})/.test(rx),
   "route-execute hands the params' model to the resolver (a stable resolver with nothing feeding it would pass every other test here)");
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

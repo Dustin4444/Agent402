@@ -1,11 +1,13 @@
-// Schema for the decide service, applied in order at boot. Each entry runs once
+// Schema for the decide service, applied in order at boot. Credits and
+// execution runs are money state and live in the main app's ledger
+// (src/decide/ledger.js), not here. Each entry runs once
 // (decide_migrations records it). Additive only: a migration never drops or
 // rewrites a column another deploy may still be reading.
 
 export const MIGRATIONS = [
   {
     id: 1,
-    name: "tool index, decisions, feedback, runs, credits, reliability",
+    name: "tool index, decisions, feedback, reliability",
     sql: `
       CREATE TABLE IF NOT EXISTS decide_tools (
         id TEXT PRIMARY KEY,
@@ -52,27 +54,6 @@ export const MIGRATIONS = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS decide_feedback_tool ON decide_feedback (tool_id, created_at DESC);
-      CREATE TABLE IF NOT EXISTS decide_execution_runs (
-        id TEXT PRIMARY KEY,
-        decision_id TEXT NOT NULL,
-        payer TEXT,
-        status TEXT NOT NULL,
-        budget_usd NUMERIC(12,6) NOT NULL,
-        spent_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
-        credit_applied_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
-        steps JSONB NOT NULL DEFAULT '[]'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        finished_at TIMESTAMPTZ
-      );
-      CREATE TABLE IF NOT EXISTS decide_credits (
-        token_hash TEXT PRIMARY KEY,
-        decision_id TEXT NOT NULL,
-        payer TEXT,
-        amount_usd NUMERIC(12,6) NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
-        redeemed_at TIMESTAMPTZ,
-        run_id TEXT
-      );
       CREATE TABLE IF NOT EXISTS decide_tool_reliability (
         tool_id TEXT PRIMARY KEY,
         successes INT NOT NULL DEFAULT 0,
