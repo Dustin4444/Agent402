@@ -20,8 +20,10 @@ const yml = readFileSync(new URL("../.github/workflows/heartbeat.yml", import.me
 const at = yml.indexOf("- name: PayAI credit watch");
 ok(at > 0, "heartbeat.yml has the PayAI credit watch step");
 const step = yml.slice(at, yml.indexOf("\n      - name:", at + 10));
-const fallback = step.match(/PAYAI_FALLBACK_WEIGHTS: '([^']+)'/)?.[1];
-ok(fallback, "the fallback weights are one named constant");
+ok(/PAYAI_FALLBACK_WEIGHTS: \$\{\{ vars\.PAYAI_FALLBACK_WEIGHTS \}\}/.test(step), "the fallback weights come from a repo variable");
+ok(!/PAYAI_FALLBACK_WEIGHTS: '\{/.test(step) && !/"sei":\s*\d/.test(step), "no vendor rate is committed in the workflow");
+// A test value, not PayAI's published rates.
+const fallback = JSON.stringify({ avalanche: 0.5, sei: 2 });
 const run = step.slice(step.indexOf("run: |") + "run: |".length).split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
 ok(/facilitator\.payai\.network\/pricing/.test(run), "the step reads PayAI's live pricing table");
 ok(!/then 0\.09 else 0\.43/.test(run), "the stale inline weights are gone");
@@ -40,14 +42,14 @@ const LIVE = JSON.stringify({ rates: [
   { network: "eip155:1329", scheme: "exact", transferMethod: "permit2", credits: "9.00" },
 ] });
 
-function runStep({ pricing, daily }) {
+function runStep({ pricing, daily, fb = fallback }) {
   writeFileSync(join(dir, "pricing.json"), pricing);
   writeFileSync(join(dir, "daily.json"), daily);
   writeFileSync(join(dir, "curl"), `#!/bin/bash\nfor a in "$@"; do case "$a" in *payai.network/pricing*) cat "${dir}/pricing.json"; exit 0;; *revenue/daily*) cat "${dir}/daily.json"; exit 0;; esac; done\nexit 7\n`);
   writeFileSync(join(dir, "gh"), `#!/bin/bash\necho "gh $*" >> "${dir}/gh.log"\n`);
   chmodSync(join(dir, "curl"), 0o755); chmodSync(join(dir, "gh"), 0o755);
   const r = spawnSync("bash", ["-eo", "pipefail", "-c", run], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PROD: "https://prod.invalid", THRESH: "800", GH_TOKEN: "x", GITHUB_REPOSITORY: "o/r", PAYAI_FALLBACK_WEIGHTS: fallback },
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PROD: "https://prod.invalid", THRESH: "800", GH_TOKEN: "x", GITHUB_REPOSITORY: "o/r", PAYAI_FALLBACK_WEIGHTS: fb },
     encoding: "utf8",
   });
   return r;
@@ -63,7 +65,7 @@ const credits = (out) => Number((out.match(/weighted credits since \S+: ([\d.]+)
 {
   const r = runStep({ pricing: "<html>down</html>", daily: DAYS });
   ok(r.status === 0, `unreadable table: step still exits 0 (${r.stderr})`);
-  ok(/weights \(fallback\)/.test(r.stdout) && /::warning::PayAI live pricing table unreadable/.test(r.stdout), "unreadable table: says it fell back, loudly");
+  ok(/weights \(fallback\)/.test(r.stdout) && /::warning::PayAI live pricing table unreadable/.test(r.stdout), "unreadable table: says it fell back to the repo variable, loudly");
   const w = JSON.parse(fallback);
   const want = Math.round((10 * w.sei + 100 * w.avalanche) * 100) / 100;
   ok(credits(r.stdout) === want, `unreadable table: the fallback constant weighs the count (${want})`);
@@ -75,5 +77,13 @@ const credits = (out) => Number((out.match(/weighted credits since \S+: ([\d.]+)
 {
   const r = runStep({ pricing: LIVE, daily: "not json" });
   ok(r.status === 0 && /credit watch UNREADABLE/.test(r.stdout), "prod unreadable: loud warning, never a silent pass");
+}
+{
+  const r = runStep({ pricing: "<html>down</html>", daily: DAYS, fb: "" });
+  ok(r.status === 0 && /credit watch skipped/.test(r.stdout) && !/weighted credits since/.test(r.stdout), "unreadable table and no repo variable: warns and skips, never guesses a rate");
+}
+{
+  const r = runStep({ pricing: "<html>down</html>", daily: DAYS, fb: "{\"sei\":1}" });
+  ok(/credit watch skipped/.test(r.stdout), "a repo variable missing a rail is not half-used: skipped");
 }
 console.log(`test-payai-credit-watch: ${passed} passed`);
