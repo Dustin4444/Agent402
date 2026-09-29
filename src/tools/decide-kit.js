@@ -294,7 +294,9 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     }
 
     sendObservations(results.flatMap((r) => [
-      ...(r.attempts || []).filter((a) => a.error && a.toolFault && !a.mayHavePaid).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
+      // A leg that may have been paid and still failed is the worst outcome a
+      // seller can give: it counts against the tool like any tool-side failure.
+      ...(r.attempts || []).filter((a) => a.error && (a.toolFault || a.mayHavePaid)).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
       ...(r.status === "ok" ? [{ toolId: r.tool.id, ok: true, latencyMs: r.latencyMs, source: "execution" }] : []),
     ]));
     const okSteps = results.filter((r) => r.status === "ok").length;

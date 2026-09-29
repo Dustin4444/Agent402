@@ -321,7 +321,14 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ledger.activateCredit(c.hash);
   const execReal = makeExecuteHandler({ ledger, getCatalog: () => catalogR, now });
   const req = { ...mkReq("0xreal"), __meteredQuoteUsd: 0.001 };
+  const obs = [];
+  const realFetch2 = globalThis.fetch;
+  process.env.DECIDE_SERVICE_URL = "http://127.0.0.1:1"; process.env.DECIDE_INTERNAL_TOKEN = "t".repeat(32);
+  globalThis.fetch = async (u, init) => { if (String(u).includes("/internal/observations")) obs.push(...JSON.parse(init.body).observations); return new Response("{}", { status: 200 }); };
   const out = await execReal({ decisionId: "dReal", creditToken: c.token }, req);
+  await new Promise((r) => setTimeout(r, 20));
+  globalThis.fetch = realFetch2;
+  ok(obs.some((o) => o.toolId === out.steps[0].attempts[0].id && o.ok === false), "a leg that may have been paid and then failed is reported as a failure of that tool");
   ok(pays.length === 1 && pays[0].url === "https://s1.example/x", `the real router paid once and no fallback seller was paid (${pays.length} payment(s))`);
   ok(out.steps[0].status === "failed" && out.steps[0].attempts[0].mayHavePaid === true, "the paid-then-failed leg is recognised through the real router's error");
   ok(out.spentUsd >= 0.01 * 1.05 - 1e-9, `...and its signed amount is booked (${out.spentUsd})`);

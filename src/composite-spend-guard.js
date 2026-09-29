@@ -137,12 +137,19 @@ export function compositeGuardGlobalPaused() {
   return false;
 }
 
+/** Slugs that keep the per-buyer bound but neither feed nor honour the global
+ *  pause: plan execution carries its own global ceiling, and its failures must
+ *  not be able to pause every report product for everyone. */
+export const OWN_GLOBAL_BOUND_SLUGS = new Set(["decide-execute"]);
+
 /** Record that we SPENT upstream for this payer and then did NOT settle (non-200). */
-export function recordCompositeSpendFailure(payer) {
+export function recordCompositeSpendFailure(payer, { global = true } = {}) {
   const t = Date.now();
-  const gk = payer || `anon:${++anonSeq}`;
-  globalFailKeys.set(gk, [...(globalFailKeys.get(gk) || []), t]);
-  if (globalFailCount(t) >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFailKeys = new Map(); }
+  if (global) {
+    const gk = payer || `anon:${++anonSeq}`;
+    globalFailKeys.set(gk, [...(globalFailKeys.get(gk) || []), t]);
+    if (globalFailCount(t) >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFailKeys = new Map(); }
+  }
   if (!payer) return;
   const arr = (fails.get(payer) || []).filter((x) => t - x < WINDOW_MS);
   arr.push(t);

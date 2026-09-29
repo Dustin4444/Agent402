@@ -40,7 +40,7 @@ import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIde
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin, SOLANA_WINDOWS } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, OWN_GLOBAL_BOUND_SLUGS, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -9246,7 +9246,8 @@ for (const tool of ALL_KIT) {
         // credits key, or the client IP (card/SPT buyers and any rail whose
         // payer is only known post-settlement) - nobody is unkeyed.
         const guardKey = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : `ip:${clientIp(req)}`);
-        if (compositeGuardGlobalPaused()) {
+        const ownGlobalBound = OWN_GLOBAL_BOUND_SLUGS.has(tool.slug);
+        if (!ownGlobalBound && compositeGuardGlobalPaused()) {
           const e = new Error("Premium report generation is briefly paused after a burst of unsettled runs; please retry in a few minutes. Not charged.");
           e.statusCode = 503;
           throw e;
@@ -9274,7 +9275,7 @@ for (const tool of ALL_KIT) {
             // lapse becoming an unbounded run of served, never-charged reports.
             const st = res.statusCode;
             if (st === 200) recordCompositeSpendSuccess(guardKey);
-            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
+            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey, { global: !ownGlobalBound });
           } catch { /* never break a response */ }
         });
       }
