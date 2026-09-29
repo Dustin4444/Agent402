@@ -154,6 +154,22 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(out.charges && out.charges.firstPartyUsd > 0 && out.charges.passThroughUsd === 0 && out.charges.routingFeesUsd === 0, `the answer separates our tools, pass-through and fees (${JSON.stringify(out.charges)})`);
 }
 
+// ---- a run key: the same plan never runs twice for one key ----
+{
+  calls.length = 0;
+  ledger.saveDecision({ decisionId: "dK", depth: "plan", priceUsd: 0.02, plan: [{ step: 1, purpose: "x", tool: tool("a"), fallbacks: [], dependsOn: [] }], costViaUsd: 0.01, now: clock });
+  ledger.markDecisionSettled("dK");
+  const first = await exec({ decisionId: "dK", runKey: "k-1" }, mkReq("0xkey"));
+  ok(first.status === "complete", "the first run with a key runs");
+  const ran = calls.length;
+  await throwsWith(() => exec({ decisionId: "dK", runKey: "k-1" }, mkReq("0xkey")), 409, first.runId, "the same key again is a 409 naming the first run (not charged)");
+  ok(calls.length === ran, "...and no tool ran twice");
+  const byHeader = await exec({ decisionId: "dK" }, { ...mkReq("0xkey"), headers: { "idempotency-key": "hdr-1" } });
+  await throwsWith(() => exec({ decisionId: "dK" }, { ...mkReq("0xkey"), headers: { "idempotency-key": "hdr-1" } }), 409, byHeader.runId, "an Idempotency-Key header works as the run key");
+  const other = await exec({ decisionId: "dK", runKey: "k-2" }, mkReq("0xkey"));
+  ok(other.runId !== first.runId, "a different key is a different run");
+}
+
 // ---- one outside seller cannot take more than its daily ceiling ----
 {
   calls.length = 0;

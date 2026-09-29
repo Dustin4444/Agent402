@@ -198,6 +198,13 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     const quoted = Number.isFinite(req?.__meteredQuoteUsd) && req.__meteredQuoteUsd > 0 ? req.__meteredQuoteUsd : executeQuoteUsd(input, { ledger, now: t });
     const creditAssumed = roundUsd(Math.max(0, budget - quoted));
 
+    // One run per (decision, runKey): a client that timed out and paid again
+    // gets the first run's id back, not a second run (a 409 is not charged).
+    const runKey = typeof input?.runKey === "string" && input.runKey ? input.runKey.slice(0, 128)
+      : typeof req?.headers?.["idempotency-key"] === "string" && req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]).slice(0, 128) : null;
+    const prior = ledger.runByKey(d.id, runKey);
+    if (prior) throw Object.assign(bad(`This decision already has a run with that key (${prior.id}, ${prior.status}); nothing was charged`, 409), { runId: prior.id });
+
     // Caps, checked before anything is spent (a >= 400 is never charged).
     if (payer && ledger.payerExposureUsd(payer, t - 3_600_000) + budget > cfg.execute.perWalletHourUsd) throw bad(`This wallet has reached its hourly execution ceiling ($${cfg.execute.perWalletHourUsd}); nothing was charged`, 429);
     if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for up to 24 hours; nothing was charged", 429);
@@ -228,7 +235,11 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
       }
     }
     const spendable = roundUsd(Math.min(budget, quoted + redeemed));
-    ledger.createRun({ runId, decisionId: d.id, payer, budgetUsd: spendable, creditUsd: redeemed, now: t });
+    if (!ledger.createRun({ runId, decisionId: d.id, payer, budgetUsd: spendable, creditUsd: redeemed, runKey, now: t })) {
+      // Lost a race with a concurrent request carrying the same key.
+      if (redeemed) ledger.restoreCredit(input.creditToken, runId);
+      throw bad("This decision already has a run with that key; nothing was charged", 409);
+    }
 
     // One deadline for the whole run, inside what the buyer's payment can
     // still settle (EVM credentials expire), and never past the ceiling.

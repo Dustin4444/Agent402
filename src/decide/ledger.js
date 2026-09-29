@@ -72,6 +72,10 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
   }
   // Added after the first schema: the hash of the decision's feedback token.
   try { db.exec("ALTER TABLE decisions ADD COLUMN feedback_hash TEXT"); } catch { /* already there */ }
+  // A caller's run key: one run per (decision, key), so a client that timed out
+  // and paid again cannot run the same plan twice.
+  try { db.exec("ALTER TABLE runs ADD COLUMN run_key TEXT"); } catch { /* already there */ }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS runs_decision_key ON runs (decision_id, run_key) WHERE run_key IS NOT NULL");
 
   const st = {
     saveDecision: db.prepare("INSERT OR REPLACE INTO decisions (id, created_at, depth, price_micro, payer, plan_json, cost_via_micro, settled, feedback_hash) VALUES (?,?,?,?,?,?,?,0,?)"),
@@ -84,7 +88,8 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     credit: db.prepare("SELECT * FROM credits WHERE token_hash = ?"),
     redeem: db.prepare("UPDATE credits SET state = 'redeemed', run_id = ? WHERE token_hash = ? AND decision_id = ? AND state = 'active' AND expires_at > ?"),
     restore: db.prepare("UPDATE credits SET state = 'active', run_id = NULL WHERE token_hash = ? AND state = 'redeemed' AND run_id = ?"),
-    createRun: db.prepare("INSERT INTO runs (id, decision_id, payer, status, budget_micro, credit_micro, created_at) VALUES (?,?,?, 'running', ?, ?, ?)"),
+    createRun: db.prepare("INSERT INTO runs (id, decision_id, payer, status, budget_micro, credit_micro, created_at, run_key) VALUES (?,?,?, 'running', ?, ?, ?, ?)"),
+    runByKey: db.prepare("SELECT id, status FROM runs WHERE decision_id = ? AND run_key = ?"),
     finishRun: db.prepare("UPDATE runs SET status = ?, spent_micro = ?, steps_json = ?, finished_at = ? WHERE id = ?"),
     getRun: db.prepare("SELECT * FROM runs WHERE id = ?"),
     payerSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE payer = ? AND created_at >= ?"),
@@ -148,7 +153,12 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     },
     restoreCredit(token, runId) { if (typeof token === "string" && token) st.restore.run(hashToken(token), runId); },
 
-    createRun({ runId, decisionId, payer, budgetUsd, creditUsd, now = Date.now() }) { st.createRun.run(runId, decisionId, payer || null, micro(budgetUsd), micro(creditUsd), now); },
+    /** Returns false when a run with this (decision, runKey) already exists. */
+    createRun({ runId, decisionId, payer, budgetUsd, creditUsd, runKey = null, now = Date.now() }) {
+      try { st.createRun.run(runId, decisionId, payer || null, micro(budgetUsd), micro(creditUsd), now, runKey); return true; }
+      catch (e) { if (runKey && /UNIQUE/.test(String(e?.message))) return false; throw e; }
+    },
+    runByKey(decisionId, runKey) { return runKey ? st.runByKey.get(decisionId, runKey) || null : null; },
     finishRun({ runId, status, spentUsd, steps, now = Date.now() }) { st.finishRun.run(status, micro(spentUsd), JSON.stringify(steps || []), now, runId); },
     getRun(id) { const r = st.getRun.get(id); return r ? { ...r, budgetUsd: usd(r.budget_micro), spentUsd: usd(r.spent_micro), creditUsd: usd(r.credit_micro), steps: JSON.parse(r.steps_json) } : null; },
     /** Spent in the window plus everything still running (its whole budget). */
