@@ -10,6 +10,8 @@
 import assert from "node:assert/strict";
 import { createBlockClock, dateFromAnchors, rpcHeaderReader } from "../src/block-clock.js";
 import { resolveScanWindow, fundingWindowBlocks, windowSecondsFromEnv, windowLabelFromSeconds, FUNDING_DEFAULTS } from "../src/leaderboard.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let passed = 0;
 const ok = (c, m) => { assert.ok(c, m); passed++; };
@@ -139,7 +141,7 @@ for (const { name, c } of regimes) {
 }
 
 // The revenue ledger's first block for a NEW cursor, by timestamp.
-process.env.REVENUE_LEDGER_DB = process.env.REVENUE_LEDGER_DB || `/tmp/claude-501/b6-block-clock-${process.pid}.db`;
+process.env.REVENUE_LEDGER_DB = process.env.REVENUE_LEDGER_DB || join(tmpdir(), `agent402-block-clock-${process.pid}.db`);
 {
   const { startBlockFor } = await import("../src/revenue-ledger.js");
   const c = regimes[1].c;

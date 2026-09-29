@@ -28,6 +28,7 @@
 // PAYMENT-REQUIRED header to be byte-identical for the same requests: the
 // mirror writes the body and never the header.
 import { spawn } from "node:child_process";
+import { decodeFunctionData, encodeFunctionResult, parseAbi } from "viem";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -198,6 +199,7 @@ for (const [label, body] of [["HTML", "<!doctype html><html><body>Pay</body></ht
 const [PORT, FAC_PORT] = await getFreePorts(2);
 const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mpp-secret";
+const AGG3 = parseAbi(["function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)"]);
 const PAYER = "0x00000000000000000000000000000000000000a1";
 let verifyMode = "ok"; // ok | graceful | throw
 let settleMode = "ok"; // ok | refuse
@@ -221,7 +223,16 @@ facilitator = createServer((req, res) => {
       if (settleMode === "refuse") return reply(200, { success: false, errorReason: "insufficient_funds", transaction: "", network: "eip155:8453", payer });
       return reply(200, { success: true, transaction: "0x" + "cd".repeat(32), network: "eip155:8453", payer });
     }
-    if (req.url === "/rpc") return reply(200, { jsonrpc: "2.0", id: 1, result: "0x0" });
+    // The balance read batches through Multicall3 aggregate3: answer every
+    // inner balanceOf with a zero balance, so the hint says "fund the wallet".
+    if (req.url === "/rpc") {
+      try {
+        const data = JSON.parse(body)?.params?.[0]?.data;
+        const { args } = decodeFunctionData({ abi: AGG3, data });
+        const zero = "0x" + "00".repeat(32);
+        return reply(200, { jsonrpc: "2.0", id: 1, result: encodeFunctionResult({ abi: AGG3, functionName: "aggregate3", result: args[0].map(() => ({ success: true, returnData: zero })) }) });
+      } catch { return reply(200, { jsonrpc: "2.0", id: 1, result: "0x0" }); }
+    }
     return reply(404, {});
   });
 });
