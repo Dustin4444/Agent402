@@ -214,6 +214,12 @@ export async function probeOxAlphaAvailability({ fetchImpl } = {}) {
 // gemini-3.5-flash-lite (priced like the model it replaces). Both were
 // live-verified to answer with no hidden reasoning at a 64-token budget.
 //
+// 2026-09-29: inception/mercury-2.5 is the third fast-band link (one endpoint,
+// 260k context). Live calls: at effort "low" (what the budget tiers inject) it
+// reasoned ~260 tokens and then answered at a 768-token budget in under a
+// second; at a 64-token budget it spent the budget reasoning, which the chain
+// walks past (isEmptyLength), never a paid empty answer.
+//
 // 2026-09-24: openai/gpt-6-luna leads the fast band. A live call at a
 // 64-token budget with reasoning effort "low" (what the auto tier injects)
 // answered in one sentence with zero reasoning tokens and finish "stop".
@@ -221,10 +227,10 @@ export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
   // fast — cheapest/snappiest serving; right for high-frequency loop turns.
   fast: {
-    code: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    long: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["openai/gpt-6-luna", "google/gemini-3.1-flash-lite", "inception/mercury-2.5", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // balanced — the default band. deepseek-chat keeps the code head (proven,
   // cheap); gpt-5.6-luna leads the rest (1M ctx covers `long` natively).
@@ -312,6 +318,7 @@ export const TIERS = {
       // from OpenRouter entirely (verified against the live models list).
       // gemini-2.5-flash-lite left 2026-09-29 (upstream expiration 2026-10-20): refused by name in RETIRING_MODELS.
       "google/gemini-3.1-flash-lite", // inside this tier's max_price
+      "inception/mercury-2.5", // 2026-09-29, fast-band link; exact id only
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
       // ministral-3b/8b were renamed upstream to the -2512 ids (the bare ids
       // 404 at OpenRouter; live-verified 2026-08-19). Listed with the live id so
@@ -902,6 +909,7 @@ export const MODEL_COST = [
   // claude-sonnet covers claude-sonnet-5 (standard price confirmed against
   // Anthropic's own release notes 2026-08-10).
   ["anthropic/claude-sonnet-4", { prompt: 3.3, completion: 16.5 }], // live 2026-09-18
+  ["anthropic/claude-sonnet-5.5", { prompt: 2.2, completion: 11 }], // dearest live endpoint (regional), 2026-09-29
   ["anthropic/claude-sonnet", { prompt: 2.2, completion: 11 }], // live 2026-09-18
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
@@ -914,6 +922,7 @@ export const MODEL_COST = [
   ["google/gemini-3.5-flash", { prompt: 2, completion: 10 }],
   ["google/gemini-3.6-flash", { prompt: 0.825, completion: 4.125 }], // live endpoints 2026-09-18
   ["google/gemini-3.1-flash-lite", { prompt: 0.4, completion: 2 }],
+  ["inception/mercury-2.5", { prompt: 0.04, completion: 0.15 }], // one live endpoint, 2026-09-29
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }],
   ["x-ai/grok", { prompt: 2.2, completion: 6.6 }], // live endpoints 2026-09-18
@@ -1875,6 +1884,11 @@ export const REASONING_MODELS = [
   { id: "google/gemini-3.5-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
   { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // Claude Sonnet 5.5 (pro, via the claude-sonnet prefix): reasoning MANDATORY,
+  // default effort high (live catalog 2026-09-29); pro injects "low".
+  { id: "anthropic/claude-sonnet-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  // Mercury 2.5: reasoning default-on at medium, "none" supported (live 2026-09-29).
+  { id: "inception/mercury-2.5", efforts: ["none", "low", "medium", "high"] },
   { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
   // Claude Opus 5.5: reasoning MANDATORY, default effort high (live catalog
   // 2026-09-24). Same treatment as opus-5: premium leaves the model default,

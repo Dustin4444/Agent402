@@ -1632,6 +1632,16 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(nb.model === "openai/gpt-6-luna" && nb.max_tokens === 64, "nano with no model serves gpt-6-luna at the asked budget");
   const sb = validateRequest({ model: "openai/gpt-6-sol", messages: [{ role: "user", content: "x".repeat(4000) }], max_tokens: 4096 }, "v1-chat-pro");
   ok(sb.max_tokens >= 1000, `gpt-6-sol at the pro price leaves a usable output budget on a 4k-char prompt (${sb.max_tokens})`);
+  // Claude Sonnet 5.5 (2026-09-29): own dated row at the dearest endpoint, reasoning row (mandatory upstream).
+  ok(tierFor("anthropic/claude-sonnet-5.5") === "v1-chat-pro" && K.MODEL_COST.some(([p]) => p === "anthropic/claude-sonnet-5.5") && cf("anthropic/claude-sonnet-5.5").prompt === 2.2 && cf("anthropic/claude-sonnet-5.5").completion === 11, "sonnet-5.5 homes on pro with its own row at 2.2/11");
+  ok(tokenizerFactor("anthropic/claude-sonnet-5.5") === NEW_TOKENIZER_FACTOR && rp("anthropic/claude-sonnet-5.5")?.id === "anthropic/claude-sonnet-5.5" && JSON.stringify(dr("anthropic/claude-sonnet-5.5", "v1-chat-pro")) === '{"effort":"low"}', "sonnet-5.5: newer tokenizer, pro injects low (default high upstream)");
+  // Mercury 2.5 (2026-09-29): third fast-band link, nano-admitted, own row.
+  const MER = "inception/mercury-2.5";
+  ok(tierFor(MER) === "v1-chat-nano" && TIERS["v1-chat-auto"].prefixes.includes(MER) && tierAllows("v1-chat-metered", MER) && !tierFor("inception/mercury-2"), "mercury-2.5 homes on nano, admitted on auto and metered; mercury-2 is not admitted");
+  ok(Object.values(AUTO_RANKINGS.fast).every((l) => l[2] === MER) && !Object.values(AUTO_RANKINGS.balanced).flat().includes(MER) && !Object.values(AUTO_RANKINGS.best).flat().includes(MER), "mercury-2.5 is the third link of every fast category and in no other band");
+  ok(cf(MER).prompt === 0.04 && cf(MER).completion === 0.15 && cf(MER).completion <= TIERS["v1-chat-nano"].maxPrice.completion && cf(MER).completion <= TIERS["v1-chat-auto"].maxPrice.completion, "mercury-2.5 row at its live endpoint price, inside the nano and auto bounds");
+  ok(JSON.stringify(dr(MER, "v1-chat-nano")) === '{"effort":"low"}' && JSON.stringify(dr(MER, "v1-chat-auto")) === '{"effort":"low"}' && !fe(MER), "mercury-2.5: budget tiers inject low (default medium upstream); not flex");
+  ok(!tierFor("nvidia/nemotron-3.5-lightning"), "nemotron-3.5-lightning stays out (reasons by default with no effort knob in the catalog)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
