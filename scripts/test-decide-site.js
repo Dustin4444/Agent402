@@ -10,6 +10,7 @@ import { ledgerHomePage } from "../src/ledger-home.js";
 import { decidePage } from "../src/decide-page.js";
 import { sitemapPages, sitemapXml } from "../src/seo.js";
 import { decideConfig } from "../src/decide/config.js";
+import { ogSectionFor, sectionCardSvg } from "../src/og-cards.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++; console.log("FAIL -", m); } };
@@ -52,6 +53,12 @@ ok(!/—/.test(page), "no em dashes");
 ok(page.includes("no first-party term") || page.includes("No first-party term"), "neutrality stated");
 const bumped = decideConfig({ DECIDE_CONFIG: JSON.stringify({ prices: { quick: 0.007 } }) });
 ok(bumped.prices.quick === 0.007, "config override path reachable (control for the derivation check)");
+
+// ---- the page's own social card ----
+ok(ogSectionFor("/decide") === "decide", "/decide derives its own section card");
+const card = sectionCardSvg("decide", { BRAND: {}, BRAND_DEFS: "", BRAND_FONT_STYLE: "", toolCount: 600, railCount: 12, decide: { quick: "$0.009", full: "$0.09" } });
+ok(card && card.includes("$0.009 to $0.09"), "the card's price range comes from ctx, not typed");
+ok(sectionCardSvg("decide", { BRAND: {}, BRAND_DEFS: "", BRAND_FONT_STYLE: "" }).includes("priced per decision"), "no ctx prices: the card states no figure");
 
 setDecideLive(false);
 console.log(`\n${pass} passed, ${fail} failed`);

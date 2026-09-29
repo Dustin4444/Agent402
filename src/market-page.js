@@ -10,7 +10,7 @@
 // seller, "unavailable" rather than zeros on a failed scan, truncation
 // floors, javascript: href neutralization, testnet exclusion, >12-seller
 // compact roster, per-seller activity switching via ?seller=.
-import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, decideLive } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { discoveryNote } from "./discovery-note.js";
@@ -819,7 +819,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
           <button type="submit" style="border:none;border-left:1px solid var(--hairline);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
         </form>
         <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
-          <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
+          <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>${decideLive() ? `<a href="/decide" style="color:var(--accent);text-decoration:none;font-weight:700;">plan a multi-step job →</a>` : ""}
           <a href="/playground" style="color:var(--muted);text-decoration:none;">try playground</a>
           <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse sellers</a>
         </div>
@@ -1187,7 +1187,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         <button type="submit" style="border:none;border-left:1px solid var(--hairline);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;white-space:nowrap;">FIND →</button>
       </form>
       <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
-        <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
+        <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>${decideLive() ? `<a href="/decide" style="color:var(--accent);text-decoration:none;font-weight:700;">plan a multi-step job →</a>` : ""}
         <a href="/playground" style="color:var(--muted);text-decoration:none;">try playground</a>
         <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse all sellers</a>
       </div>

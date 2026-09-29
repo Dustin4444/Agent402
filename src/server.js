@@ -293,6 +293,7 @@ import { probeRecalls as faProbeRecalls } from "./tools/recall-report-kit.js";
 import { sendEmail as faSendEmail } from "./email.js";
 import { marketsPage } from "./markets.js";
 import { decidePage } from "./decide-page.js";
+import { decideConfig } from "./decide/config.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
@@ -7243,16 +7244,19 @@ const ogSectionCtx = () => ({
   toolCount: Object.keys(CATALOG).length,
   railCount: RAILS.length,
   price: (slug) => { const d = Object.values(CATALOG).find((t) => t && t.slug === slug); return d && typeof d.price === "string" ? d.price : null; },
+  decide: CATALOG["POST /api/decide"] ? (() => { const d = decideConfig().prices; const f = (n) => `$${Number(n).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`; return { quick: f(d.quick), full: f(d.full) }; })() : null,
   monitorPrice: (() => { const c = Number(Object.values(MONITOR_PRODUCTS)[0]?.price); return Number.isFinite(c) && c > 0 ? `$${(c / 100).toFixed(0)}` : "$5"; })(),
 });
+// The decide card follows the decide page: no card for a product that is not live.
+const ogSectionServed = (id) => OG_SECTION_IDS.has(id) && (id !== "decide" || Boolean(CATALOG["POST /api/decide"]));
 app.get("/og/:id.svg", (req, res) => {
   const id = String(req.params.id || "");
-  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  if (!ogSectionServed(id)) return res.status(404).type("text/plain").send("Not found");
   res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(sectionCardSvg(id, ogSectionCtx()));
 });
 app.get("/og/:id.png", async (req, res) => {
   const id = String(req.params.id || "");
-  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  if (!ogSectionServed(id)) return res.status(404).type("text/plain").send("Not found");
   try {
     if (!ogSectionCache.has(id)) ogSectionCache.set(id, await rasterizeSvg(sectionCardSvg(id, ogSectionCtx()), { width: 1200, height: 630 }));
     res.type("image/png").set("Cache-Control", "public, max-age=86400").send(ogSectionCache.get(id));
