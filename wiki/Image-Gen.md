@@ -13,7 +13,7 @@ Three tiers of text-to-image generation, paywalled via x402. An agent sends a pr
 |---|---|---|---|---|---|
 | `POST /api/image-gen` | $0.03 | `gpt-image-2` | low | 1024x1024 | 1,000 chars |
 | `POST /api/image-gen-hd` | $0.10 | `gpt-image-2` | medium | 1024x1024 | 2,000 chars |
-| `POST /api/image-gen-premium` | $0.30 | `gpt-image-2` | medium | 1024x1024 | 4,000 chars |
+| `POST /api/image-gen-premium` | $0.15 | `gpt-image-2` | medium | 1536x1024 (landscape), 1024x1536 (portrait) or 1024x1024 | 4,000 chars |
 
 All three tiers are **wallet-only** -- there is no proof-of-work free tier because every call burns real upstream inference credit. See [[Security Model]] for the wallet-only rationale.
 
@@ -77,15 +77,20 @@ curl -X POST https://agent402.tools/api/image-gen-hd \
   }'
 ```
 
-### Premium tier ($0.30 -- GPT Image 2, medium quality)
+### Premium tier ($0.15 -- GPT Image 2, medium quality, larger frame)
 
 ```bash
 curl -X POST https://agent402.tools/api/image-gen-premium \
   -H 'Content-Type: application/json' \
   -d '{
-    "prompt": "An isometric 3D render of a futuristic city block with neon signs and flying cars, cyberpunk aesthetic"
+    "prompt": "An isometric 3D render of a futuristic city block with neon signs and flying cars, cyberpunk aesthetic",
+    "orientation": "landscape"
   }'
 ```
+
+`orientation` is premium-only: `landscape` (1536x1024, the default), `portrait` (1024x1536) or `square` (1024x1024).
+
+A render takes 10 to 30 s on the base tier and 20 to 50 s on hd and premium, so set a client timeout of at least 60 s (75 s on premium).
 
 All three return `402` without a valid x402 payment header -- the same flow as every other paid tool. See [[Paying with x402]] for how to sign and attach payment.
 

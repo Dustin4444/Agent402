@@ -14,8 +14,8 @@
 // times (tool_call latency of settled calls, 60 days to 2026-09-28):
 //   - the report composites finished in 38 to 139 s, and the storefront says
 //     one to three minutes: 180 s;
-//   - v1-videos 38 to 40 s, image-gen-premium 37 to 46 s (60 s upstream cap):
-//     60 s each.
+//   - v1-videos 38 to 40 s (60 s); image-gen-premium 35 to 46 s under a 75 s
+//     upstream cap since it renders the larger frame (75 s).
 // Every other route has no floor. Short windows are an honest pattern there -
 // this server's own router signs 30 s authorizations - and a fast handler
 // settles well inside them. A handler that pays an outside seller before the
@@ -53,7 +53,7 @@ const MEDIA_SLUGS = new Set(["v1-images-fast", "v1-images-pro", "v1-videos"]);
 export const EVM_RUN_SECONDS = Object.freeze({
   ...Object.fromEntries([...EXPENSIVE_COMPOSITE_SLUGS].filter((s) => !MEDIA_SLUGS.has(s)).map((s) => [s, 180])),
   "v1-videos": 60,
-  "image-gen-premium": 60,
+  "image-gen-premium": 75,
 });
 
 const UINT = /^\d{1,20}$/;

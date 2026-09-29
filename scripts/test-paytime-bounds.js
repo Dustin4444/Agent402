@@ -122,7 +122,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   ok(evmCredentialExpiry("not base64 json") === null && evmCredentialExpiry("") === null && evmCredentialExpiry(eip("1e9")) === null && evmCredentialExpiry(eip("-5")) === null, "garbage, an empty header and a non-integer validBefore read as nothing");
 
   ok(requiredEvmSecondsFor("research") === 180 + SETTLE_RULE_SECONDS && requiredEvmSecondsFor("ticker-pack") === 186 && requiredEvmSecondsFor("linkedin-article") === 186, "report composites need their measured run (180 s) plus the facilitator's 6 s");
-  ok(requiredEvmSecondsFor("v1-videos") === 66 && requiredEvmSecondsFor("image-gen-premium") === 66, "the video and premium image floors");
+  ok(requiredEvmSecondsFor("v1-videos") === 66 && requiredEvmSecondsFor("image-gen-premium") === 81, "the video and premium image floors");
   ok(["uuid", "hash", "v1-images-fast", "v1-images-pro", "v1-chat", "v1-chat-nano", "v1-chat-metered", "route-execute"].every((sl) => requiredEvmSecondsFor(sl) === 0), "fast routes have no floor: short windows are an honest pattern there");
   ok(requiredEvmSecondsFor("seller-payability") === 0 && requiredEvmSecondsFor("route-execute-pro") === 0, "the routes that pay an outside seller have no floor: they bound their own run by the buyer's authorization instead");
   ok(requiredEvmSecondsFor("research", 200) === 200 - CLIENT_SLACK_SECONDS, "the floor is capped at maxTimeoutSeconds minus the client slack");
