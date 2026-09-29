@@ -135,7 +135,7 @@ ok(chatToGemini({}, M).candidates[0].finishReason === "FINISH_REASON_UNSPECIFIED
 // for a base-tier model answered "call /v1/chat/completions", which is correct
 // about the tier and useless to a caller holding a Google client.
 {
-  const msg = 'Model "google/gemini-2.5-flash" is served by the v1-chat tier - call /v1/chat/completions (price $0.02/call), or /v1/metered/chat/completions (the same model, quoted per request from $0.001) instead.';
+  const msg = 'Model "google/gemini-3.5-flash-lite" is served by the v1-chat tier - call /v1/chat/completions (price $0.02/call), or /v1/metered/chat/completions (the same model, quoted per request from $0.001) instead.';
   const out = repointToGeminiWire(msg);
   ok(out.includes("/v1/gemini") && out.includes("/v1/metered/gemini"), "both chat paths are re-pointed at the same tier's Gemini route");
   ok(!out.includes("chat/completions"), "no chat path survives in a message this wire returns");

@@ -186,7 +186,7 @@ delete process.env.OPENROUTER_API_KEY;
   const sent = [];
   globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); sent.push(b); return { ok: true, status: 200, text: async () => JSON.stringify(reply(b.model, { service_tier: "priority" })) }; };
   process.env.OPENROUTER_API_KEY = "test-key";
-  const outP = await bySlug("v1-chat-pro-responses").handler({ model: "google/gemini-2.5-pro", input: "hi", max_output_tokens: 64, service_tier: "priority" }, fakeReq);
+  const outP = await bySlug("v1-chat-pro-responses").handler({ model: "google/gemini-3.6-flash", input: "hi", max_output_tokens: 64, service_tier: "priority" }, fakeReq);
   ok(sent.length === 1 && sent[0].service_tier === "priority" && outP.service_tier === "priority", "pro responses: one upstream call carrying service_tier priority (no flex attempt on a flex-eligible model); the served tier reported back");
   delete process.env.OPENROUTER_API_KEY;
 }

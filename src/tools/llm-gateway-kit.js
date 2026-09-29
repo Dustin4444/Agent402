@@ -310,7 +310,7 @@ export const TIERS = {
       "openai/gpt-6-luna",
       // gemini-2.0-flash-lite was removed here 2026-08-04: the model is gone
       // from OpenRouter entirely (verified against the live models list).
-      "google/gemini-2.5-flash-lite", // expires upstream 2026-10-20; ranked/default uses moved to 3.1-flash-lite
+      // gemini-2.5-flash-lite left 2026-09-29 (upstream expiration 2026-10-20): refused by name in RETIRING_MODELS.
       "google/gemini-3.1-flash-lite", // inside this tier's max_price
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
       // ministral-3b/8b were renamed upstream to the -2512 ids (the bare ids
@@ -345,8 +345,8 @@ export const TIERS = {
       // claude-3-haiku followed on 2026-09-26 (the live model-id guard failed on it).
       "anthropic/claude-haiku",
       // gemini-flash (bare) and gemini-2.0-flash left OpenRouter (live-verified
-      // 2026-08-19, scripts/test-gateway-model-ids.js); 2.5 + 3.x remain.
-      "google/gemini-2.5-flash",
+      // 2026-08-19, scripts/test-gateway-model-ids.js); gemini-2.5-flash left
+      // 2026-09-29 ahead of its 2026-10-20 upstream expiration (RETIRING_MODELS).
       "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite",
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
       // Meta's Muse models. Glimmer 30B (live 2026-09-23): reasoning mandatory (see REASONING_MODELS). The "-contributor" listings
@@ -388,7 +388,8 @@ export const TIERS = {
       "openai/gpt-4o", "openai/gpt-4.1",
       // claude-sonnet prefix covers claude-sonnet-5 — see MODEL_COST below.
       "anthropic/claude-sonnet", // covers claude-sonnet-4.x and -5; 3.5/3.7-sonnet left OpenRouter (2026-08-19)
-      "google/gemini-2.5-pro", // bare gemini-pro left OpenRouter (2026-08-19)
+      // bare gemini-pro left OpenRouter 2026-08-19; gemini-2.5-pro left 2026-09-29
+      // ahead of its 2026-10-20 upstream expiration (RETIRING_MODELS).
       "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
       "x-ai/grok",
       // gpt-6-sol (live 2026-09-24): fits this tier's bound at its dearest
@@ -689,6 +690,12 @@ export function tierPriceLabel(price) {
  *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
   "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
+  // Gemini 2.5 (OpenRouter expiration_date 2026-10-20). Their family prefixes
+  // left the tiers 2026-09-29; these entries turn a caller naming one into a
+  // 400 that names a live successor on a tier we serve, not an upstream failure.
+  "google/gemini-2.5-flash-lite": { until: "2026-10-20", use: "google/gemini-3.1-flash-lite" },
+  "google/gemini-2.5-flash": { until: "2026-10-20", use: "google/gemini-3.5-flash-lite" },
+  "google/gemini-2.5-pro": { until: "2026-10-20", use: "google/gemini-3.1-pro-preview" },
 });
 export function retiringModel(model) {
   const id = canonicalModelRaw(model).toLowerCase().split(":")[0];
@@ -900,7 +907,6 @@ export const MODEL_COST = [
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-haiku-4.5", { prompt: 1.1, completion: 5.5 }], // live 2026-09-18
   ["anthropic/claude", { prompt: 1, completion: 5 }],
-  ["google/gemini-2.5-pro", { prompt: 1.25, completion: 10 }], // live 2026-08-28
   ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
   // gemini-3.x — explicit entries: the bare "google/gemini" flash-family rate
   // would underestimate them (live 2026-08-04).
@@ -1727,7 +1733,6 @@ export function validateRequest(input, tierSlug, { clamp = true } = {}) {
 // of burning a failed attempt per call. (The images route left this table on
 // 2026-09-24 with its Gemini model.) OPENROUTER_FLEX=off is the escape hatch.
 export const FLEX_MODELS = [
-  "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
   "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
   // Both carry an "openai/flex" endpoint tag (live endpoints 2026-09-24).

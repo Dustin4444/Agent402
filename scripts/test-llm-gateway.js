@@ -25,7 +25,7 @@ process.env.POSTHOG_TEST_CAPTURE = "1";
 // Bare OpenAI-style names map to OpenRouter ids — drop-in SDK compatibility.
 ok(canonicalModel("gpt-4o-mini") === "openai/gpt-4o-mini", "bare gpt name maps to openai/");
 ok(canonicalModel("claude-opus-4") === "anthropic/claude-opus-4", "bare claude name maps to anthropic/");
-ok(canonicalModel("gemini-2.5-flash") === "google/gemini-2.5-flash", "bare gemini name maps to google/");
+ok(canonicalModel("gemini-3.5-flash-lite") === "google/gemini-3.5-flash-lite", "bare gemini name maps to google/");
 ok(canonicalModel("o3-mini") === "openai/o3-mini", "bare o3 name maps to openai/");
 ok(canonicalModel("claude-haiku-4-5-20251001") === "anthropic/claude-haiku-4.5" && canonicalModel("claude-sonnet-4-5-20250929") === "anthropic/claude-sonnet-4.5" && canonicalModel("claude-opus-4-1-20250805") === "anthropic/claude-opus-4.1", "Anthropic dated ids (what Claude Code / the SDKs send) resolve to the OpenRouter family id");
 ok(canonicalModel("claude-sonnet-5") === "anthropic/claude-sonnet-5" && canonicalModel("claude-opus-5") === "anthropic/claude-opus-5" && canonicalModel("claude-3-5-sonnet-20241022") === "anthropic/claude-3-5-sonnet", "undated ids untouched; legacy claude-3-5-sonnet-<date> only loses the date");
@@ -326,14 +326,14 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const noSpace = createSseUsageScrubber().push('data:{"id":"x","usage":{"prompt_tokens":2,"cost":0.5,"cache_discount":-0.1}}\n');
   ok(!/cost|cache_discount/.test(noSpace) && /"prompt_tokens":2/.test(noSpace), "scrubber handles a 'data:' frame with no space after the colon");
 
-  // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
+  // Flex-first on eligible links: gemini-3.1-flash-lite (nano allowlist) is
   // tried on flex, falls to default on a capacity error, and only THEN does
   // the chain move on; deepseek (not eligible) never sees service_tier.
   const { flexAttempts, flexEligible, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
-  ok(flexEligible("google/gemini-2.5-flash-lite") && flexEligible("openai/gpt-5.6-luna") && !flexEligible("openai/gpt-4o-mini") && !flexEligible("deepseek/deepseek-chat"), "flex eligibility follows the live-verified table");
-  ok(JSON.stringify(flexAttempts(["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"])) === JSON.stringify([{ model: "google/gemini-2.5-flash-lite", flex: true }, { model: "google/gemini-2.5-flash-lite", flex: false }, { model: "deepseek/deepseek-chat", flex: false }]), "attempts = [flex, default] for eligible links, [default] otherwise");
+  ok(flexEligible("google/gemini-3.1-flash-lite") && flexEligible("openai/gpt-5.6-luna") && !flexEligible("openai/gpt-4o-mini") && !flexEligible("deepseek/deepseek-chat"), "flex eligibility follows the live-verified table");
+  ok(JSON.stringify(flexAttempts(["google/gemini-3.1-flash-lite", "deepseek/deepseek-chat"])) === JSON.stringify([{ model: "google/gemini-3.1-flash-lite", flex: true }, { model: "google/gemini-3.1-flash-lite", flex: false }, { model: "deepseek/deepseek-chat", flex: false }]), "attempts = [flex, default] for eligible links, [default] otherwise");
   process.env.OPENROUTER_FLEX = "off";
-  ok(!flexEligible("google/gemini-2.5-flash-lite") && FLEX_MODELS.includes("google/gemini-2.5-flash-lite"), "OPENROUTER_FLEX=off disables flex without touching the table");
+  ok(!flexEligible("google/gemini-3.1-flash-lite") && FLEX_MODELS.includes("google/gemini-3.1-flash-lite"), "OPENROUTER_FLEX=off disables flex without touching the table");
   delete process.env.OPENROUTER_FLEX;
   const flexTried = [];
   globalThis.fetch = async (url, init) => {
@@ -342,15 +342,15 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     return { ok: true, status: 200, body: sseBody(["data: [DONE]\n\n"]) };
   };
   const resF = fakeRes();
-  await (await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(resF);
-  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex,google/gemini-2.5-flash-lite:default" && resF.ended, `stream: flex capacity error → same model on default, chain not advanced (tried ${flexTried.join(",")})`);
+  await (await nano.handler({ model: "google/gemini-3.1-flash-lite", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(resF);
+  ok(flexTried.join(",") === "google/gemini-3.1-flash-lite:flex,google/gemini-3.1-flash-lite:default" && resF.ended, `stream: flex capacity error → same model on default, chain not advanced (tried ${flexTried.join(",")})`);
   flexTried.length = 0;
   globalThis.fetch = async (url, init) => {
     const b = JSON.parse(init.body); flexTried.push(`${b.model}:${b.service_tier || "default"}`);
     return { ok: true, status: 200, text: async () => JSON.stringify({ id: "g", model: b.model, service_tier: b.service_tier || "default", choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.0000001 } }) };
   };
-  const outF = await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }] });
-  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex" && outF.service_tier === "flex", "non-stream: a flex success is served first time, one upstream call");
+  const outF = await nano.handler({ model: "google/gemini-3.1-flash-lite", messages: [{ role: "user", content: "hi" }] });
+  ok(flexTried.join(",") === "google/gemini-3.1-flash-lite:flex" && outF.service_tier === "flex", "non-stream: a flex success is served first time, one upstream call");
   {
     const { _testEventsForTest } = await import("../src/posthog.js");
     const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
@@ -1018,10 +1018,10 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const wc = worstCaseUpstreamCost({ model: "openai/gpt-4o-mini", messages: msg1(), max_tokens: 1024 }, g);
   const plain = worstCaseUpstreamCost({ model: "openai/gpt-4o-mini", messages: msg1(), max_tokens: 1024 }, TIERS["v1-chat-auto"]);
   ok(wc.fixedUsd === 0.007 && wc.inTokens - plain.inTokens === 4500 && wc.totalUsd > plain.totalUsd + 0.007, "worst-case cost on the grounded tier adds the search fee and the injected-result tokens");
-  const big = worstCaseUpstreamCost({ model: "google/gemini-2.5-flash", messages: [{ role: "user", content: "x ".repeat(8000) }], max_tokens: 1024 }, g);
+  const big = worstCaseUpstreamCost({ model: "google/gemini-3.5-flash-lite", messages: [{ role: "user", content: "x ".repeat(8000) }], max_tokens: 1024 }, g);
   ok(big.totalUsd <= g.price * MARGIN, `largest grounded call (16k chars in on the priciest ranked model, 1024 out, 5 results) stays under the margin bound`);
   ok(pck("v1-chat-grounded", { messages: msg1(), cache: true }) === null, "grounded answers are never cacheable (the web moves)");
-  ok(tierFor("openai/gpt-4o-mini") === "v1-chat" && tierFor("google/gemini-2.5-flash") !== "v1-chat-grounded", "grounded is listed last: explicit models still resolve to their home tiers");
+  ok(tierFor("openai/gpt-4o-mini") === "v1-chat" && tierFor("google/gemini-3.5-flash-lite") !== "v1-chat-grounded", "grounded is listed last: explicit models still resolve to their home tiers");
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;
   let seen = null;
@@ -1097,18 +1097,18 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1(), service_tier: 1 }, "v1-chat-pro"), "must be a string", "a non-string service_tier is refused");
   // Attempts and the outbound field: priority never tries flex; a :nitro
   // default attempt carries "default"; a plain request is byte-identical.
-  ok(JSON.stringify(attemptsFor(["google/gemini-2.5-pro"], { service_tier: "priority" })) === '[{"model":"google/gemini-2.5-pro","flex":false}]' && JSON.stringify(attemptsFor(["google/gemini-2.5-pro"], {})) === JSON.stringify(flexAttempts(["google/gemini-2.5-pro"])), "attemptsFor: a priority request skips the flex attempt on a flex-eligible model; otherwise flexAttempts");
-  ok(serviceTierFor("openai/gpt-4o", { service_tier: "priority" }, false) === "priority" && serviceTierFor("google/gemini-2.5-pro", { service_tier: "priority" }, true) === "priority" && serviceTierFor("google/gemini-2.5-pro", {}, true) === "flex" && serviceTierFor("openai/gpt-5.6-luna:nitro", {}, false) === "default" && serviceTierFor("openai/gpt-4o", {}, false) === undefined, "serviceTierFor: priority wins, then flex, then an explicit default on :nitro, else nothing");
+  ok(JSON.stringify(attemptsFor(["google/gemini-3.6-flash"], { service_tier: "priority" })) === '[{"model":"google/gemini-3.6-flash","flex":false}]' && JSON.stringify(attemptsFor(["google/gemini-3.6-flash"], {})) === JSON.stringify(flexAttempts(["google/gemini-3.6-flash"])), "attemptsFor: a priority request skips the flex attempt on a flex-eligible model; otherwise flexAttempts");
+  ok(serviceTierFor("openai/gpt-4o", { service_tier: "priority" }, false) === "priority" && serviceTierFor("google/gemini-3.6-flash", { service_tier: "priority" }, true) === "priority" && serviceTierFor("google/gemini-3.6-flash", {}, true) === "flex" && serviceTierFor("openai/gpt-5.6-luna:nitro", {}, false) === "default" && serviceTierFor("openai/gpt-4o", {}, false) === undefined, "serviceTierFor: priority wins, then flex, then an explicit default on :nitro, else nothing");
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;
   const bodies = [];
   const reply = (b) => JSON.stringify({ id: "g", model: b.model, service_tier: b.service_tier || "default", choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.0000001 } });
   globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); bodies.push(b); if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" }; return { ok: true, status: 200, text: async () => reply(b) }; };
   const proTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-pro");
-  const out = await proTool.handler({ model: "google/gemini-2.5-pro", messages: msg1(), max_tokens: 32, service_tier: "priority" }, { header: () => undefined });
+  const out = await proTool.handler({ model: "google/gemini-3.6-flash", messages: msg1(), max_tokens: 32, service_tier: "priority" }, { header: () => undefined });
   ok(bodies.length === 1 && bodies[0].service_tier === "priority" && bodies[0].provider?.max_price && out.service_tier === "priority", "pro handler: one upstream call carrying service_tier priority (no flex attempt) with the server-owned max_price beside it");
   bodies.length = 0;
-  await proTool.handler({ model: "google/gemini-2.5-pro", messages: msg1(), max_tokens: 32 }, { header: () => undefined });
+  await proTool.handler({ model: "google/gemini-3.6-flash", messages: msg1(), max_tokens: 32 }, { header: () => undefined });
   ok(bodies.length === 2 && bodies[0].service_tier === "flex" && !("service_tier" in bodies[1]), "control: without the knob the same model is tried flex-first, and the default attempt carries no service_tier field");
   bodies.length = 0;
   const nanoTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
@@ -1586,9 +1586,21 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   for (const id of Object.keys(RETIRING_MODELS)) {
     ok(!tierFor(id) && !tierAllows("v1-chat-metered", id) && retiringModel(id + ":nitro")?.id === id, `${id}: admitted by no tier (a :variant too)`);
     let e = null; try { validateRequest({ model: id, messages: [{ role: "user", content: "hi" }] }, "v1-chat"); } catch (x) { e = x; }
-    ok(e?.statusCode === 400 && /removes it on 2026-09-28/.test(e.message) && e.message.includes(RETIRING_MODELS[id].use), `${id}: a self-explaining 400 naming the date and the successor`);
+    ok(e?.statusCode === 400 && e.message.includes(`removes it on ${RETIRING_MODELS[id].until}`) && e.message.includes(RETIRING_MODELS[id].use), `${id}: a self-explaining 400 naming the date and the successor`);
   }
   ok(!K.MODEL_COST.some(([p]) => Object.hasOwn(RETIRING_MODELS, p)), "no MODEL_COST row prices a retiring id");
+  // Gemini 2.5 (upstream expiration 2026-10-20): refused by name on every tier
+  // and wire, the successor live on a tier we serve, gone from flex and pricing.
+  for (const id of ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro"]) {
+    ok(RETIRING_MODELS[id]?.until === "2026-10-20" && !!tierFor(RETIRING_MODELS[id].use), `${id}: retiring on 2026-10-20, successor ${RETIRING_MODELS[id].use} admitted on ${tierFor(RETIRING_MODELS[id].use)}`);
+    ok(!K.FLEX_MODELS.includes(id) && !Object.values(TIERS).some((t) => (t.prefixes || []).includes(id) || (t.fallbacks || []).includes(id)), `${id}: in no tier prefix, fallback or flex entry`);
+    ok(!Object.values(AUTO_RANKINGS).some((b) => Object.values(b).flat().includes(id)), `${id}: in no auto ranking`);
+    for (const tier of ["v1-chat-nano", "v1-chat", "v1-chat-pro", "v1-chat-premium", "v1-chat-metered"]) {
+      let e = null; try { validateRequest({ model: id, messages: [{ role: "user", content: "hi" }] }, tier); } catch (x) { e = x; }
+      ok(e?.statusCode === 400 && e.message.includes(RETIRING_MODELS[id].use), `${id} on ${tier}: 400 naming ${RETIRING_MODELS[id].use}`);
+    }
+    ok(tierFor(id + "-preview-09-2025") === null || !String(tierFor(id + "-preview-09-2025")).length, `${id}: dated/preview twins are not admitted by a family prefix either`);
+  }
   ok(tierFor("deepseek/deepseek-chat") === "v1-chat-nano" && tierAllows("v1-chat", "deepseek/deepseek-v4-flash"), "the deepseek family is otherwise unchanged");
   // deepseek-v3.2 left RETIRING_MODELS when its upstream expiration date was
   // withdrawn: sold again on base and metered, priced by its own row.
