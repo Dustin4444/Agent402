@@ -5402,7 +5402,10 @@ app.get("/api/reliability", async (_req, res) =>
 // with ?fresh=1, still no more than once per 5 minutes (createSelfCheckRoute).
 app.get("/api/selfcheck", createSelfCheckRoute({
   run: () => runSelfCheck(CATALOG),
-  isOperator: (req) => operatorAuthed(req),
+  // The probe-only STATUS_PROBE_TOKEN may also ask for a fresh run (still at
+  // most once per 5 minutes), so tool-alert.yml sees a failure within its own
+  // 30-minute poll without carrying the operator token.
+  isOperator: (req) => statusProbeAuthed(req),
 }));
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
