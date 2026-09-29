@@ -90,6 +90,7 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(rcall && rcall.include === "external" && rcall.target === "https://seller.example/x" && rcall.params.q === "given", "the external step is pinned to the planned endpoint and gets the caller's params");
   ok(out.steps[1].costUsd === 0.0189 && out.steps[1].routingFeeUsd === 0.0009 && out.steps[0].costUsd === 0.01, "cost = seller's actual price + disclosed fee on third-party steps; list price, no fee, on first-party");
   ok(out.creditAppliedUsd === 0.02 && out.paidUsd === 0.011 && out.budgetUsd === 0.031, "the credit is redeemed against the run");
+  ok(out.charges.firstPartyUsd === 0.01 && out.charges.passThroughUsd === 0.018 && out.charges.routingFeesUsd === 0.0009 && out.charges.uncertainUsd === 0, `charges on separate lines: our tool, pass-through to the seller, routing fee (${JSON.stringify(out.charges)})`);
   ok(out.leftoverCredit && out.leftoverCredit.amountUsd === 0.0021 && ledger.creditState(out.leftoverCredit.token).state === "pending", "unspent budget comes back as a credit, pending until settlement");
   settle(req, 200);
   ok(ledger.creditState(out.leftoverCredit.token).state === "active", "the leftover credit activates on a settled 200");
@@ -133,6 +134,24 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   routerMode = "ok";
   ok(calls.filter((c) => c[0] === "router").length === 1 && out.steps[0].status === "failed", "a committed external payment stops the step: no second paid seller");
   ok(ledger.sellerSpendUsd("s1.example", clock - 1) > 0, "...and what that seller may have been paid counts toward its daily ceiling");
+}
+
+// ---- a low spending wallet pauses outside steps before anything is paid ----
+{
+  calls.length = 0;
+  routerMode = "ok";
+  const low = makeExecuteHandler({ ledger, getCatalog: () => catalog, now, spendingWalletStatus: async () => ({ status: "low" }) });
+  const planL = [{ step: 1, purpose: "x", tool: tool("eL", { firstParty: false, seller: "l.example", endpoint: "https://l.example/x", priceUsd: 0.01 }), fallbacks: [], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dL1", depth: "plan", priceUsd: 0.02, plan: planL, costViaUsd: 0.0105, now: clock });
+  ledger.markDecisionSettled("dL1");
+  await throwsWith(() => low({ decisionId: "dL1" }, mkReq("0xlow")), 503, "spending wallet", "an all-outside plan is refused 503 while the spending wallet is low");
+  ok(!calls.some((c) => c[0] === "router"), "...and no seller was called");
+  const planM = [{ step: 1, purpose: "x", tool: tool("eM", { firstParty: false, seller: "m.example", endpoint: "https://m.example/x", priceUsd: 0.01 }), fallbacks: [tool("a")], dependsOn: [] }];
+  ledger.saveDecision({ decisionId: "dL2", depth: "plan", priceUsd: 0.02, plan: planM, costViaUsd: 0.0105, now: clock });
+  ledger.markDecisionSettled("dL2");
+  const out = await low({ decisionId: "dL2" }, mkReq("0xlow2"));
+  ok(!calls.some((c) => c[0] === "router") && out.steps[0].status === "ok" && out.steps[0].tool.firstParty, "a mixed step skips the outside seller and runs our fallback");
+  ok(out.charges && out.charges.firstPartyUsd > 0 && out.charges.passThroughUsd === 0 && out.charges.routingFeesUsd === 0, `the answer separates our tools, pass-through and fees (${JSON.stringify(out.charges)})`);
 }
 
 // ---- one outside seller cannot take more than its daily ceiling ----

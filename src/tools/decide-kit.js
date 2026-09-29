@@ -177,7 +177,7 @@ function priceOfDef(def) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(), isComposite = (slug) => EXPENSIVE_COMPOSITE_SLUGS.has(slug), runBudgetMs = (req) => evmCredentialBudgetMs(req) }) {
+export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(), isComposite = (slug) => EXPENSIVE_COMPOSITE_SLUGS.has(slug), runBudgetMs = (req) => evmCredentialBudgetMs(req), spendingWalletStatus = async () => (await import("../upstream-buyer-status.js")).upstreamBuyerStatus() }) {
   return async function executeHandler(input, req) {
     const cfg = decideConfig();
     const decisionId = String(input?.decisionId || "");
@@ -203,6 +203,18 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for up to 24 hours; nothing was charged", 429);
     const payerDayCap = cfg.execute.globalDayUsd * cfg.execute.perPayerDayShare;
     if (payer && ledger.payerExposureUsd(payer, t - 86_400_000) + budget > payerDayCap) throw bad(`This wallet has reached its daily execution ceiling ($${roundUsd(payerDayCap)}); nothing was charged`, 429);
+
+    // Outside steps are paid from our spending wallet. When its balance reads
+    // low, they are paused before anything is paid (an unreadable balance does
+    // not block: a payment the wallet cannot cover is refused, and not charged).
+    const hasOutside = d.plan.some((p) => [p.tool, ...(p.fallbacks || [])].some((x) => x && !x.firstParty));
+    let outsidePaused = false;
+    if (hasOutside) {
+      try { outsidePaused = (await spendingWalletStatus())?.status === "low"; } catch { outsidePaused = false; }
+      if (outsidePaused && d.plan.every((p) => [p.tool, ...(p.fallbacks || [])].every((x) => x && !x.firstParty))) {
+        throw bad("Outside steps are paused while our spending wallet is topped up; nothing was charged - retry later", 503);
+      }
+    }
 
     const runId = `run_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
     let redeemed = 0;
@@ -271,6 +283,7 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
           }
         }
         if (!router) { attempts.push({ id: tool.id, skipped: "external execution is not enabled on this host" }); continue; }
+        if (outsidePaused) { attempts.push({ id: tool.id, skipped: "outside steps are paused while our spending wallet is topped up" }); continue; }
         if (ledger.sellerSpendUsd(tool.seller, t - 86_400_000) + listPrice * 1.5 > cfg.execute.perSellerDayUsd) { attempts.push({ id: tool.id, skipped: "this seller's daily execution ceiling is reached" }); continue; }
         // The most this leg may pay: the planned price with room for a small
         // live-price drift, never the whole remaining budget (a leg whose
@@ -339,9 +352,16 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     // A settlement that fails after this run spent money forfeits the credit:
     // restoring it would let the same credit fund run after run.
     if (redeemed && nothingSpent) onSettled(req, (settledOk) => { if (!settledOk) ledger.restoreCredit(input.creditToken, runId); });
+    // What the spend was, on separate lines: our own tools, what was passed
+    // through to outside sellers, and the routing fee on it.
+    const okResults = results.filter((r) => r.status === "ok");
+    const routingFeesUsd = roundUsd(okResults.reduce((a, r) => a + (r.routingFeeUsd || 0), 0));
+    const passThroughUsd = roundUsd(okResults.filter((r) => !r.tool.firstParty).reduce((a, r) => a + (r.costUsd || 0), 0) - routingFeesUsd);
+    const firstPartyUsd = roundUsd(okResults.filter((r) => r.tool.firstParty).reduce((a, r) => a + (r.costUsd || 0), 0));
     return {
       runId, decisionId: d.id, status: okSteps === results.length ? "complete" : "partial",
       steps: results, budgetUsd: spendable, spentUsd: spent, paidUsd: quoted, creditAppliedUsd: redeemed,
+      charges: { firstPartyUsd, passThroughUsd, routingFeesUsd, uncertainUsd: roundUsd(Math.max(0, spent - firstPartyUsd - passThroughUsd - routingFeesUsd)) },
       routingFeePct: cfg.routingFeePct, leftoverCredit,
     };
   };
