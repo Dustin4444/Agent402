@@ -5,7 +5,7 @@
 //   node scripts/test-decide-index.js
 
 import { localToolRow, remoteToolRow, cleanText, embedText, schemaQuality, FIRST_PARTY_SELLER } from "../src/decide/tool-rows.js";
-import { decideTokenOk, fromPrivateNetwork } from "../src/decide/index-export.js";
+import { decideTokenOk, fromPrivateNetwork, executableStep, unifiedRows } from "../src/decide/index-export.js";
 import { VectorStore, quantize, toBytes, fromBytes, DIMS } from "../services/decide/vectors.js";
 import { LexicalIndex, tokenize } from "../services/decide/lexical.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
@@ -139,6 +139,21 @@ for (const t of ["Detects prompt-injection patterns in text", "Web search for cu
   walk(new URL("../src", import.meta.url).pathname);
   ok(offenders.length === 0, `src/ imports nothing from services/ (${offenders.join(", ") || "none"})`);
   ok(/COPY services \.\/services/.test(readFileSync(new URL("../Dockerfile", import.meta.url), "utf8")), "the image carries services/ for the decide service");
+}
+
+// ---- steps execute cannot run are exported as such ----
+{
+  const h = async () => ({ ok: 1 });
+  const cat = {
+    "POST /api/hash": { slug: "hash", route: "POST /api/hash", price: "$0.001", description: "hash", discovery: { bodyType: "json", inputSchema: { properties: { text: { type: "string" } } } }, handler: h },
+    "POST /v1/research": { slug: "research", route: "POST /v1/research", price: "$0.60", description: "research report", discovery: { bodyType: "json", inputSchema: { properties: { q: { type: "string" } } } }, handler: h },
+    "POST /v1/metered/chat/completions": { slug: "v1-chat-metered", route: "POST /v1/metered/chat/completions", price: "$0.001", description: "chat", quote: () => 0.01, discovery: { bodyType: "json", inputSchema: { properties: { model: { type: "string" } } } }, handler: h },
+  };
+  ok(executableStep(cat["POST /api/hash"]) && !executableStep(cat["POST /v1/research"]) && !executableStep(cat["POST /v1/metered/chat/completions"]), "a plain tool is an executable step; a report product and a per-request-priced tier are not");
+  const rows = [];
+  for await (const r of unifiedRows({ catalog: cat, baseUrl: "https://agent402.tools" })) rows.push(r);
+  const bySlug = Object.fromEntries(rows.map((r) => [r.slug, r]));
+  ok(bySlug.hash && bySlug.hash.executable !== false && bySlug.research?.executable === false, "the export marks the report product as not executable");
 }
 
 console.log(`\ntest-decide-index: ${pass} passed, ${fail} failed`);

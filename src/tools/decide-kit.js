@@ -91,6 +91,8 @@ export function sendObservations(observations, { send = callService } = {}) {
   Promise.resolve().then(() => send("/internal/observations", { observations }, { timeoutMs: 5000 })).catch(() => {});
 }
 
+export const TEMPO_DECISION_BUDGET_MS = 14_000;
+
 export function makeDecideHandler({ ledger, now = () => Date.now() }) {
   return async function decideHandler(input, req) {
     const depth = String(input?.depth ?? "plan").toLowerCase();
@@ -98,11 +100,14 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
     const cfg = decideConfig();
     const priceUsd = decideQuoteUsd(input);
     const payer = payerOf(req);
+    // A Tempo credential is only settleable for about 25s after signing, and
+    // settlement follows the answer: its decision is bounded well inside that.
+    const budgetMs = req?.mppTempoCredential ? Math.min(cfg.budgetMs[depth], TEMPO_DECISION_BUDGET_MS) : cfg.budgetMs[depth];
     const out = await callService("/internal/decide", {
       task: input?.task, constraints: input?.constraints, depth,
       payer, rail: req?.mppTempoCredential ? "mpp" : "x402", priceUsd,
-      deadlineAt: Date.now() + cfg.budgetMs[depth] + 3000,
-    }, { timeoutMs: cfg.budgetMs[depth] + 4000 });
+      deadlineAt: Date.now() + budgetMs + 3000,
+    }, { timeoutMs: budgetMs + 4000 });
     fileGaps(out.gaps, req);
     // A 4xx/5xx is never charged. An empty plan is "nothing covers this", and
     // a plan whose fit judging failed is retrieval order, which /api/find gives

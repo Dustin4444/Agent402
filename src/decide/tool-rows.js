@@ -93,7 +93,7 @@ function priceNumber(p) {
  * @param def catalog entry ({ route: "POST /api/x", slug, name, description, price, category, discovery })
  * @param ctx { baseUrl, networks: CAIP-2 ids this server offers, rails, now }
  */
-export function localToolRow(def, { baseUrl = "https://agent402.tools", networks = [], rails = ["x402", "mpp"], now = Date.now() } = {}) {
+export function localToolRow(def, { baseUrl = "https://agent402.tools", networks = [], rails = ["x402", "mpp"], now = Date.now(), executable = true } = {}) {
   if (!def || typeof def.route !== "string") return null;
   const [method, route] = def.route.split(" ");
   if (!method || !route || route.includes(":")) return null;
@@ -127,6 +127,7 @@ export function localToolRow(def, { baseUrl = "https://agent402.tools", networks
     hasExample: !!example,
     hasOutputSchema: !!def.discovery?.output?.example,
     modelBacked: def.modelBacked === true,
+    ...(executable ? {} : { executable: false }),
     lastLiveAt: now,
     // No privileged health prior: our rows start where an unmeasured outside
     // row does, and move only on observed reliability.

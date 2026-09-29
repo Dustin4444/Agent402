@@ -78,7 +78,11 @@ function toolView(row, { routingFeePct }) {
     endpoint: row.endpoint, method: row.method,
     rail: row.rails.includes("x402") ? "x402" : row.rails[0], rails: row.rails, networks: row.networks,
     priceUsd: row.priceUsd, ...(row.pricedByQuote ? { priceIsFloor: true } : {}),
-    executeViaAgent402Usd: Math.round((row.priceUsd + fee) * 1e6) / 1e6,
+    // A step execute cannot run (a report product, a per-request-priced tier)
+    // is still a valid step to call directly; it carries no execute price.
+    ...(row.executable === false
+      ? { executeViaAgent402Usd: null, callDirectly: true }
+      : { executeViaAgent402Usd: Math.round((row.priceUsd + fee) * 1e6) / 1e6 }),
     inputSchema: row.inputSchema,
   };
 }
@@ -222,7 +226,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   for (const p of plan) finishAt[p.step] = Math.max(0, ...p.dependsOn.map((d) => finishAt[d] || 0)) + stepLatency(p);
   const estimatedLatencyMs = Math.max(0, ...finishAt.filter(Number.isFinite));
   const estimatedCostUsd = Math.round(plan.reduce((a, p) => a + p.tool.priceUsd, 0) * 1e6) / 1e6;
-  const estimatedCostViaAgent402Usd = Math.round(plan.reduce((a, p) => a + p.tool.executeViaAgent402Usd, 0) * 1e6) / 1e6;
+  const estimatedCostViaAgent402Usd = Math.round(plan.reduce((a, p) => a + (p.tool.executeViaAgent402Usd || 0), 0) * 1e6) / 1e6;
   const coverage = steps.length ? plan.length / steps.length : 0;
   const meanFit = plan.length ? plan.reduce((a, p) => a + p._fit, 0) / plan.length : 0;
   const confidence = Math.round(meanFit * coverage * (partial ? 0.75 : 1) * 1000) / 1000;

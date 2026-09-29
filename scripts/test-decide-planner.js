@@ -221,5 +221,14 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   ok(judgeText("x".repeat(900)).length === 300, "every description is capped at the same length");
 }
 
+// ---- a step execute cannot run is planned with no execute price ----
+{
+  const direct = localToolRow({ route: "POST /v1/research", slug: "research", name: "Research", price: "$0.60", description: "cited research report on a question", discovery: { inputSchema: { properties: { q: { type: "string" } }, required: ["q"] } } }, { now: NOW, executable: false });
+  const idx = new ToolIndex();
+  idx.upsert(direct);
+  const d = await buildDecision({ task: "research a question", constraints: {}, depth: "quick" }, { index: idx, embed: async () => null, llm: { call: async (_s, _u, o) => (o.stage === "judge" ? { fits: { s1c1: 0.9 } } : null) }, cfg, now: NOW, deadline: Date.now() + 5000 });
+  ok(d.plan[0]?.tool.callDirectly === true && d.plan[0].tool.executeViaAgent402Usd === null && d.estimatedCostViaAgent402Usd === 0, "a report product in a plan is marked call-directly and adds nothing to the execute price");
+}
+
 console.log(`\ntest-decide-planner: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

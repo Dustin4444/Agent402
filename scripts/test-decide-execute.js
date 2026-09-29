@@ -315,6 +315,14 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   globalThis.fetch = async () => new Response(JSON.stringify({ decisionId: "dj", plan: [{ step: 1, tool: tool("a"), fallbacks: [] }], judged: false, gaps: [], estimatedCostViaAgent402Usd: 0.01 }), { status: 200 });
   await throwsWith(() => makeDecideHandler({ ledger: ledger2, now })({ task: "x", depth: "plan" }, mkReq()), 503, "not charged", "a plan the model could not judge is a 503, not a sale");
   ok(!minted.length, "...and neither refusal mints a credit");
+  // A Tempo-paid decision is bounded inside the credential's settle window.
+  let sentDeadline = 0;
+  globalThis.fetch = async (_u, init) => { sentDeadline = JSON.parse(init.body).deadlineAt; return new Response(JSON.stringify({ decisionId: "dt", plan: [{ step: 1, tool: tool("a"), fallbacks: [] }], judged: true, gaps: [], estimatedCostViaAgent402Usd: 0.01 }), { status: 200 }); };
+  const t0 = Date.now();
+  await makeDecideHandler({ ledger: ledger2, now })({ task: "x", depth: "full" }, { ...mkReq(), mppTempoCredential: {} });
+  ok(sentDeadline - t0 <= 14_000 + 3_000 + 50, `a Tempo-paid full decision is given at most ~17s, not the full 29s (${sentDeadline - t0}ms)`);
+  const { requiredSecondsFor } = await import("../src/avm-validity.js");
+  ok(requiredSecondsFor("decide") >= 30, "an Algorand payment for a decision must stay valid long enough for a full one");
   globalThis.fetch = realFetch;
 }
 

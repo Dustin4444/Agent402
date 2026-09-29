@@ -14,6 +14,13 @@ import { timingSafeEqual } from "node:crypto";
 import { localToolRow, remoteToolRow } from "./tool-rows.js";
 import { routableRemoteEntries, looksLikeListingInjection, liveProofAt, mppDualStackOrigins } from "../x402-index.js";
 import { unpackRequestContract } from "../request-contract.js";
+import { dispatchable } from "../tools/route-execute.js";
+import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
+
+/** Whether POST /api/decide/execute can run this tool as a step: the router's
+ *  dispatch rules, and no report product or per-request-priced tier (those
+ *  are planned, but called directly). */
+export const executableStep = (def) => dispatchable(def).ok && typeof def?.tierQuote !== "function" && !EXPENSIVE_COMPOSITE_SLUGS.has(def?.slug);
 
 const YIELD_EVERY = 500;
 const yieldLoop = () => new Promise((r) => setImmediate(r));
@@ -43,7 +50,7 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
   for (const def of Object.values(catalog || {})) {
     // The decision tools never recommend themselves.
     if (/^decide(?:-|$)/.test(String(def?.slug || ""))) continue;
-    const row = localToolRow(def, { baseUrl, networks, now });
+    const row = localToolRow(def, { baseUrl, networks, now, executable: executableStep(def) });
     if (row) yield row;
     if (++n % YIELD_EVERY === 0) await yieldLoop();
   }
