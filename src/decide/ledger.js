@@ -42,11 +42,21 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
       created_at INTEGER NOT NULL, finished_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS runs_payer ON runs (payer, created_at);
+    CREATE TABLE IF NOT EXISTS feedback (
+      decision_id TEXT NOT NULL, step INTEGER NOT NULL, tool_id TEXT,
+      outcome TEXT NOT NULL, quality INTEGER, latency_ms INTEGER, created_at INTEGER NOT NULL,
+      PRIMARY KEY (decision_id, step)
+    );
     CREATE INDEX IF NOT EXISTS runs_created ON runs (created_at);
   `);
 
+  // Added after the first schema: the hash of the decision's feedback token.
+  try { db.exec("ALTER TABLE decisions ADD COLUMN feedback_hash TEXT"); } catch { /* already there */ }
+
   const st = {
-    saveDecision: db.prepare("INSERT OR REPLACE INTO decisions (id, created_at, depth, price_micro, payer, plan_json, cost_via_micro, settled) VALUES (?,?,?,?,?,?,?,0)"),
+    saveDecision: db.prepare("INSERT OR REPLACE INTO decisions (id, created_at, depth, price_micro, payer, plan_json, cost_via_micro, settled, feedback_hash) VALUES (?,?,?,?,?,?,?,0,?)"),
+    feedback: db.prepare("INSERT INTO feedback (decision_id, step, tool_id, outcome, quality, latency_ms, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(decision_id, step) DO UPDATE SET tool_id = excluded.tool_id, outcome = excluded.outcome, quality = excluded.quality, latency_ms = excluded.latency_ms, created_at = excluded.created_at"),
+    feedbackExisting: db.prepare("SELECT 1 FROM feedback WHERE decision_id = ? AND step = ?"),
     getDecision: db.prepare("SELECT * FROM decisions WHERE id = ?"),
     settleDecision: db.prepare("UPDATE decisions SET settled = 1 WHERE id = ?"),
     mint: db.prepare("INSERT INTO credits (token_hash, decision_id, payer, amount_micro, expires_at, state, created_at) VALUES (?,?,?,?,?, 'pending', ?)"),
@@ -65,8 +75,21 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
 
   return {
     db,
-    saveDecision({ decisionId, depth, priceUsd, payer, plan, costViaUsd, now = Date.now() }) {
-      st.saveDecision.run(decisionId, now, depth, micro(priceUsd), payer || null, JSON.stringify(plan), micro(costViaUsd));
+    saveDecision({ decisionId, depth, priceUsd, payer, plan, costViaUsd, feedbackHash = null, now = Date.now() }) {
+      st.saveDecision.run(decisionId, now, depth, micro(priceUsd), payer || null, JSON.stringify(plan), micro(costViaUsd), feedbackHash);
+    },
+    /** True when `token` is the feedback token minted with this decision. */
+    feedbackTokenOk(decisionId, token) {
+      if (typeof token !== "string" || !token) return false;
+      const r = st.getDecision.get(String(decisionId || ""));
+      return !!r && !!r.feedback_hash && r.feedback_hash === hashToken(token);
+    },
+    /** One verdict per (decision, step); a later report replaces it. Returns
+     *  true when this replaced an earlier one. */
+    saveFeedback({ decisionId, step, toolId, outcome, quality = null, latencyMs = null, now = Date.now() }) {
+      const had = !!st.feedbackExisting.get(decisionId, step);
+      st.feedback.run(decisionId, step, toolId || null, outcome, quality, latencyMs, now);
+      return had;
     },
     getDecision(id) {
       const r = st.getDecision.get(String(id || ""));

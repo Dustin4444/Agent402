@@ -2262,6 +2262,7 @@ jobs:
           t node scripts/test-decide-index.js
           t node scripts/test-decide-planner.js
           t node scripts/test-decide-execute.js
+          t node scripts/test-decide-feedback.js
           t node scripts/test-image-gen-kit.js
           # Leaderboard chain config (right token on the right rail; testnets excluded — offline)
           t node scripts/test-leaderboard-chains.js

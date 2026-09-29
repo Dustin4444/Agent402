@@ -13,9 +13,9 @@
 import { decideConfig, priceForDepth, DEPTHS } from "../../services/decide/config.js";
 import { recordWish } from "../wish.js";
 import { payerFromRequest } from "../payer.js";
-import { openDecideLedger } from "../decide/ledger.js";
+import { openDecideLedger, hashToken } from "../decide/ledger.js";
 import { validateParams } from "../../services/decide/params.js";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { dispatchable } from "./route-execute.js";
 
 const serviceUrl = () => String(process.env.DECIDE_SERVICE_URL || "").replace(/\/+$/, "");
@@ -64,6 +64,13 @@ const payerOf = (req) => (req ? payerFromRequest(req) || (req.mppTempoSender ? `
 const onFinal = (req, fn) => { if (req && typeof req === "object") (req.__onFinalStatus ||= []).push(fn); };
 const roundUsd = (x) => Math.round(x * 1e6) / 1e6;
 
+/** Fire-and-forget: reliability observations to the decide service. Never
+ *  awaited by a paid request, never able to fail one. */
+export function sendObservations(observations, { send = callService } = {}) {
+  if (!observations.length || !decideEnabled()) return;
+  Promise.resolve().then(() => send("/internal/observations", { observations }, { timeoutMs: 5000 })).catch(() => {});
+}
+
 export function makeDecideHandler({ ledger, now = () => Date.now() }) {
   return async function decideHandler(input, req) {
     const depth = String(input?.depth ?? "plan").toLowerCase();
@@ -78,7 +85,8 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
     fileGaps(out.gaps, req);
     // The decision is kept here (money side) so execute can price from it;
     // its credit counts only once THIS payment settles.
-    ledger.saveDecision({ decisionId: out.decisionId, depth, priceUsd, payer, plan: out.plan, costViaUsd: out.estimatedCostViaAgent402Usd || 0, now: now() });
+    const feedbackToken = `fb_${randomBytes(18).toString("base64url")}`;
+    ledger.saveDecision({ decisionId: out.decisionId, depth, priceUsd, payer, plan: out.plan, costViaUsd: out.estimatedCostViaAgent402Usd || 0, feedbackHash: hashToken(feedbackToken), now: now() });
     const amount = roundUsd(priceUsd * cfg.credit.percentOfFee / 100);
     let executionCredit = null;
     if (amount > 0 && out.plan?.length) {
@@ -92,6 +100,8 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
       ...out,
       priceUsd,
       executionCredit,
+      feedbackToken,
+      feedback: "POST /api/decide/feedback { decisionId, feedbackToken, step, outcome: success|failure, quality?: 1-5, latencyMs? } - free, one verdict per step",
       neutrality: "Ranking is identical for tools sold by Agent402 and by other sellers; each tool carries firstParty so the source is disclosed.",
       ...(depth === "quick" ? { upgrade: 'depth "plan" adds steps and fallbacks; "full" adds params, a compiled prompt and cost/latency estimates' } : {}),
     };
@@ -179,6 +189,7 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
         const v = validateParams(tool.inputSchema, params);
         if (!v.ok) { attempts.push({ id: tool.id, skipped: `params do not fit: ${v.errors.slice(0, 3).join("; ")}` }); continue; }
         try {
+          const t0 = Date.now();
           if (tool.firstParty) {
             const def = bySlug.get(tool.slug);
             // The router's own dispatch rules, plus: a tool priced from its body
@@ -187,7 +198,7 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
             if (why) { attempts.push({ id: tool.id, skipped: why }); continue; }
             const result = await withTimeout(Promise.resolve(def.handler(params, req)), cfg.execute.stepTimeoutMs, tool.slug);
             spent = roundUsd(spent + cost);
-            done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: true }, costUsd: cost, result };
+            done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: true }, costUsd: cost, result, latencyMs: Date.now() - t0 };
           } else {
             if (!router) { attempts.push({ id: tool.id, skipped: "external execution is not enabled on this host" }); continue; }
             const maxUsd = Math.min(roundUsd((spendable - spent) / (1 + cfg.routingFeePct / 100)), cfg.execute.perCallMaxUsd);
@@ -195,11 +206,13 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
             const underlying = Number(r?.receipt?.underlyingPriceUsd) || tool.priceUsd;
             const fee = roundUsd(underlying * cfg.routingFeePct / 100);
             spent = roundUsd(spent + underlying + fee);
-            done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(underlying + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true };
+            done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(underlying + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
           }
           break;
         } catch (e) {
-          attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500 });
+          // A 4xx means our request was wrong for this tool, not that the tool
+          // is unreliable; only a failure on the tool's side counts against it.
+          attempts.push({ id: tool.id, error: String(e?.message || e).slice(0, 240), status: e?.statusCode || 500, toolFault: !(e?.statusCode >= 400 && e?.statusCode < 500) });
           // An external payment that may have left the wallet is never
           // followed by another paid seller for the same step.
           if (!tool.firstParty && (e?.committed === true || /no other seller is tried/.test(String(e?.message)))) break;
@@ -209,6 +222,10 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
       else results.push({ step: step.step, status: "failed", attempts });
     }
 
+    sendObservations(results.flatMap((r) => [
+      ...(r.attempts || []).filter((a) => a.error && a.toolFault).map((a) => ({ toolId: a.id, ok: false, source: "execution" })),
+      ...(r.status === "ok" ? [{ toolId: r.tool.id, ok: true, latencyMs: r.latencyMs, source: "execution" }] : []),
+    ]));
     const okSteps = results.filter((r) => r.status === "ok").length;
     if (!okSteps) {
       ledger.finishRun({ runId, status: "failed", spentUsd: spent, steps: results, now: now() });
@@ -238,7 +255,39 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now() 
   };
 }
 
-// ---------------------------------------------------------------- feedback (phase 4)
+// ---------------------------------------------------------------- feedback
+
+const OUTCOMES = new Set(["success", "failure"]);
+
+/** Free: a buyer's verdict on one step of a decision they bought. */
+export function makeFeedbackHandler({ ledger, send = callService, now = () => Date.now() }) {
+  return function feedback(body) {
+    const b = body && typeof body === "object" ? body : {};
+    const decisionId = String(b.decisionId || "");
+    // One answer for "unknown decision" and "wrong token": a stranger learns
+    // nothing about which decisions exist.
+    if (!ledger.feedbackTokenOk(decisionId, b.feedbackToken)) throw bad("decisionId and feedbackToken do not match a decision", 403);
+    const d = ledger.getDecision(decisionId);
+    const step = Number(b.step);
+    const planned = d.plan.find((p) => p.step === step);
+    if (!Number.isInteger(step) || !planned) throw bad(`"step" must be one of ${d.plan.map((p) => p.step).join(", ") || "(none)"}`);
+    const outcome = String(b.outcome || "").toLowerCase();
+    if (!OUTCOMES.has(outcome)) throw bad('"outcome" must be success or failure');
+    const quality = b.quality === undefined ? null : Number(b.quality);
+    if (quality !== null && !(Number.isInteger(quality) && quality >= 1 && quality <= 5)) throw bad('"quality" must be an integer 1-5');
+    const latencyMs = b.latencyMs === undefined ? null : Number(b.latencyMs);
+    if (latencyMs !== null && !(Number.isFinite(latencyMs) && latencyMs >= 0 && latencyMs <= 600_000)) throw bad('"latencyMs" must be 0-600000');
+    // Which tool: the step's primary unless the buyer names one of its fallbacks.
+    const ids = [planned.tool.id, ...(planned.fallbacks || []).map((f) => f.id)];
+    const toolId = b.toolId === undefined ? planned.tool.id : String(b.toolId);
+    if (!ids.includes(toolId)) throw bad('"toolId" must be the step\'s tool or one of its fallbacks');
+    const replaced = ledger.saveFeedback({ decisionId, step, toolId, outcome, quality, latencyMs, now: now() });
+    // A replaced verdict is not counted twice.
+    if (!replaced) sendObservations([{ toolId, ok: outcome === "success", source: "feedback" }], { send });
+    return { ok: true, decisionId, step, toolId, outcome, replaced };
+  };
+}
+
 
 const EXAMPLE_OUT = {
   decisionId: "dec_2b1c9e0f4a7d4c3e9b8a1f00",

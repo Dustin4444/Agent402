@@ -321,7 +321,10 @@ import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
 import { decideIndexExportHandler } from "./decide/index-export.js";
-import { buildDecideTools, decideEnabled } from "./tools/decide-kit.js";
+import { buildDecideTools, decideEnabled, makeFeedbackHandler } from "./tools/decide-kit.js";
+import { openDecideLedger } from "./decide/ledger.js";
+let _decideLedger = null;
+const decideLedger = () => (_decideLedger ||= openDecideLedger());
 import { NETWORKS as PAY_NETWORKS, buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
@@ -525,7 +528,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 // Listed only with a key, like every other env-gated kit: a tool we cannot serve
 // must not appear in the catalog, on /api/pricing, or in a 402's offer.
 const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
-const DECIDE_TOOLS_ENABLED = decideEnabled() ? buildDecideTools({ getCatalog: () => CATALOG }) : [];
+const DECIDE_TOOLS_ENABLED = decideEnabled() ? buildDecideTools({ getCatalog: () => CATALOG, ledger: decideLedger() }) : [];
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CVE_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED, ...DECIDE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
@@ -5780,6 +5783,19 @@ app.post("/api/find", (req, res) => {
 // (10/IP/hour, 100/day global — see wish.js); implicit find-misses recorded
 // from /api/find and the MCP find_tool path are exempt. Never touches
 // CATALOG/WALLET_ONLY_SLUGS — same free-surface category as /api/index/register.
+// decide feedback: free, bound to the decision's own feedback token.
+const decideFeedbackLimiter = createRateLimiter("decide-feedback", { perMin: 30, perHour: 600 });
+let _decideFeedback = null;
+app.post("/api/decide/feedback", express.json({ limit: "4kb" }), (req, res) => {
+  if (!decideEnabled()) return res.status(404).json({ error: "Not found" });
+  if (decideFeedbackLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many reports from this address. Try again shortly." });
+  try {
+    _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() });
+    res.json(_decideFeedback(req.body));
+  } catch (e) {
+    res.status(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).json({ error: e.statusCode && e.statusCode < 500 ? e.message : "feedback failed" });
+  }
+});
 app.post("/api/wish", (req, res) => {
   try {
     const { need, context } = req.body || {};

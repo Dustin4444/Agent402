@@ -26,6 +26,7 @@ import { makeLlm } from "./llm.js";
 import { buildDecision, parseDecideInput, cacheKeyFor } from "./planner.js";
 import { MemoryDecisionStore, PgDecisionStore, makeGate, makeDecisionCache } from "./decision-store.js";
 import { randomUUID } from "node:crypto";
+import { Reliability, persistReliability } from "./reliability.js";
 
 const PORT = Number(process.env.PORT) || 8090;
 const TOKEN = String(process.env.DECIDE_INTERNAL_TOKEN || "");
@@ -35,7 +36,7 @@ const SYNC_MS = Number(process.env.DECIDE_SYNC_MS) || 30 * 60_000;
 const MAX_BODY = 16 * 1024;
 
 export const state = { index: new ToolIndex(), store: null, pool: null, lastSync: null, syncing: false, bootedAt: Date.now(), loadedRows: 0,
-  decisions: new MemoryDecisionStore(), reliability: new Map(), llm: null, gate: makeGate(Number(process.env.DECIDE_MAX_CONCURRENT) || 4, Number(process.env.DECIDE_MAX_QUEUE) || 16),
+  decisions: new MemoryDecisionStore(), reliability: new Reliability(), llm: null, gate: makeGate(Number(process.env.DECIDE_MAX_CONCURRENT) || 4, Number(process.env.DECIDE_MAX_QUEUE) || 16),
   cache: makeDecisionCache(decideConfig().cacheTtlMs) };
 
 const newDecisionId = () => `dec_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -56,7 +57,7 @@ export async function decide(body, { now = Date.now() } = {}) {
       index: state.index,
       embed: (t) => embedTexts(t),
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
-      reliability: (id) => state.reliability.get(id) || null,
+      reliability: (id) => state.reliability.get(id),
       cfg, now,
     }));
     if (!result.partial) state.cache.set(key, result, now);
@@ -121,6 +122,15 @@ export const routes = {
   },
   "POST /internal/sync": async () => runSync(),
   "POST /internal/decide": async (req) => decide(await readJson(req)),
+  // Observations from the main app: execute outcomes (source "execution") and
+  // buyer reports (source "feedback", already bound to the buyer's token).
+  "POST /internal/observations": async (req) => {
+    const b = await readJson(req);
+    const list = Array.isArray(b.observations) ? b.observations.slice(0, 64) : [];
+    let accepted = 0;
+    for (const o of list) if (state.reliability.record({ toolId: o?.toolId, ok: o?.ok === true, latencyMs: Number(o?.latencyMs), source: o?.source })) accepted++;
+    return { accepted };
+  },
   "POST /internal/decision": async (req) => {
     const b = await readJson(req);
     const d = await state.decisions.get(String(b.decisionId || ""));
@@ -150,6 +160,14 @@ async function boot() {
   } else {
     state.store = new MemoryToolStore();
     console.warn("[decide] no database configured: index lives in memory only");
+  }
+  if (state.pool) {
+    const { rows } = await state.pool.query("SELECT tool_id, successes, failures, latency_p95_ms, last_success_at FROM decide_tool_reliability");
+    state.reliability.load(rows);
+    setInterval(() => {
+      const dirty = state.reliability.takeDirty();
+      if (dirty.length) persistReliability(state.pool, dirty).catch((e) => console.warn("[decide] reliability flush failed:", String(e?.message || e).slice(0, 120)));
+    }, 60_000).unref();
   }
   state.loadedRows = await loadIndex({ index: state.index, store: state.store });
   console.log(`[decide] loaded ${state.loadedRows} rows, ${state.index.vectors.count} vectors`);
