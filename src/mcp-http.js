@@ -547,6 +547,13 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             required: ["decisionId", "feedbackToken", "step", "outcome"],
             additionalProperties: false,
           },
+          outputSchema: {
+            type: "object",
+            properties: {
+              ok: { type: "boolean" }, decisionId: { type: "string" }, step: { type: "integer" },
+              toolId: { type: "string" }, outcome: { type: "string" }, replaced: { type: "boolean" },
+            },
+          },
         }] : []),
         ...(getLeaderboard ? [{
           // Dotted Smithery Naming (sellers.list). Prior snake/digit names
