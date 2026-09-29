@@ -279,6 +279,7 @@ import { companyPage } from "./company.js";
 import { sampleJson, sampleMeta, SAMPLE_PRODUCTS } from "./sample-reports.js";
 import { createFreeAlerts, alertFormHtml, ALERT_KIND_FOR_REPORT_KIND } from "./free-alerts.js";
 import { createWalletDigest } from "./wallet-digest.js";
+import { refundLookup, ownRefundsView } from "./refund-lookup.js";
 import { digestPage } from "./digest-page.js";
 import { createFollowups } from "./followups.js";
 import { createTweetQueue, tweetQueueOptionsFromEnv } from "./tweet-queue.js";
@@ -642,7 +643,7 @@ const OX_TRIAL_LIMITS_LABEL = `${OX_TRIAL_PER_HOUR} per hour, ${OX_TRIAL_PER_DAY
 import { createHangupSettlementHook, clientGoneBeforeFirstByte, chargeCancelledForClientGone, clientGoneError, isClientGoneAbort, onSettleOutcome, onResponseEnd } from "./hangup-settlement.js";
 import { hangupForgiven, hangupTicketDenial, reserveHangupForgiveness, settleHangupTicket, hangupForgivenessStatus, loadHangupForgiveness, flushHangupForgiveness } from "./hangup-forgiveness.js";
 import { createTempoPushDebts, tempoLedgerPayerPending, whenTempoLedgerPayerKnown } from "./tempo-push-debts.js";
-import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, restateOwedAsHandlerFailure, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween } from "./refund-ledger.js";
+import { recordRefundOwed, refundByEvidence, voidOwedOnClaim, renoteOwedRefund, promoteOwedToHangup, restateOwedAsHandlerFailure, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, refundsCreatedBetween, refundsForPayer } from "./refund-ledger.js";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations, getDailyUpstreamSpend } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -2300,6 +2301,7 @@ const _walletDigest = createWalletDigest({
   baseUrl: BASE_URL,
   sendEmail: faSendEmail,
   usage: (payer, opts) => payerUsage(payer, opts),
+  refunds: (payer) => ownRefundsView(refundsForPayer(payer, { limit: 50 })).rows,
   creditsBalance: (keyId) => (_credits && typeof _credits.balanceById === "function" ? _credits.balanceById(keyId) : null),
   creditsKeyId: (key) => (_credits && typeof _credits.keyIdOf === "function" ? _credits.keyIdOf(key) : null),
   verifySignature: async ({ address, message, signature }) => {
@@ -3224,6 +3226,25 @@ app.get("/api/reports/sample/:product", (req, res) => {
 app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
+// Refund lookup (free, src/refund-lookup.js): anyone holding a settlement tx
+// asks whether we refunded it and gets our refund tx back. Exact match on one
+// hash, same answer shape for "unknown" and "no refund", never the payer or
+// the tool bought. Its own limiter bucket: a lookup is one indexed SQLite read,
+// so this only stops a spray; it does not ride sessionReadLimiter, which guards
+// the routes a paying buyer polls.
+const refundLookupLimiter = createRateLimiter("refund-lookup", { perMin: 30, perHour: 300 });
+function serveRefundLookup(req, res) {
+  res.set("Cache-Control", "no-store");
+  if (refundLookupLimiter.check(clientIp(req)).limited) {
+    res.set("Retry-After", "60");
+    return res.status(429).json({ error: "Too many refund lookups from this address; retry in a minute.", retryAfterSeconds: 60 });
+  }
+  const tx = (req.query && typeof req.query.tx === "string" ? req.query.tx : null) ?? (req.body && typeof req.body.tx === "string" ? req.body.tx : "");
+  try { return res.json(refundLookup(tx)); }
+  catch (e) { return res.status(e?.statusCode === 400 ? 400 : 500).json({ error: e?.statusCode === 400 ? e.message : "Refund lookup failed" }); }
+}
+app.get("/api/refunds/lookup", serveRefundLookup);
+app.post("/api/refunds/lookup", express.json({ limit: "4kb" }), serveRefundLookup);
 app.get("/api/proof", (_req, res) => { res.set("Cache-Control", "public, max-age=60"); res.json(memoSurface("proof:feed", 60_000, () => proofFeed())); });
 app.get("/proof", (_req, res) => htmlCache(res, 60, 300).send(proofPage(BASE_URL, memoSurface("proof:feed", 60_000, () => proofFeed()), standingFigures())));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
