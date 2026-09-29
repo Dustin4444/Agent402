@@ -88,7 +88,7 @@ export function summarizeCost(meter, { cached = false, depth = "", ms = 0, parti
     modelCalls: llm.filter((m) => m.outcome !== "skipped_no_budget").length,
     fallbackUsed: llm.some((m) => m.attempt > 0 && m.outcome === "ok"),
     failedAttempts: llm.filter((m) => m.outcome !== "ok" && m.outcome !== "skipped_no_budget").map((m) => `${m.stage}:${m.model}:${m.outcome}`),
-    promptTokens: sum(llm, "promptTokens"), completionTokens: sum(llm, "completionTokens"),
+    promptTokens: sum(llm, "promptTokens"), completionTokens: sum(llm, "completionTokens"), cachedTokens: sum(llm, "cachedTokens"),
     modelUsd: Math.round(sum(llm, "costUsd") * 1e8) / 1e8,
     modelUsdUnknown: llm.some((m) => m.outcome === "ok" && m.costUsd === null),
     embedTokens: sum(emb, "tokens"),

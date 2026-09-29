@@ -41,6 +41,7 @@ export function makeLlm({ apiKey = llmApiKey(), models = [], fetchImpl = fetch, 
       const t0 = Date.now();
       const note = (outcome, j) => meter?.push({ stage, model, attempt: mi, outcome, ms: Date.now() - t0,
         promptTokens: Number(j?.usage?.prompt_tokens) || 0, completionTokens: Number(j?.usage?.completion_tokens) || 0,
+        cachedTokens: Number(j?.usage?.prompt_tokens_details?.cached_tokens) || 0,
         costUsd: Number.isFinite(Number(j?.usage?.cost)) ? Number(j.usage.cost) : null });
       try {
         const res = await fetchImpl(URL_, {
