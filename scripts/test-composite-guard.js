@@ -74,6 +74,8 @@ const rails = { evmCaip2: ["eip155:8453"], svmCaip2: ["solana:mainnet"], stellar
 const slow = acceptsForItem({ slug: "research", price: "$5", longRunning: true }, rails);
 const fast = acceptsForItem({ slug: "uuid", price: "$0.001" }, rails);
 ok(slow.every((a) => a.network.startsWith("eip155:")) && slow.length === 1, "a longRunning composite advertises EVM exact only");
+const onlyBase = acceptsForItem({ slug: "decide-execute", price: "$0.01", longRunning: true, onlyNetworks: ["eip155:8453"] }, { ...rails, evmCaip2: ["eip155:8453", "eip155:137"] });
+ok(onlyBase.length === 1 && onlyBase[0].network === "eip155:8453", "a tool naming onlyNetworks is offered on those networks alone");
 ok(fast.some((a) => a.network.startsWith("solana:")) && fast.some((a) => a.network.startsWith("algorand:")), "a normal tool still advertises every configured rail");
 
 // A 402 from a FACILITATOR billing refusal COUNTS here. A composite is EVM

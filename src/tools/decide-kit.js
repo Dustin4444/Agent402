@@ -430,9 +430,13 @@ export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now 
       category: "agents",
       price: "$0.001",
       spendsOwnWallet: true,
+      // Outside steps are bought from the Base spending wallet, which only a
+      // Base payment funds: other EVM chains are not offered (credits and card
+      // still work).
+      onlyNetworks: ["eip155:8453"],
       quote: (body) => executeQuoteUsd(body, { ledger, now: now() }),
       description:
-        "Run a decision's plan through Agent402: first-party steps run directly, third-party steps are paid on your behalf and relayed at the seller's price plus a disclosed routing fee. Priced at the plan's budget (or your maxBudgetUsd, whichever you set) less a valid execution credit; spend stops at that budget, fallbacks are tried in order, and any unspent amount comes back as a credit. A run where no step succeeds is not charged.",
+        "Run a decision's plan through Agent402: first-party steps run directly, third-party steps are paid on your behalf (paid on Base, or by credits or card) and relayed at the seller's price plus a disclosed routing fee. Priced at the plan's budget (or your maxBudgetUsd, whichever you set) less a valid execution credit; spend stops at that budget, fallbacks are tried in order, and any unspent amount comes back as a credit. A run where no step succeeds is not charged.",
       tags: ["agents", "execute", "planning", "router", "x402"],
       discovery: {
         bodyType: "json",
