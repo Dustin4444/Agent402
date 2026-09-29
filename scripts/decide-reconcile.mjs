@@ -89,8 +89,8 @@ async function main() {
   const head = Number(await rpc(url, "eth_blockNumber", []));
   const from = Math.max(0, head - Math.ceil((hours * 3600 + 3600) / 2));
   const transfers = [];
-  for (let b = from; b <= head; b += 5000) {
-    const logs = await rpc(url, "eth_getLogs", [{ address: USDC_BASE, topics: [TRANSFER, walletTopic], fromBlock: "0x" + b.toString(16), toBlock: "0x" + Math.min(head, b + 4999).toString(16) }]);
+  for (let b = from; b <= head; b += 2000) {
+    const logs = await rpc(url, "eth_getLogs", [{ address: USDC_BASE, topics: [TRANSFER, walletTopic], fromBlock: "0x" + b.toString(16), toBlock: "0x" + Math.min(head, b + 1999).toString(16) }]);
     for (const l of logs) transfers.push({ tx: l.transactionHash, to: "0x" + l.topics[2].slice(26), micro: Number(BigInt(l.data)), block: Number(l.blockNumber) });
   }
   // Block -> time, from the head (approximate, Base ~2s).
