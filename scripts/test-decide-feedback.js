@@ -135,5 +135,13 @@ ok(ledger.db.prepare("SELECT tool_id FROM feedback WHERE decision_id='d1' AND st
   ok(/decideFeedbackLimiter\.check\(ctx\.ip/.test(wiring) && /decideFeedback\(args, \{ ip \}\)/.test(mcp), "decide.feedback over MCP is checked against the same per-IP limiter as the HTTP route");
 }
 
+// ---- the ledger needs a single writer ----
+{
+  const { singleWriterTopology } = await import("../src/decide/ledger.js");
+  ok(singleWriterTopology({}) && singleWriterTopology({ RATE_LIMIT_REPLICAS: "1" }) && !singleWriterTopology({ RATE_LIMIT_REPLICAS: "2" }), "decide stays off when more than one replica is configured");
+  const { readFileSync } = await import("node:fs");
+  ok(/if \(!singleWriterTopology\(\)\)/.test(readFileSync(new URL("../src/server.js", import.meta.url), "utf8")), "...and the server consults it before opening the ledger");
+}
+
 console.log(`\ntest-decide-feedback: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

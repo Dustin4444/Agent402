@@ -21,6 +21,14 @@ const RUN_MAX_MS = 15 * 60_000;
 const usd = (m) => Math.round(Number(m)) / 1e6;
 export const hashToken = (t) => createHash("sha256").update(String(t)).digest("hex");
 
+/** The ledger is one SQLite file on one volume: it is correct only while one
+ *  process writes it. With more than one replica, two ledgers would each
+ *  honour the same credit and each apply the caps, so decide stays off. */
+export function singleWriterTopology(env = process.env) {
+  const n = Number(env.RATE_LIMIT_REPLICAS || 1);
+  return !(Number.isFinite(n) && n > 1);
+}
+
 export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(existsSync("/data") ? "/data" : "/tmp", "agent402-decide.db")) {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");

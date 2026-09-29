@@ -324,12 +324,13 @@ import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
 import { decideIndexExportHandler } from "./decide/index-export.js";
 import { buildDecideTools, decideEnabled, makeFeedbackHandler } from "./tools/decide-kit.js";
-import { openDecideLedger } from "./decide/ledger.js";
+import { openDecideLedger, singleWriterTopology } from "./decide/ledger.js";
 let _decideLedger = null;
 // A ledger that cannot open (bad file, unwritable path) leaves the feature
 // off rather than taking the whole app down at boot.
 const decideLedger = () => {
   if (_decideLedger !== null) return _decideLedger || null;
+  if (!singleWriterTopology()) { console.error("[decide] more than one replica is configured (RATE_LIMIT_REPLICAS) - the decide ledger needs a single writer, so decide stays off"); _decideLedger = false; return null; }
   try { _decideLedger = openDecideLedger(); } catch (e) { console.error("[decide] ledger failed to open - decide stays off:", String(e?.message || e).slice(0, 200)); _decideLedger = false; }
   return _decideLedger || null;
 };
