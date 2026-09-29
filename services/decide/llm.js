@@ -73,6 +73,14 @@ export function decomposePrompt(task, maxSteps) {
   };
 }
 
+/** What the judge sees of a tool's description: the same bounded, link-free
+ *  text for every seller, so a longer or link-laden listing buys no advantage
+ *  and a URL in a listing is never offered to the model as somewhere to go. */
+export function judgeText(desc, max = 300) {
+  const t = String(desc || "").replace(/\bhttps?:\/\/\S+/gi, "[link]").replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
 /** Candidates carry short keys ("s1c3" = step 1, candidate 3); the planner
  *  maps them back to row ids, so a model can neither invent nor misplace one. */
 export function judgePrompt(task, steps) {
@@ -83,7 +91,7 @@ export function judgePrompt(task, steps) {
     candidates: s.candidates.map((c, j) => {
       const key = `s${i + 1}c${j + 1}`;
       keyToId[key] = c.row.id;
-      return { key, name: c.row.name, description: c.row.description, inputs: Object.keys(c.row.inputSchema?.properties || {}) };
+      return { key, name: c.row.name, description: judgeText(c.row.description), inputs: Object.keys(c.row.inputSchema?.properties || {}) };
     }),
   }));
   return {
