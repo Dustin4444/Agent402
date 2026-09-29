@@ -1592,12 +1592,12 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   // Gemini 2.5 (upstream expiration 2026-10-20): refused by name on every tier
   // and wire, the successor live on a tier we serve, gone from flex and pricing.
   for (const id of ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro"]) {
-    ok(RETIRING_MODELS[id]?.until === "2026-10-20" && !!tierFor(RETIRING_MODELS[id].use), `${id}: retiring on 2026-10-20, successor ${RETIRING_MODELS[id].use} admitted on ${tierFor(RETIRING_MODELS[id].use)}`);
+    ok(RETIRING_MODELS[id]?.until === "2026-10-20" && !!tierFor(RETIRING_MODELS[id].use), `${id}: retiring on 2026-10-20, successor ${RETIRING_MODELS[id]?.use} admitted on ${RETIRING_MODELS[id] && tierFor(RETIRING_MODELS[id].use)}`);
     ok(!K.FLEX_MODELS.includes(id) && !Object.values(TIERS).some((t) => (t.prefixes || []).includes(id) || (t.fallbacks || []).includes(id)), `${id}: in no tier prefix, fallback or flex entry`);
     ok(!Object.values(AUTO_RANKINGS).some((b) => Object.values(b).flat().includes(id)), `${id}: in no auto ranking`);
     for (const tier of ["v1-chat-nano", "v1-chat", "v1-chat-pro", "v1-chat-premium", "v1-chat-metered"]) {
       let e = null; try { validateRequest({ model: id, messages: [{ role: "user", content: "hi" }] }, tier); } catch (x) { e = x; }
-      ok(e?.statusCode === 400 && e.message.includes(RETIRING_MODELS[id].use), `${id} on ${tier}: 400 naming ${RETIRING_MODELS[id].use}`);
+      ok(e?.statusCode === 400 && !!RETIRING_MODELS[id] && e.message.includes(RETIRING_MODELS[id].use), `${id} on ${tier}: 400 naming ${RETIRING_MODELS[id]?.use}`);
     }
     ok(tierFor(id + "-preview-09-2025") === null || !String(tierFor(id + "-preview-09-2025")).length, `${id}: dated/preview twins are not admitted by a family prefix either`);
   }
