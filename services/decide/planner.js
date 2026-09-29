@@ -234,7 +234,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     task, depth,
     plan: plan.map(({ _row, _fit, ...rest }) => rest),
     estimatedCostUsd, estimatedCostViaAgent402Usd, estimatedLatencyMs,
-    confidence, partial, gaps,
+    confidence, partial, judged: fits, gaps,
     ...(notes.length ? { notes } : {}),
     ranking: { weights: cfg.weights, firstPartyWeight: 0 },
     _rankingLog: rankingLog,

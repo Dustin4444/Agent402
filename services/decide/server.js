@@ -43,7 +43,12 @@ const newDecisionId = () => `dec_${randomUUID().replace(/-/g, "").slice(0, 24)}`
 
 /** Build (or reuse from cache) a decision. A cache hit is a new decision with
  *  its own id: the caller paid for it, so it is recorded like any other. */
+/** Ready once the index has loaded rows or completed a sync: before that a
+ *  decision would be an empty plan sold as an answer. */
+export const isReady = () => state.loadedRows > 0 || state.lastSync?.complete === true;
+
 export async function decide(body, { now = Date.now() } = {}) {
+  if (!isReady()) throw Object.assign(new Error("the decision index is still loading - retry shortly"), { statusCode: 503, retryAfter: 30 });
   const input = parseDecideInput(body);
   // The caller's own deadline: past it the main app has already answered (503,
   // not charged), so any work still queued here would be spend for nothing.
@@ -150,8 +155,9 @@ async function readJson(req) {
 
 export const routes = {
   // Public health says only that the service is up; details need the token.
-  "GET /health": async (req) => (tokenOk(req)
-    ? { ok: true, rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool, gate: state.gate.stats(), llm: state.llm?.stats() || null, cached: state.cache.size() }
+  // Liveness by default; `?ready=1` answers 503 until the index can serve.
+  "GET /health": async (req) => (/[?&]ready=1\b/.test(req.url) && !isReady() ? Promise.reject(Object.assign(new Error("not ready"), { statusCode: 503 })) : tokenOk(req)
+    ? { ok: true, ready: isReady(), rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool, gate: state.gate.stats(), llm: state.llm?.stats() || null, cached: state.cache.size() }
     : { ok: true }),
   "POST /internal/search": async (req) => {
     const b = await readJson(req);

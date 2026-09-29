@@ -101,6 +101,11 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
       deadlineAt: Date.now() + cfg.budgetMs[depth] + 3000,
     }, { timeoutMs: cfg.budgetMs[depth] + 4000 });
     fileGaps(out.gaps, req);
+    // A 4xx/5xx is never charged. An empty plan is "nothing covers this", and
+    // a plan whose fit judging failed is retrieval order, which /api/find gives
+    // free: neither is sold as a decision.
+    if (!Array.isArray(out.plan) || !out.plan.length) throw Object.assign(bad("No indexed tool covers this task yet - not charged. The need was recorded.", 422), { gaps: out.gaps || [] });
+    if (out.judged === false) throw bad("The decision could not be judged right now - not charged; retry shortly", 503);
     // The decision is kept here (money side) so execute can price from it;
     // its credit counts only once THIS payment settles.
     const feedbackToken = `fb_${randomBytes(18).toString("base64url")}`;

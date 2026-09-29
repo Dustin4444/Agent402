@@ -6,7 +6,7 @@
 //
 //   node scripts/test-decide-cost.js
 
-import { decide, state, summarizeCost } from "../services/decide/server.js";
+import { decide, state, summarizeCost, isReady, handler } from "../services/decide/server.js";
 import { makeLlm } from "../services/decide/llm.js";
 import { embedTexts, _resetEmbedBudget } from "../services/decide/embed.js";
 import { MemoryDecisionStore, makeDecisionCache } from "../services/decide/decision-store.js";
@@ -73,6 +73,13 @@ const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++;
     const input = JSON.parse(init.body).input;
     return { ok: true, status: 200, json: async () => ({ data: input.map((_, i) => ({ index: i, embedding: Array.from({ length: 512 }, (_, k) => ((k + i) % 7) / 7) })), usage: { total_tokens: 5 * input.length } }) };
   };
+  // Not ready until the index has loaded or synced once: no empty plan is sold.
+  state.loadedRows = 0; state.lastSync = null;
+  let e0 = null; try { await decide({ task: "hash", depth: "quick" }); } catch (e) { e0 = e; }
+  ok(!isReady() && e0?.statusCode === 503, "before the first load or sync, a decision is refused 503");
+  const probe = await new Promise((resolve) => { const res = { statusCode: 0, setHeader() {}, writeHead(c) { this.statusCode = c; }, end() { resolve(this.statusCode); } }; handler({ method: "GET", url: "/health?ready=1", headers: {} }, res); });
+  ok(probe === 503, "/health?ready=1 answers 503 while not ready (plain /health stays liveness)");
+  state.lastSync = { complete: true };
   const res = await decide({ task: "hash the text hello with sha256", depth: "plan" });
   const flat = JSON.stringify(res);
   ok(res.decisionId && Array.isArray(res.plan), "a decision is returned");

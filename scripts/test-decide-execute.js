@@ -290,6 +290,17 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(ledger.creditState(out.executionCredit.token).state === "pending", "a failed settlement never activates it");
   settle(req, 200);
   ok(ledger.creditState(out.executionCredit.token).state === "active", "a settled 200 does");
+
+  // An empty plan, or one the model never judged, is refused (never charged).
+  process.env.DECIDE_SERVICE_URL = "http://127.0.0.1:1"; process.env.DECIDE_INTERNAL_TOKEN = "t".repeat(32);
+  const minted = [];
+  const ledger2 = { ...fakeLedger, mintCredit: (x) => { minted.push(x); return ledger.mintCredit(x); } };
+  globalThis.fetch = async () => new Response(JSON.stringify({ decisionId: "de", plan: [], gaps: ["translate a paragraph"], estimatedCostViaAgent402Usd: 0 }), { status: 200 });
+  await throwsWith(() => makeDecideHandler({ ledger: ledger2, now })({ task: "translate", depth: "plan" }, mkReq()), 422, "not charged", "an empty plan is a 422, not a sale");
+  globalThis.fetch = async () => new Response(JSON.stringify({ decisionId: "dj", plan: [{ step: 1, tool: tool("a"), fallbacks: [] }], judged: false, gaps: [], estimatedCostViaAgent402Usd: 0.01 }), { status: 200 });
+  await throwsWith(() => makeDecideHandler({ ledger: ledger2, now })({ task: "x", depth: "plan" }, mkReq()), 503, "not charged", "a plan the model could not judge is a 503, not a sale");
+  ok(!minted.length, "...and neither refusal mints a credit");
+  globalThis.fetch = realFetch;
 }
 
 // ---- the REAL router: a seller that settles and then errors is a paid leg ----
