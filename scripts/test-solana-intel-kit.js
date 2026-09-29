@@ -8,7 +8,7 @@
 // failure/timeout -> 504), and that every request goes to one of the three
 // allowed hosts with the validated mint in the path.
 
-import { SOLANA_INTEL_TOOLS, MINTS, __test } from "../src/tools/solana-intel-kit.js";
+import { SOLANA_INTEL_TOOLS, MINTS, __test, jupiterBase, jupiterHeaders } from "../src/tools/solana-intel-kit.js";
 
 const realFetch = globalThis.fetch;
 let pass = 0, fail = 0;
@@ -441,6 +441,16 @@ try {
   await throws(h("sol-token-report")({ mint: JUPM }), 422, "an invalid mint still reads 422");
   restore();
 }
+
+// Jupiter base and key are variables, so moving off the deprecated lite-api is
+// a Railway change. The key is sent only to the configured Jupiter host.
+ok(jupiterBase({}) === "https://lite-api.jup.ag", "Jupiter: the default base is today's lite-api");
+ok(jupiterBase({ JUPITER_API_BASE: "https://api.jup.ag/" }) === "https://api.jup.ag", "Jupiter: JUPITER_API_BASE switches the host (trailing slash dropped)");
+ok(jupiterBase({ JUPITER_API_BASE: "http://evil.example" }) === "https://lite-api.jup.ag" && jupiterBase({ JUPITER_API_BASE: "https://x.example/path" }) === "https://lite-api.jup.ag", "Jupiter: a non-https or path-bearing base is refused, falling back to the default");
+const kenv = { JUPITER_API_BASE: "https://api.jup.ag", JUPITER_API_KEY: "k-test" };
+ok(jupiterHeaders("https://api.jup.ag/price/v3?ids=x", kenv)["x-api-key"] === "k-test", "Jupiter: the key rides requests to the configured host");
+ok(!jupiterHeaders("https://api.rugcheck.xyz/v1/x", kenv)["x-api-key"] && !jupiterHeaders("https://api.jup.ag.evil.example/x", kenv)["x-api-key"], "Jupiter: the key never goes to another host, including a lookalike");
+ok(Object.keys(jupiterHeaders("https://lite-api.jup.ag/price/v3", {})).length === 0, "Jupiter: no key configured, no header");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
