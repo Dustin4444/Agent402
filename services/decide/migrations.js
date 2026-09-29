@@ -81,7 +81,22 @@ export const MIGRATIONS = [
   },
 ];
 
+// Two deploys of this service can overlap (it has no volume), and both run
+// migrate at boot: a session advisory lock makes them take turns.
+const MIGRATE_LOCK = 402020;
+
 export async function migrate(pool) {
+  const lock = await pool.connect();
+  try {
+    await lock.query("SELECT pg_advisory_lock($1)", [MIGRATE_LOCK]);
+    await migrateLocked(pool);
+  } finally {
+    await lock.query("SELECT pg_advisory_unlock($1)", [MIGRATE_LOCK]).catch(() => {});
+    lock.release();
+  }
+}
+
+async function migrateLocked(pool) {
   await pool.query("CREATE TABLE IF NOT EXISTS decide_migrations (id INT PRIMARY KEY, name TEXT, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())");
   const { rows } = await pool.query("SELECT id FROM decide_migrations");
   const done = new Set(rows.map((r) => r.id));

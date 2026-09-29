@@ -205,7 +205,9 @@ export function handler(req, res) {
 
 export async function boot() {
   if (DB_URL) {
-    state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, ssl: /railway\.internal/.test(DB_URL) ? false : { rejectUnauthorized: false } });
+    // A statement that runs long here holds a connection on a database the
+    // main app shares, so every statement is bounded.
+    state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, statement_timeout: 15_000, ssl: /railway\.internal/.test(DB_URL) ? false : { rejectUnauthorized: false } });
     await migrate(state.pool);
     state.store = new PgToolStore(state.pool);
     state.decisions = new PgDecisionStore(state.pool);

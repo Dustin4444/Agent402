@@ -30,9 +30,15 @@ export class PgToolStore {
     }
   }
 
+  // One statement per 500 vectors, not one per vector: this Postgres is shared
+  // with the main app, and a full re-embed is tens of thousands of rows.
   async setVectors(pairs) {
-    for (const { id, hash, vec } of pairs) {
-      await this.pool.query("UPDATE decide_tools SET embedding = $2, embedded_hash = $3 WHERE id = $1", [id, toBytes(vec), hash]);
+    for (let i = 0; i < pairs.length; i += 500) {
+      const chunk = pairs.slice(i, i + 500);
+      await this.pool.query(
+        `UPDATE decide_tools AS t SET embedding = x.v, embedded_hash = x.h
+         FROM unnest($1::text[], $2::bytea[], $3::text[]) AS x(id, v, h) WHERE t.id = x.id`,
+        [chunk.map((p) => p.id), chunk.map((p) => toBytes(p.vec)), chunk.map((p) => p.hash)]);
     }
   }
 
