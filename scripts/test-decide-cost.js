@@ -6,7 +6,7 @@
 //
 //   node scripts/test-decide-cost.js
 
-import { decide, state, summarizeCost, isReady, handler } from "../services/decide/server.js";
+import { decide, state, summarizeCost, isReady, handler, plainDbConnection } from "../services/decide/server.js";
 import { makeLlm } from "../services/decide/llm.js";
 import { embedTexts, _resetEmbedBudget } from "../services/decide/embed.js";
 import { MemoryDecisionStore, makeDecisionCache } from "../services/decide/decision-store.js";
@@ -91,6 +91,8 @@ const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++;
   ok(cost.embedTokens > 0, "query embedding tokens are part of the decision's cost");
   ok(again.cached === true && c2.cached === true && c2.modelCalls === 0 && c2.modelUsd === 0, "a cache hit is recorded as a zero-model-cost decision");
 }
+
+ok(plainDbConnection("postgres://u@postgres.railway.internal:5432/x") && plainDbConnection("postgres://u@127.0.0.1:5433/x") && !plainDbConnection("postgres://u@db.example.com/x"), "TLS is skipped only on the private network or loopback");
 
 console.log(`\ntest-decide-cost: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -82,6 +82,14 @@ export async function decide(body, { now = Date.now() } = {}) {
   return { ...pub, cached };
 }
 
+/** The private network, loopback, or an explicit sslmode=disable: no TLS. */
+export function plainDbConnection(url) {
+  try {
+    const u = new URL(url);
+    return /\.railway\.internal$/.test(u.hostname) || ["localhost", "127.0.0.1", "::1", "[::1]"].includes(u.hostname) || u.searchParams.get("sslmode") === "disable";
+  } catch { return false; }
+}
+
 /** One decision's serving cost, from the meter. Kept with the decision in the
  *  service's own store; never part of the response the main app forwards. */
 export function summarizeCost(meter, { cached = false, depth = "", ms = 0, partial = false } = {}) {
@@ -207,7 +215,7 @@ export async function boot() {
   if (DB_URL) {
     // A statement that runs long here holds a connection on a database the
     // main app shares, so every statement is bounded.
-    state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, statement_timeout: 15_000, ssl: /railway\.internal/.test(DB_URL) ? false : { rejectUnauthorized: false } });
+    state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, statement_timeout: 15_000, ssl: plainDbConnection(DB_URL) ? false : { rejectUnauthorized: false } });
     await migrate(state.pool);
     state.store = new PgToolStore(state.pool);
     state.decisions = new PgDecisionStore(state.pool);
