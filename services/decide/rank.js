@@ -3,13 +3,19 @@
 // row's `firstParty` and `seller` fields are never read here - the neutrality
 // test proves two rows differing only in those fields score identically.
 
-/** Beta(1,1)-smoothed success rate, blended with the crawler's health. */
+export const FEEDBACK_SWING = 0.1;
+
+/** Beta(1,1)-smoothed success rate from OUR observations, blended with the
+ *  crawler's health, then nudged by buyer reports by at most FEEDBACK_SWING. */
 export function reliabilityScore(stats, health) {
   const s = Number(stats?.successes) || 0, f = Number(stats?.failures) || 0;
   const observed = (s + 1) / (s + f + 2);
   const weight = Math.min(1, (s + f) / 20); // trust observations as they accumulate
   const prior = Number.isFinite(health) ? health : 0.7;
-  return Math.round((observed * weight + prior * (1 - weight)) * 1000) / 1000;
+  const fs = Number(stats?.fbSuccesses) || 0, ff = Number(stats?.fbFailures) || 0;
+  const nudge = FEEDBACK_SWING * (2 * ((fs + 1) / (fs + ff + 2)) - 1) * Math.min(1, (fs + ff) / 10);
+  const v = observed * weight + prior * (1 - weight) + nudge;
+  return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
 }
 
 export function priceScore(priceUsd, refPriceUsd) {

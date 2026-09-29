@@ -26,14 +26,17 @@ export function makeLlm({ apiKey = process.env.OPENROUTER_API_KEY, models = [], 
   let calls = 0, failures = 0;
   async function call(system, userMsg, { maxTokens = 900, timeoutMs = 12000 } = {}) {
     if (!apiKey) return null;
+    const stopAt = Date.now() + timeoutMs; // the whole call, fallback included
     for (const model of models) {
+      const remaining = stopAt - Date.now();
+      if (remaining < 500) break; // never start a model past the caller's budget
       try {
         const res = await fetchImpl(URL_, {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0, user, response_format: { type: "json_object" },
             messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(remaining),
         });
         calls++;
         if (!res.ok) { failures++; continue; }

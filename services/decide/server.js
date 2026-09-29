@@ -45,6 +45,11 @@ const newDecisionId = () => `dec_${randomUUID().replace(/-/g, "").slice(0, 24)}`
  *  its own id: the caller paid for it, so it is recorded like any other. */
 export async function decide(body, { now = Date.now() } = {}) {
   const input = parseDecideInput(body);
+  // The caller's own deadline: past it the main app has already answered (503,
+  // not charged), so any work still queued here would be spend for nothing.
+  const callerDeadline = Number.isFinite(Number(body?.deadlineAt)) ? Number(body.deadlineAt) : Infinity;
+  const late = () => Object.assign(new Error("decision deadline passed"), { statusCode: 503 });
+  if (Date.now() >= callerDeadline) throw late();
   const cfg = decideConfig();
   const key = cacheKeyFor(input.task, input.constraints, input.depth);
   let result = state.cache.get(key, now);
@@ -53,12 +58,13 @@ export async function decide(body, { now = Date.now() } = {}) {
     result = { ...structuredClone(result), decisionId: newDecisionId() };
     cached = true;
   } else {
-    result = await state.gate.run(() => buildDecision(input, {
+    result = await state.gate.run(() => Date.now() >= callerDeadline - 500 ? Promise.reject(late()) : buildDecision(input, {
       index: state.index,
       embed: (t) => embedTexts(t),
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
       reliability: (id) => state.reliability.get(id),
       cfg, now,
+      deadline: Math.min(now + cfg.budgetMs[input.depth], callerDeadline - 500),
     }));
     if (!result.partial) state.cache.set(key, result, now);
   }
@@ -74,7 +80,17 @@ function tokenOk(req) {
   return got.length === want.length && timingSafeEqual(got, want);
 }
 
+// The shared token is only ever sent over TLS or the private network.
+export function safeInternalUrl(u) {
+  try {
+    const x = new URL(u);
+    if (x.protocol === "https:") return true;
+    return x.protocol === "http:" && (/\.railway\.internal$/.test(x.hostname) || x.hostname === "127.0.0.1" || x.hostname === "localhost");
+  } catch { return false; }
+}
+
 async function source() {
+  if (!safeInternalUrl(SOURCE)) throw new Error("DECIDE_SOURCE_URL must be https or a private-network address");
   const res = await fetch(`${SOURCE}/__internal/decide/tools.ndjson`, {
     headers: { Authorization: `Bearer ${TOKEN}` },
     signal: AbortSignal.timeout(10 * 60_000),
@@ -110,7 +126,10 @@ async function readJson(req) {
 }
 
 export const routes = {
-  "GET /health": async () => ({ ok: true, rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool, gate: state.gate.stats(), llm: state.llm?.stats() || null, cached: state.cache.size() }),
+  // Public health says only that the service is up; details need the token.
+  "GET /health": async (req) => (tokenOk(req)
+    ? { ok: true, rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool, gate: state.gate.stats(), llm: state.llm?.stats() || null, cached: state.cache.size() }
+    : { ok: true }),
   "POST /internal/search": async (req) => {
     const b = await readJson(req);
     const query = String(b.query || "").slice(0, 500);
@@ -162,7 +181,7 @@ async function boot() {
     console.warn("[decide] no database configured: index lives in memory only");
   }
   if (state.pool) {
-    const { rows } = await state.pool.query("SELECT tool_id, successes, failures, latency_p95_ms, last_success_at FROM decide_tool_reliability");
+    const { rows } = await state.pool.query("SELECT tool_id, successes, failures, fb_successes, fb_failures, latency_p95_ms, last_success_at FROM decide_tool_reliability");
     state.reliability.load(rows);
     setInterval(() => {
       const dirty = state.reliability.takeDirty();

@@ -37,6 +37,7 @@ const EXPECTED = [
   "token-risk", "token-risk-pro",
   "recall-report", "insider-report", "market-brief", "token-brief", "ticker-pack", "filing-report", "linkedin-article",
   "v1-images-fast", "v1-images-pro", "v1-videos",
+  "decide-execute",
 ];
 ok(EXPECTED.every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "every expensive composite slug (research/dossier/fund/domain/token-risk/recall/insider/market-brief) is covered");
 ok(g.EXPENSIVE_COMPOSITE_SLUGS.size === EXPECTED.length, "the guard set matches the expected composites exactly (no drift)");

@@ -4,6 +4,9 @@
 export class MemoryDecisionStore {
   constructor() { this.decisions = new Map(); this.steps = []; }
   async save(d, meta) {
+    // Memory only (no database): bounded, oldest dropped first.
+    if (this.decisions.size >= 5000) this.decisions.delete(this.decisions.keys().next().value);
+    if (this.steps.length > 30000) this.steps.splice(0, this.steps.length - 25000);
     this.decisions.set(d.decisionId, { result: d, ...meta, createdAt: Date.now() });
     d.plan.forEach((p) => {
       this.steps.push({ decisionId: d.decisionId, step: p.step, role: "primary", toolId: p.tool.id, seller: p.tool.seller, firstParty: p.tool.firstParty, score: p.score });

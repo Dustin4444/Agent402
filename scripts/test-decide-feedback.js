@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
 import { makeFeedbackHandler, makeExecuteHandler, sendObservations } from "../src/tools/decide-kit.js";
 import { Reliability, WEIGHT } from "../services/decide/reliability.js";
-import { scoreCandidates } from "../services/decide/rank.js";
+import { scoreCandidates, reliabilityScore, FEEDBACK_SWING } from "../services/decide/rank.js";
 import { DEFAULTS } from "../src/decide/config.js";
 
 let pass = 0, fail = 0;
@@ -22,7 +22,7 @@ const throwsWith = (fn, status, frag, m) => { let e = null; try { fn(); } catch 
   const s = r.get("t");
   ok(s.successes > 9 && s.failures === 0 && s.latency_p95_ms >= 180, `execution successes count and set p95 latency (${JSON.stringify(s)})`);
   r.record({ toolId: "u", ok: false, source: "feedback" });
-  ok(r.get("u").failures === WEIGHT.feedback && WEIGHT.feedback < WEIGHT.execution, "a buyer report moves the stats half as far as our own observation");
+  ok(r.get("u").failures === 0 && r.get("u").fbFailures === 1, "a buyer report is kept apart from our own observations");
   r.record({ toolId: "u", ok: true, latencyMs: 5, source: "feedback" });
   ok(r.get("u").latency_p95_ms === null, "reported latency is not trusted as a measurement");
   ok(!r.record({ toolId: "v", ok: true, source: "rumor" }) && !r.record({ toolId: "x".repeat(65), ok: true }), "unknown sources and malformed ids are refused");
@@ -37,6 +37,16 @@ const throwsWith = (fn, status, frag, m) => { let e = null; try { fn(); } catch 
   for (let i = 0; i < 20; i++) rel.record({ toolId: "bad", ok: false, source: "execution" });
   const scored = scoreCandidates([{ row: row("bad", true), fit: 0.8 }, { row: row("good", false), fit: 0.8 }], { reliability: (id) => rel.get(id), weights: DEFAULTS.weights, now: 2, halfLifeHours: 72 });
   ok(scored[0].row.id === "good", "observed reliability outranks at equal fit, whoever sells the tool");
+}
+
+// ---- a flood of bad reports cannot sink a tool ----
+{
+  const rel = new Reliability();
+  for (let i = 0; i < 500; i++) rel.record({ toolId: "victim", ok: false, source: "feedback" });
+  const flooded = reliabilityScore(rel.get("victim"), null);
+  ok(flooded >= 0.7 - FEEDBACK_SWING - 1e-9, `500 failure reports move an unmeasured tool by at most ${FEEDBACK_SWING} (${flooded})`);
+  for (let i = 0; i < 30; i++) rel.record({ toolId: "victim", ok: true, latencyMs: 100, source: "execution" });
+  ok(reliabilityScore(rel.get("victim"), null) > 0.85, "our own observed successes outweigh the reports");
 }
 
 // ---- feedback route ----

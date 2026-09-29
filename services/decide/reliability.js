@@ -23,17 +23,24 @@ export class Reliability {
   get(id) { return this.stats.get(id) || null; }
 
   load(rows) {
-    for (const r of rows) this.stats.set(r.tool_id, { successes: Number(r.successes) || 0, failures: Number(r.failures) || 0, latency_p95_ms: r.latency_p95_ms ?? null, lastSuccessAt: r.last_success_at ? new Date(r.last_success_at).getTime() : null });
+    for (const r of rows) this.stats.set(r.tool_id, { successes: Number(r.successes) || 0, failures: Number(r.failures) || 0, fbSuccesses: Number(r.fb_successes) || 0, fbFailures: Number(r.fb_failures) || 0, latency_p95_ms: r.latency_p95_ms ?? null, lastSuccessAt: r.last_success_at ? new Date(r.last_success_at).getTime() : null });
   }
 
   record({ toolId, ok, latencyMs = null, source = "execution", now = Date.now() }) {
     if (typeof toolId !== "string" || !toolId || toolId.length > 64) return false;
     const w = WEIGHT[source];
     if (!w) return false;
-    const s = this.stats.get(toolId) || { successes: 0, failures: 0, latency_p95_ms: null, lastSuccessAt: null };
-    s.successes = s.successes * DECAY + (ok ? w : 0);
-    s.failures = s.failures * DECAY + (ok ? 0 : w);
-    if (ok) s.lastSuccessAt = now;
+    const s = this.stats.get(toolId) || { successes: 0, failures: 0, fbSuccesses: 0, fbFailures: 0, latency_p95_ms: null, lastSuccessAt: null };
+    if (source === "feedback") {
+      // Reports are kept apart: the ranker lets them nudge a tool by a bounded
+      // amount, so buying decisions to file reports cannot sink a rival.
+      s.fbSuccesses = (s.fbSuccesses || 0) * DECAY + (ok ? 1 : 0);
+      s.fbFailures = (s.fbFailures || 0) * DECAY + (ok ? 0 : 1);
+    } else {
+      s.successes = s.successes * DECAY + (ok ? w : 0);
+      s.failures = s.failures * DECAY + (ok ? 0 : w);
+      if (ok) s.lastSuccessAt = now;
+    }
     if (ok && Number.isFinite(latencyMs) && latencyMs > 0 && latencyMs < 600_000 && source === "execution") {
       const l = this.lat.get(toolId) || [];
       l.push(latencyMs);
@@ -58,10 +65,11 @@ export class Reliability {
 export async function persistReliability(pool, rows) {
   for (const r of rows) {
     await pool.query(
-      `INSERT INTO decide_tool_reliability (tool_id, successes, failures, latency_p95_ms, last_success_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, now())
+      `INSERT INTO decide_tool_reliability (tool_id, successes, failures, fb_successes, fb_failures, latency_p95_ms, last_success_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
        ON CONFLICT (tool_id) DO UPDATE SET successes = EXCLUDED.successes, failures = EXCLUDED.failures,
+         fb_successes = EXCLUDED.fb_successes, fb_failures = EXCLUDED.fb_failures,
          latency_p95_ms = EXCLUDED.latency_p95_ms, last_success_at = EXCLUDED.last_success_at, updated_at = now()`,
-      [r.id, Math.round(r.successes), Math.round(r.failures), r.latency_p95_ms, r.lastSuccessAt ? new Date(r.lastSuccessAt) : null]);
+      [r.id, Math.round(r.successes), Math.round(r.failures), Math.round(r.fbSuccesses || 0), Math.round(r.fbFailures || 0), r.latency_p95_ms, r.lastSuccessAt ? new Date(r.lastSuccessAt) : null]);
   }
 }

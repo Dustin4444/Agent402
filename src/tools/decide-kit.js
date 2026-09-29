@@ -20,13 +20,25 @@ import { dispatchable } from "./route-execute.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
 import { evmCredentialBudgetMs } from "../evm-validity.js";
 
+export const NEUTRALITY_NOTE = "The score formula has no first-party term: every tool is scored on fit, observed reliability, price, schema quality and freshness with the same weights. Outside tools are eligible when a live 402 was seen within the configured window and their input schema is known. Every tool carries firstParty, so the source is disclosed.";
+
 const serviceUrl = () => String(process.env.DECIDE_SERVICE_URL || "").replace(/\/+$/, "");
 const token = () => String(process.env.DECIDE_INTERNAL_TOKEN || "");
 export const decideEnabled = () => !!serviceUrl() && token().length >= 24;
 
 function bad(message, statusCode = 400) { return Object.assign(new Error(message), { statusCode }); }
 
+function safeServiceUrl(u) {
+  try {
+    const x = new URL(u);
+    if (x.protocol === "https:") return true;
+    return x.protocol === "http:" && (/\.railway\.internal$/.test(x.hostname) || x.hostname === "127.0.0.1" || x.hostname === "localhost");
+  } catch { return false; }
+}
+
 export async function callService(path, body, { timeoutMs = 30_000, fetchImpl = fetch } = {}) {
+  // The shared token is only ever sent over TLS or the private network.
+  if (!safeServiceUrl(serviceUrl())) throw bad("The decision service is misconfigured - not charged", 503);
   let res;
   try {
     res = await fetchImpl(`${serviceUrl()}${path}`, {
@@ -86,6 +98,7 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
     const out = await callService("/internal/decide", {
       task: input?.task, constraints: input?.constraints, depth,
       payer, rail: req?.mppTempoCredential ? "mpp" : "x402", priceUsd,
+      deadlineAt: Date.now() + cfg.budgetMs[depth] + 3000,
     }, { timeoutMs: cfg.budgetMs[depth] + 4000 });
     fileGaps(out.gaps, req);
     // The decision is kept here (money side) so execute can price from it;
@@ -107,7 +120,7 @@ export function makeDecideHandler({ ledger, now = () => Date.now() }) {
       executionCredit,
       feedbackToken,
       feedback: "POST /api/decide/feedback { decisionId, feedbackToken, step, outcome: success|failure, quality?: 1-5, latencyMs? } - free, one verdict per step",
-      neutrality: "Ranking is identical for tools sold by Agent402 and by other sellers; each tool carries firstParty so the source is disclosed.",
+      neutrality: NEUTRALITY_NOTE,
       ...(depth === "quick" ? { upgrade: 'depth "plan" adds steps and fallbacks; "full" adds params, a compiled prompt and cost/latency estimates' } : {}),
     };
   };
@@ -353,7 +366,7 @@ const EXAMPLE_OUT = {
   estimatedCostUsd: 0.02, estimatedCostViaAgent402Usd: 0.02, estimatedLatencyMs: 1500,
   confidence: 0.92, partial: false, gaps: [], cached: false, priceUsd: 0.02,
   ranking: { weights: { fit: 0.45, reliability: 0.2, price: 0.15, schema: 0.1, freshness: 0.1 }, firstPartyWeight: 0 },
-  neutrality: "Ranking is identical for tools sold by Agent402 and by other sellers; each tool carries firstParty so the source is disclosed.",
+  neutrality: NEUTRALITY_NOTE,
 };
 
 export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now = () => Date.now() } = {}) {
@@ -366,7 +379,7 @@ export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now 
       price: `$${priceForDepth("quick").toFixed(3)}`,
       quote: (body) => decideQuoteUsd(body),
       description:
-        "Describe a job and get a call-ready plan: which tools, across this catalog and every indexed x402/MPP seller, solve it end to end, in what order, with fallbacks, input params that validate against each tool's schema, and cost/latency estimates. Priced by depth: quick (one best tool), plan (steps + fallbacks), full (plan + params + compiled prompt). The fee comes back as a 24-hour credit toward running the plan with POST /api/decide/execute. Ranking is neutral; every tool carries firstParty. Uncovered needs are listed in gaps.",
+        "Describe a job and get a call-ready plan: which tools, across this catalog and indexed x402/MPP sellers with a recent live 402, solve it end to end, in what order, with fallbacks, input params that validate against each tool's schema, and cost/latency estimates. Priced by depth: quick (one best tool), plan (steps + fallbacks), full (plan + params + compiled prompt). The fee comes back as a credit toward running the plan with POST /api/decide/execute. The ranking formula has no first-party term; every tool carries firstParty. Uncovered needs are listed in gaps.",
       tags: ["agents", "routing", "planning", "discovery", "x402"],
       discovery: {
         bodyType: "json",

@@ -14,6 +14,8 @@ const perCycle = () => {
   return Number.isFinite(n) && n >= 0 ? n : 20_000;
 };
 
+const MAX_LINE = 1_000_000;
+
 /** Parse an NDJSON body (string or async iterable of chunks). */
 export async function* ndjsonRows(body) {
   let buf = "";
@@ -21,6 +23,7 @@ export async function* ndjsonRows(body) {
   const dec = new TextDecoder();
   for await (const c of chunks) {
     buf += typeof c === "string" ? c : dec.decode(c, { stream: true });
+    if (buf.length > MAX_LINE && buf.indexOf("\n") < 0) throw new Error("index stream line too long");
     let nl;
     while ((nl = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, nl).trim();
