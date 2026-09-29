@@ -30,6 +30,8 @@ export function decideTokenOk(req, token = process.env.DECIDE_INTERNAL_TOKEN) {
 export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date.now() } = {}) {
   let n = 0;
   for (const def of Object.values(catalog || {})) {
+    // The decision tools never recommend themselves.
+    if (/^decide(?:-|$)/.test(String(def?.slug || ""))) continue;
     const row = localToolRow(def, { baseUrl, networks, now });
     if (row) yield row;
     if (++n % YIELD_EVERY === 0) await yieldLoop();

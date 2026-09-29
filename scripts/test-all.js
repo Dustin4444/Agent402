@@ -332,6 +332,7 @@ const NETWORK = new Set([
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",
+  "/api/decide",
   // Named chain-read primitives (chain-kit 2026-07-29): live public-RPC reads.
   "/api/block-number", "/api/chain-info", "/api/block-info", "/api/erc721-owner", "/api/contract-code", "/api/event-logs",
   "/api/chain/nonce", "/api/chain/storage", "/api/chain/pending", "/api/chain/total-supply", "/api/chain/erc1155-balance",

@@ -21,6 +21,11 @@ import { PgToolStore, MemoryToolStore } from "./tool-store.js";
 import { migrate } from "./migrations.js";
 import { syncIndex, loadIndex } from "./sync.js";
 import { embedTexts, embedBudgetStatus } from "./embed.js";
+import { decideConfig } from "./config.js";
+import { makeLlm } from "./llm.js";
+import { buildDecision, parseDecideInput, cacheKeyFor } from "./planner.js";
+import { MemoryDecisionStore, PgDecisionStore, makeGate, makeDecisionCache } from "./decision-store.js";
+import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.PORT) || 8090;
 const TOKEN = String(process.env.DECIDE_INTERNAL_TOKEN || "");
@@ -29,7 +34,37 @@ const DB_URL = process.env.DECIDE_DATABASE_URL || process.env.DATABASE_URL || ""
 const SYNC_MS = Number(process.env.DECIDE_SYNC_MS) || 30 * 60_000;
 const MAX_BODY = 16 * 1024;
 
-export const state = { index: new ToolIndex(), store: null, pool: null, lastSync: null, syncing: false, bootedAt: Date.now(), loadedRows: 0 };
+export const state = { index: new ToolIndex(), store: null, pool: null, lastSync: null, syncing: false, bootedAt: Date.now(), loadedRows: 0,
+  decisions: new MemoryDecisionStore(), reliability: new Map(), llm: null, gate: makeGate(Number(process.env.DECIDE_MAX_CONCURRENT) || 4, Number(process.env.DECIDE_MAX_QUEUE) || 16),
+  cache: makeDecisionCache(decideConfig().cacheTtlMs) };
+
+const newDecisionId = () => `dec_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
+
+/** Build (or reuse from cache) a decision. A cache hit is a new decision with
+ *  its own id: the caller paid for it, so it is recorded like any other. */
+export async function decide(body, { now = Date.now() } = {}) {
+  const input = parseDecideInput(body);
+  const cfg = decideConfig();
+  const key = cacheKeyFor(input.task, input.constraints, input.depth);
+  let result = state.cache.get(key, now);
+  let cached = false;
+  if (result) {
+    result = { ...structuredClone(result), decisionId: newDecisionId() };
+    cached = true;
+  } else {
+    result = await state.gate.run(() => buildDecision(input, {
+      index: state.index,
+      embed: (t) => embedTexts(t),
+      llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
+      reliability: (id) => state.reliability.get(id) || null,
+      cfg, now,
+    }));
+    if (!result.partial) state.cache.set(key, result, now);
+  }
+  const { _rankingLog, ...pub } = result;
+  await state.decisions.save(pub, { constraints: input.constraints, cacheKey: key, payer: body.payer || null, rail: body.rail || null, priceUsd: Number(body.priceUsd) || 0, rankingLog: _rankingLog || [] });
+  return { ...pub, cached };
+}
 
 function tokenOk(req) {
   if (TOKEN.length < 24) return false;
@@ -74,7 +109,7 @@ async function readJson(req) {
 }
 
 export const routes = {
-  "GET /health": async () => ({ ok: true, rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool }),
+  "GET /health": async () => ({ ok: true, rows: state.index.size, vectors: state.index.vectors.count, lastSync: state.lastSync, embed: embedBudgetStatus(), db: !!state.pool, gate: state.gate.stats(), llm: state.llm?.stats() || null, cached: state.cache.size() }),
   "POST /internal/search": async (req) => {
     const b = await readJson(req);
     const query = String(b.query || "").slice(0, 500);
@@ -85,6 +120,13 @@ export const routes = {
     return { mode: r.mode, candidates: r.candidates, hits: r.hits.map((h) => ({ id: h.id, rrf: h.rrf, slug: h.row.slug, seller: h.row.seller, firstParty: h.row.firstParty, priceUsd: h.row.priceUsd, name: h.row.name })) };
   },
   "POST /internal/sync": async () => runSync(),
+  "POST /internal/decide": async (req) => decide(await readJson(req)),
+  "POST /internal/decision": async (req) => {
+    const b = await readJson(req);
+    const d = await state.decisions.get(String(b.decisionId || ""));
+    if (!d) throw Object.assign(new Error("unknown decision"), { statusCode: 404 });
+    return d;
+  },
 };
 
 export function handler(req, res) {
@@ -92,7 +134,11 @@ export function handler(req, res) {
   const fn = routes[key];
   if (!fn) return send(res, 404, { error: "Not found" });
   if (key !== "GET /health" && !tokenOk(req)) return send(res, 404, { error: "Not found" });
-  fn(req).then((out) => send(res, 200, out)).catch((e) => send(res, e.statusCode || 500, { error: e.statusCode ? e.message : "internal error" }));
+  fn(req).then((out) => send(res, 200, out)).catch((e) => {
+    if (e.retryAfter) res.setHeader("Retry-After", String(e.retryAfter));
+    if (!e.statusCode) console.warn("[decide] handler error:", String(e?.stack || e).slice(0, 400));
+    send(res, e.statusCode || 500, { error: e.statusCode ? e.message : "internal error" });
+  });
 }
 
 async function boot() {
@@ -100,6 +146,7 @@ async function boot() {
     state.pool = new pg.Pool({ connectionString: DB_URL, max: 5, connectionTimeoutMillis: 20_000, ssl: /railway\.internal/.test(DB_URL) ? false : { rejectUnauthorized: false } });
     await migrate(state.pool);
     state.store = new PgToolStore(state.pool);
+    state.decisions = new PgDecisionStore(state.pool);
   } else {
     state.store = new MemoryToolStore();
     console.warn("[decide] no database configured: index lives in memory only");
