@@ -25,7 +25,7 @@ process.env.TEMPO_RECIPIENT_ADDRESS = TREASURY;
 process.env.TEMPO_CURRENCY = CUR;
 
 const { createTempoGate, PUSH_SENDER_WAIT_MS } = await import("../src/mpp-tempo.js");
-const { createTempoPushDebts, PUSH_INPUT_REFUSED_NOTE, PUSH_CLAIMED_NOTE, PUSH_FINALIZE_FAILURE_STATUS, PUSH_HANGUP_AFTER_CLAIM_NOTE, whenTempoLedgerPayerKnown } = await import("../src/tempo-push-debts.js");
+const { createTempoPushDebts, PUSH_INPUT_REFUSED_NOTE, PUSH_CLAIMED_NOTE, PUSH_FINALIZE_FAILURE_STATUS, PUSH_HANGUP_AFTER_CLAIM_NOTE, PUSH_HANDLER_FAILED_AFTER_CLAIM_NOTE, whenTempoLedgerPayerKnown } = await import("../src/tempo-push-debts.js");
 const { isRepeatHangup, isLastingEffectHangup, HANGUP_STATUS } = await import("./refund-run.js");
 const ledger = await import("../src/refund-ledger.js");
 const { createReplayGuard } = await import("../src/replay-guard.js");
@@ -49,7 +49,7 @@ const sales = [];
 let synthetic = false;
 let failNext = null;
 const debts = createTempoPushDebts({
-  recordOwed: ledger.recordRefundOwed, voidOnClaim: ledger.voidOwedOnClaim, renoteOwed: ledger.renoteOwedRefund, promoteToHangup: ledger.promoteOwedToHangup, refundByEvidence: ledger.refundByEvidence,
+  recordOwed: ledger.recordRefundOwed, voidOnClaim: ledger.voidOwedOnClaim, renoteOwed: ledger.renoteOwedRefund, promoteToHangup: ledger.promoteOwedToHangup, restateHandlerFailure: ledger.restateOwedAsHandlerFailure, refundByEvidence: ledger.refundByEvidence,
   recordChargedFailure: (slug, status) => failures.push({ slug, status }),
   isSynthetic: () => synthetic,
   slugOf: () => "paid-tool",
@@ -201,6 +201,29 @@ const rowsFor = (hash) => ledger.listRefunds({ status: "all", limit: 1000 }).fil
   ok(debts.hungUp(hashFor(14), "no ticket") === false && rowsFor(hashFor(14)).length === 0, "no row, nothing written");
 }
 
+// Refused on input, then the corrected retry is claimed and the HANDLER fails
+// (>= 400, not a disconnect). server.js books the handler failure on the same
+// hash; INSERT OR IGNORE kept the stale 400 "input refused" row. handlerFailed
+// restates it with the handler's status and a note saying what happened.
+{
+  const h = hashFor(20);
+  await post(pushCred(h), {});
+  const failRow = { slug: "paid-tool", network: "tempo", payer: SENDER, priceUsd: 0.05, tx: h, httpStatus: 502, synthetic: false, wire: "mpp-tempo" };
+  ok(ledger.recordRefundOwed(failRow) === false, "setup: the handler-failure insert on the same hash is ignored (the input-refused row holds it)");
+  ok(debts.handlerFailed(h, 502) === true, "handlerFailed restates the owed input-refused row");
+  const [row] = rowsFor(h);
+  ok(rowsFor(h).length === 1 && row.status === "owed" && row.httpStatus === 502 && row.note.includes(PUSH_INPUT_REFUSED_NOTE) && row.note.includes(PUSH_HANDLER_FAILED_AFTER_CLAIM_NOTE),
+    `the row now reads the handler failure: 502 and a note that says it was claimed then failed (${JSON.stringify(row)})`);
+  ok(debts.handlerFailed(h, 500) === false && rowsFor(h)[0].httpStatus === 502, "a second restatement changes nothing (the note no longer reads the input refusal)");
+  // Controls: a disconnect status is not a handler failure; a row being sent is never rewritten.
+  const hd = hashFor(21);
+  await post(pushCred(hd), {});
+  ok(debts.handlerFailed(hd, 499) === false && rowsFor(hd)[0].httpStatus === 400, "499 is refused here (disconnects go through hungUp)");
+  ok(debts.handlerFailed(hd, 200) === false && rowsFor(hd)[0].httpStatus === 400, "a success status is refused");
+  ok(ledger.claimRefundForSend(rowsFor(hd)[0].id, PUSH_INPUT_REFUSED_NOTE), "setup: claimed for sending, note unchanged");
+  ok(debts.handlerFailed(hd, 502) === false && rowsFor(hd)[0].status === "sending" && rowsFor(hd)[0].httpStatus === 400, "a row being sent is never rewritten");
+}
+
 // THE HANDLER NEVER WAITS ON THE SENDER READ (2026-09-28). A slow Tempo RPC
 // used to hold an honest push buyer before the handler for up to the read's
 // bound; now the read runs beside the handler and only the booking waits.
@@ -248,7 +271,8 @@ const rowsFor = (hash) => ledger.listRefunds({ status: "all", limit: 1000 }).fil
   srv.close();
   const src = (await import("node:fs")).readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   ok(/if \(!FREE_MODE\) whenTempoLedgerPayerKnown\(req, "sales", \(\) => \{/.test(src), "server.js books the sale through the wait");
-  ok(/whenTempoLedgerPayerKnown\(req, "refund-ledger", \(\) => recordRefundOwed\(/.test(src), "...and a Tempo/Stripe handler-failure debt");
+  ok(/whenTempoLedgerPayerKnown\(req, "refund-ledger", \(\) => \{\s*const created = recordRefundOwed\(/.test(src), "...and a Tempo/Stripe handler-failure debt");
+  ok(/if \(!created && req\.tempoSettled && tempoPushDebts && typeof tx === "string"\) tempoPushDebts\.handlerFailed\(tx, res\.statusCode\)/.test(src), "...which restates a stale input-refused push row when the insert found one");
   ok(/if \(req\.tempoSettled && tempoLedgerPayerPending\(req\)\) \{\s*\n\s*whenTempoLedgerPayerKnown\(req, "hangup"/.test(src), "...and a disconnect debt");
   const tempoSrc = (await import("node:fs")).readFileSync(new URL("../src/mpp-tempo.js", import.meta.url), "utf8");
   ok(!/req\.mppTempoLedgerPayer = await readPushSender\(\)/.test(tempoSrc), "the gate no longer awaits the sender read before next()");
