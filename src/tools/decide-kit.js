@@ -228,7 +228,9 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     // this run happen in one turn, so concurrent requests cannot all pass on
     // the same reading.
     if (payer && ledger.payerExposureUsd(payer, t - 3_600_000) + budget > cfg.execute.perWalletHourUsd) throw bad(`This wallet has reached its hourly execution ceiling ($${cfg.execute.perWalletHourUsd}); nothing was charged`, 429);
-    if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for up to 24 hours; nothing was charged", 429);
+    // Only a plan that can pay outside sellers is held to the wallet's
+    // global daily ceiling; our own tools do not draw on that wallet.
+    if (hasOutside && ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Outside steps are paused for everyone for up to 24 hours; nothing was charged", 429);
     const payerDayCap = cfg.execute.globalDayUsd * cfg.execute.perPayerDayShare;
     if (payer && ledger.payerExposureUsd(payer, t - 86_400_000) + budget > payerDayCap) throw bad(`This wallet has reached its daily execution ceiling ($${roundUsd(payerDayCap)}); nothing was charged`, 429);
 

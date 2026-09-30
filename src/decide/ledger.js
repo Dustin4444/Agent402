@@ -104,7 +104,9 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     payerSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE payer = ? AND created_at >= ?"),
     // A run older than the longest possible run is not "running" for the caps.
     payerRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE payer = ? AND status = 'running' AND created_at >= ?"),
-    globalSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE created_at >= ?"),
+    // The global ceiling guards the spending wallet: it counts what left for
+    // outside sellers (holds included), not our own tools' list prices.
+    globalSince: db.prepare("SELECT COALESCE(SUM(micro),0) AS s FROM seller_spend WHERE created_at >= ?"),
     globalRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE status = 'running' AND created_at >= ?"),
     sellerSpend: db.prepare("INSERT INTO seller_spend (run_id, seller, micro, created_at) VALUES (?,?,?,?)"),
     sellerHoldSet: db.prepare("UPDATE seller_spend SET micro = ? WHERE rowid = ?"),

@@ -378,8 +378,16 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   calls.length = 0;
   await throwsWith(() => exec({ decisionId: "d6" }, mkReq("0xcap")), 429, "hourly execution ceiling", "the per-wallet hourly ceiling refuses before spending");
   ok(!calls.length, "...and no tool ran");
-  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { globalDayUsd: 1 } });
-  await throwsWith(() => exec({ decisionId: "d6" }, mkReq("0xother")), 429, "paused for everyone", "the global daily ceiling refuses too");
+  // The global ceiling guards the spending wallet: a plan with an outside step
+  // is held to it, a plan of our own tools only is not.
+  ledger.saveDecision({ decisionId: "d6x", depth: "quick", priceUsd: 0.005, plan: [{ step: 1, purpose: "x", tool: tool("ext6", { seller: "seller.example", firstParty: false, endpoint: "https://seller.example/x", priceUsd: 2 }), fallbacks: [], dependsOn: [] }], costViaUsd: 2.1, now: clock });
+  ledger.markDecisionSettled("d6x");
+  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { globalDayUsd: 1, perPayerDayShare: 1, perWalletHourUsd: 100 } });
+  calls.length = 0;
+  await throwsWith(() => exec({ decisionId: "d6x" }, mkReq("0xother")), 429, "paused for everyone", "the global daily ceiling refuses a plan with outside steps");
+  ok(!calls.some((c) => c[0] === "router"), "...before any outside payment");
+  const fp = await exec({ decisionId: "d6" }, mkReq("0xfirstparty")).catch((e) => e);
+  ok(!/paused for everyone/.test(String(fp?.message || "")), `a plan of first-party tools only is not held to the wallet's global ceiling (${fp?.status || fp?.message})`);
   process.env.DECIDE_CONFIG = JSON.stringify({ execute: { globalDayUsd: 100, perPayerDayShare: 0.01, perWalletHourUsd: 100 } });
   await throwsWith(() => exec({ decisionId: "d6" }, mkReq("0xshare")), 429, "daily execution ceiling", "one wallet may use only its share of the global daily ceiling");
   process.env.DECIDE_CONFIG = JSON.stringify({ execute: { perCallMaxUsd: 0.5 } });
