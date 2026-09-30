@@ -21,6 +21,14 @@ export class MemoryDecisionStore {
 }
 
 export class PgDecisionStore {
+  /** Drop decisions (task text, payer id; steps cascade) and feedback older
+   *  than `days`: the same 30-day window the main app's ledger keeps. */
+  async prune(days = 30) {
+    const d = Math.max(1, Math.floor(Number(days) || 30));
+    const a = await this.pool.query("DELETE FROM decide_decisions WHERE created_at < now() - make_interval(days => $1)", [d]);
+    const b = await this.pool.query("DELETE FROM decide_feedback WHERE created_at < now() - make_interval(days => $1)", [d]);
+    return { decisions: a.rowCount || 0, feedback: b.rowCount || 0 };
+  }
   constructor(pool) { this.pool = pool; }
   async save(d, meta) {
     const c = await this.pool.connect();

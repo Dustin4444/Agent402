@@ -238,6 +238,10 @@ export async function boot() {
       const dirty = state.reliability.takeDirty();
       if (dirty.length) persistReliability(state.pool, dirty).catch((e) => console.warn("[decide] reliability flush failed:", String(e?.message || e).slice(0, 120)));
     }, 60_000).unref();
+    // Retention: decisions carry task text and payer ids. Keep 30 days.
+    const prune = () => state.decisions.prune(30).then((r) => { if (r.decisions || r.feedback) console.log("[decide] pruned", JSON.stringify(r)); }).catch((e) => console.warn("[decide] prune failed:", String(e?.message || e).slice(0, 120)));
+    setTimeout(prune, 60_000).unref();
+    setInterval(prune, 24 * 3_600_000).unref();
   }
   state.loadedRows = await loadIndex({ index: state.index, store: state.store });
   console.log(`[decide] loaded ${state.loadedRows} rows, ${state.index.vectors.count} vectors`);

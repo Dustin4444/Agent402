@@ -25,6 +25,23 @@ const ok = (c, m) => { if (c) { pass++; console.log("ok -", m); } else { fail++;
 const mk = () => new pg.Pool({ connectionString: URL_, max: 5, statement_timeout: 1500 });
 
 const admin = mk();
+// ---- retention: decisions and feedback older than 30 days are pruned ----
+{
+  const pool = mk();
+  await migrate(pool);
+  const { PgDecisionStore } = await import("../services/decide/decision-store.js");
+  const store = new PgDecisionStore(pool);
+  await pool.query("INSERT INTO decide_decisions (id, created_at, task, depth, result) VALUES ('old', now() - interval '31 days', 't', 'plan', '{}'::jsonb), ('new', now(), 't', 'plan', '{}'::jsonb) ON CONFLICT DO NOTHING");
+  await pool.query("INSERT INTO decide_decision_steps (decision_id, step, role, tool_id, seller, first_party) VALUES ('old', 1, 'primary', 'x', 's', true) ON CONFLICT DO NOTHING");
+  await pool.query("INSERT INTO decide_feedback (decision_id, step, outcome, created_at) VALUES ('old', 1, 'ok', now() - interval '31 days'), ('new', 1, 'ok', now())");
+  const r = await store.prune(30);
+  const left = (await pool.query("SELECT id FROM decide_decisions ORDER BY id")).rows.map((x) => x.id);
+  const steps = (await pool.query("SELECT count(*)::int AS n FROM decide_decision_steps WHERE decision_id = 'old'")).rows[0].n;
+  const fb = (await pool.query("SELECT decision_id FROM decide_feedback")).rows.map((x) => x.decision_id);
+  ok(r.decisions === 1 && left.includes("new") && !left.includes("old") && steps === 0 && fb.join() === "new", `prune drops decisions (and their steps) and feedback older than 30 days (${JSON.stringify(r)})`);
+  await pool.end();
+}
+
 await admin.query("DROP TABLE IF EXISTS decide_decision_steps, decide_decisions, decide_tools, decide_feedback, decide_tool_reliability, decide_migrations CASCADE");
 
 // ---- two boots racing migrate(): each migration applied exactly once ----
