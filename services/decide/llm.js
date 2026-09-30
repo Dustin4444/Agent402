@@ -96,6 +96,7 @@ export function judgePrompt(task, steps) {
   }));
   return {
     keyToId,
+    listing,
     system: `You rate how well each candidate tool performs its step of a task. Give EVERY candidate key a fit from 0 (cannot do this step) to 1 (does exactly this step). A tool that only does part of the step, or a different job, scores low. Judge only by what the tool does, never by who sells it. ${DATA_RULE} Return one flat JSON object mapping candidate key to number, for example {"fits":{"s1c1":0.9,"s1c2":0.2,"s2c1":0.7}}.`,
     user: `Task: ${task}\n<listings>${JSON.stringify(listing)}</listings>`,
   };

@@ -12,6 +12,7 @@ import { DEFAULTS, decideConfig, priceForDepth } from "../src/decide/config.js";
 import { makeDecisionCache, makeGate, MemoryDecisionStore } from "../services/decide/decision-store.js";
 import { extractJson, judgePrompt, judgeText } from "../services/decide/llm.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
+import { makeJevJudge, jevQuestions } from "../services/decide/jev.js";
 import { localToolRow, remoteToolRow } from "../src/decide/tool-rows.js";
 import { decideQuoteUsd } from "../src/tools/decide-kit.js";
 
@@ -228,6 +229,60 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   idx.upsert(direct);
   const d = await buildDecision({ task: "research a question", constraints: {}, depth: "quick" }, { index: idx, embed: async () => null, llm: { call: async (_s, _u, o) => (o.stage === "judge" ? { fits: { s1c1: 0.9 } } : null) }, cfg, now: NOW, deadline: Date.now() + 5000 });
   ok(d.plan[0]?.tool.callDirectly === true && d.plan[0].tool.executeViaAgent402Usd === null && d.estimatedCostViaAgent402Usd === 0, "a report product in a plan is marked call-directly and adds nothing to the execute price");
+}
+
+// ---- fit judging by the judgment model: one yes/no per pair, model fallback ----
+{
+  const { idx, third } = buildIndex();
+  const sent = [];
+  const jevFetch = async (url, init) => {
+    const body = JSON.parse(init.body); sent.push({ url, body, auth: init.headers.authorization });
+    const answers = {};
+    for (const [k, q] of Object.entries(body.questions)) answers[k] = { type: "noul", noul: /fear/i.test(q.instructions.step) && /fear/.test(q.instructions.tool.description) ? 0.97 : 0.04 };
+    return new Response(JSON.stringify({ model: "jev-test", answers, usage: { input_tokens: 1234, output_tokens: 10 } }), { status: 200 });
+  };
+  const jev = makeJevJudge({ apiKey: "k-test", fetchImpl: jevFetch });
+  const llm = stubLlm([]);
+  const meter = [];
+  const d = await buildDecision({ task: "fear and greed index", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm, judge: jev.judge, meter, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(sent.length === 1 && llm.calls.length === 0, `the judgment model judges fit and the model judge is not called (jev ${sent.length}, llm ${llm.calls.length})`);
+  const qs = Object.values(sent[0].body.questions);
+  ok(qs.length >= 1 && qs.every((q) => q.type === "noul" && q.instructions.tool && typeof q.instructions.step === "string"), "one noul question per step and candidate, the listing inside a structured tool field");
+  ok(Object.keys(sent[0].body.questions).every((k) => /^s\d+c\d+$/.test(k)) && sent[0].auth === "Bearer k-test", "question ids are the planner's own keys; the key rides as a bearer");
+  ok(d.plan[0]?.tool.id === third.id && !d.notes.some((x) => /fit judging unavailable/.test(x)), `the judged fit picks the plan (${d.plan[0]?.tool.id})`);
+  const m = meter.find((x) => x.stage === "judge");
+  ok(m && m.model.startsWith("typesafe/") && m.promptTokens === 1234 && m.outcome === "ok", "the meter records the judge's own input tokens");
+  ok(m.costUsd === null, "with no rate configured the judge's cost is recorded as unknown, never as zero");
+  // failure falls back to the model judge
+  const down = makeJevJudge({ apiKey: "k-test", fetchImpl: async () => new Response("no", { status: 503 }) });
+  const llm2 = stubLlm([(s2, user) => { const fits = {}; for (const st of keysFor(user)) for (const c of st.candidates) fits[c.key] = 0.9; return { fits }; }]);
+  const d2 = await buildDecision({ task: "fear and greed index", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: llm2, judge: down.judge, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(llm2.calls.length === 1 && !d2.notes.some((x) => /fit judging unavailable/.test(x)) && d2.plan.length === 1, "a failed judgment call falls back to the model judge");
+  // judge "llm" in config never calls it
+  const llm3 = stubLlm([(s2, user) => { const fits = {}; for (const st of keysFor(user)) for (const c of st.candidates) fits[c.key] = 0.9; return { fits }; }]);
+  let hits = 0;
+  const counted = makeJevJudge({ apiKey: "k", fetchImpl: async (...a) => { hits++; return jevFetch(...a); } });
+  await buildDecision({ task: "fear and greed index", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: llm3, judge: counted.judge, cfg: { ...cfg, judge: "llm" }, now: NOW, deadline: Date.now() + 10_000 });
+  ok(hits === 0 && llm3.calls.length === 1, 'judge "llm" uses the model judge only');
+  // no key, and the daily ceiling, both return null without a request
+  let n = 0;
+  const keyless = makeJevJudge({ apiKey: "", fetchImpl: async () => { n++; return new Response("{}"); } });
+  ok(await keyless.judge("t", [{ purpose: "p", candidates: [{ key: "s1c1", name: "a", description: "b", inputs: [] }] }]) === null && n === 0, "no key: no request, null");
+  process.env.DECIDE_JEV_DAILY_MAX_TOKENS = "10";
+  const capped = makeJevJudge({ apiKey: "k", fetchImpl: async () => { n++; return new Response("{}"); } });
+  const cm = [];
+  ok(await capped.judge("t", [{ purpose: "p", candidates: [{ key: "s1c1", name: "a", description: "b", inputs: [] }] }], { meter: cm }) === null && n === 0 && cm[0]?.outcome === "skipped_ceiling", "over the daily ceiling: no request, null, recorded");
+  delete process.env.DECIDE_JEV_DAILY_MAX_TOKENS;
+  process.env.DECIDE_JEV_USD_PER_MTOK = "2";
+  const rated = makeJevJudge({ apiKey: "k", fetchImpl: jevFetch }); const rm = [];
+  await rated.judge("fear", [{ purpose: "fear", candidates: [{ key: "s1c1", name: "a", description: "fear index", inputs: [] }] }], { meter: rm });
+  ok(Math.abs(rm[0].costUsd - 1234 * 2 / 1e6) < 1e-12, "a configured rate prices the judge from its reported input tokens");
+  delete process.env.DECIDE_JEV_USD_PER_MTOK;
+  // answers outside the offered ids are ignored; values are clamped
+  const odd = makeJevJudge({ apiKey: "k", fetchImpl: async () => new Response(JSON.stringify({ answers: { s1c1: { noul: 1.7 }, s9c9: { noul: 1 } } })) });
+  const r = await odd.judge("t", [{ purpose: "p", candidates: [{ key: "s1c1", name: "a", description: "b", inputs: [] }] }]);
+  ok(r && r.fits.s1c1 === 1 && !("s9c9" in r.fits), "only offered keys are read, and a fit is clamped to 0..1");
+  ok(Object.keys(jevQuestions([{ purpose: "p", candidates: [] }])).length === 0, "no candidates, no questions");
 }
 
 console.log(`\ntest-decide-planner: ${pass} passed, ${fail} failed`);

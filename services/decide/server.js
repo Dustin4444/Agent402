@@ -9,6 +9,7 @@
 //   DECIDE_SOURCE_URL        main app base, e.g. http://agent402.railway.internal:8080
 //   DECIDE_DATABASE_URL      Postgres (falls back to DATABASE_URL); unset = memory only
 //   OPENAI_API_KEY           embeddings
+//   TYPESAFE_API_KEY         fit judging by the judgment model (DECIDE_TYPESAFE_API_KEY wins)
 //   DECIDE_SYNC_MS           index sync period (default 30 min)
 
 import http from "node:http";
@@ -23,6 +24,7 @@ import { syncIndex, loadIndex } from "./sync.js";
 import { embedTexts, embedBudgetStatus } from "./embed.js";
 import { decideConfig } from "../../src/decide/config.js";
 import { makeLlm } from "./llm.js";
+import { makeJevJudge } from "./jev.js";
 import { buildDecision, parseDecideInput, cacheKeyFor } from "./planner.js";
 import { MemoryDecisionStore, PgDecisionStore, makeGate, makeDecisionCache } from "./decision-store.js";
 import { randomUUID } from "node:crypto";
@@ -36,7 +38,7 @@ const SYNC_MS = Number(process.env.DECIDE_SYNC_MS) || 30 * 60_000;
 const MAX_BODY = 16 * 1024;
 
 export const state = { index: new ToolIndex(), store: null, pool: null, lastSync: null, syncing: false, bootedAt: Date.now(), loadedRows: 0,
-  decisions: new MemoryDecisionStore(), reliability: new Reliability(), llm: null, gate: makeGate(Number(process.env.DECIDE_MAX_CONCURRENT) || 4, Number(process.env.DECIDE_MAX_QUEUE) || 16),
+  decisions: new MemoryDecisionStore(), reliability: new Reliability(), llm: null, jev: null, gate: makeGate(Number(process.env.DECIDE_MAX_CONCURRENT) || 4, Number(process.env.DECIDE_MAX_QUEUE) || 16),
   cache: makeDecisionCache(decideConfig().cacheTtlMs) };
 
 const newDecisionId = () => `dec_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -70,6 +72,7 @@ export async function decide(body, { now = Date.now() } = {}) {
       embed: (t, o) => embedTexts(t, o),
       meter,
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
+      judge: (state.jev || (state.jev = makeJevJudge())).judge,
       reliability: (id) => state.reliability.get(id),
       cfg, now,
       deadline: Math.min(now + cfg.budgetMs[input.depth], callerDeadline - 500),

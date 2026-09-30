@@ -89,7 +89,7 @@ function toolView(row, { routingFeePct }) {
 
 /**
  * @param input  parsed { task, constraints, depth }
- * @param deps   { index, embed(texts)->vecs, llm:{call}, reliability(id)->stats, cfg, now, deadline }
+ * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, reliability(id)->stats, cfg, now, deadline }
  */
 export async function buildDecision({ task, constraints, depth }, deps) {
   const { index, embed, llm, reliability = () => null, cfg, now = Date.now(), meter = null } = deps;
@@ -132,7 +132,10 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     ? [{ purpose: task, candidates: whole.slice(0, 12) }]
     : [...steps.map((s) => ({ purpose: s.purpose, candidates: s.candidates.slice(0, 12) })), { purpose: `the ENTIRE task in one call: ${task}`, candidates: whole.slice(0, 8) }];
   const jp = judgePrompt(task, judgeSteps);
-  const judged = left() > 1200 ? await within(llm.call(jp.system, jp.user, { maxTokens: 1500, timeoutMs: timeoutFor(0.5), meter, stage: "judge" }), timeoutFor(0.5) + 250) : null;
+  // The judgment model first (one yes/no per pair); the model judge when it
+  // is off, over its ceiling, or fails.
+  let judged = deps.judge && cfg.judge === "jev" && left() > 1200 ? await within(deps.judge(task, jp.listing, { timeoutMs: timeoutFor(0.35), meter }), timeoutFor(0.35) + 250) : null;
+  if (!judged && left() > 1200) judged = await within(llm.call(jp.system, jp.user, { maxTokens: 1500, timeoutMs: timeoutFor(0.5), meter, stage: "judge" }), timeoutFor(0.5) + 250);
   const rawFits = judged?.fits && typeof judged.fits === "object" ? judged.fits : null;
   const stepFit = new Map(); // `${stepIndex}:${rowId}` -> fit
   let judgedCount = 0;

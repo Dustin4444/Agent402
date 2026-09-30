@@ -26,7 +26,10 @@ export const DEFAULTS = Object.freeze({
   // most perPayerDayShare of it, and one outside seller may receive at most
   // perSellerDayUsd a day, so no single actor can exhaust it for everyone.
   execute: { perCallMaxUsd: 3, perWalletHourUsd: 10, globalDayUsd: 100, perPayerDayShare: 0.1, perSellerDayUsd: 20, stepTimeoutMs: 45000, externalStepTimeoutMs: 60000, runDeadlineMs: 240000 },
-  // Model used to decompose tasks and judge fit (through OpenRouter).
+  // Fit judging: "jev" asks the judgment model first and falls back to the
+  // models below; "llm" uses the models only.
+  judge: "jev",
+  // Model used to decompose tasks, fill params and (as fallback) judge fit.
   model: "google/gemini-3.1-flash-lite",
   modelFallback: "anthropic/claude-haiku-4.5",
 });
