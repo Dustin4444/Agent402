@@ -138,7 +138,7 @@ export function localToolRow(def, { baseUrl = "https://agent402.tools", networks
  * @param ctx { requestContract: unpacked contract or null, injected: bool,
  *              lastLiveAt: ms or null, mppOrigins: Set<origin> }
  */
-export function remoteToolRow(t, { requestContract = null, injected = false, lastLiveAt = null, mppOrigins = new Set() } = {}) {
+export function remoteToolRow(t, { requestContract = null, injected = false, lastLiveAt = null, mppOrigins = new Set(), executable = true } = {}) {
   if (!t || injected) return null;
   const origin = typeof t.seller === "string" ? t.seller.replace(/\/+$/, "") : "";
   const host = hostOf(origin);
@@ -188,5 +188,9 @@ export function remoteToolRow(t, { requestContract = null, injected = false, las
     modelBacked: null,
     lastLiveAt: Number.isFinite(lastLiveAt) && lastLiveAt > 0 ? lastLiveAt : null,
     health: Number.isFinite(t.health) ? t.health : null,
+    // Whether POST /api/decide/execute can pay this seller today (the
+    // router's Base dispatch verdict at export time). A row it cannot is
+    // still a valid step to call directly; it carries no execute price.
+    ...(executable ? {} : { executable: false }),
   });
 }

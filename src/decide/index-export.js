@@ -45,7 +45,7 @@ export function fromPrivateNetwork(req) {
 }
 
 /** Rows for every priced local tool, then every routable outside tool. */
-export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date.now() } = {}) {
+export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date.now(), remoteExecutable = null } = {}) {
   let n = 0;
   // One row per id: the same route can reach the crawl twice (a seller listed
   // under two origins that resolve to one row id), and the service stores rows
@@ -66,6 +66,9 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
         injected: looksLikeListingInjection(`${t.name || ""} ${t.description || ""} ${t.sellerName || ""} ${t.category || ""} ${t.route || ""}`),
         lastLiveAt: liveProofAt(t),
         mppOrigins,
+        // Unknown (no verdict function) keeps the old behaviour; a function
+        // that throws reads as not executable, never as a guess that it is.
+        executable: typeof remoteExecutable === "function" ? (() => { try { return remoteExecutable(t) === true; } catch { return false; } })() : true,
       });
       if (row && !emitted.has(row.id)) { emitted.add(row.id); yield row; }
       if (++n % YIELD_EVERY === 0) await yieldLoop();
@@ -76,7 +79,7 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
 let exporting = false;
 
 /** Express handler for GET /__internal/decide/tools.ndjson */
-export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks }) {
+export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks, remoteExecutable = null }) {
   return async (req, res) => {
     if (!fromPrivateNetwork(req) || !decideTokenOk(req)) return res.status(404).json({ error: "Not found" });
     if (exporting) return res.status(429).set("Retry-After", "60").json({ error: "export already running" });
@@ -84,7 +87,7 @@ export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks }) {
     let rows = 0;
     try {
       res.status(200).set({ "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" });
-      for await (const row of unifiedRows({ catalog: getCatalog(), baseUrl, networks: getNetworks() })) {
+      for await (const row of unifiedRows({ catalog: getCatalog(), baseUrl, networks: getNetworks(), remoteExecutable })) {
         if (res.destroyed) break;
         if (!res.write(JSON.stringify(row) + "\n")) {
           // A socket that closes while we wait never drains: wait on either.

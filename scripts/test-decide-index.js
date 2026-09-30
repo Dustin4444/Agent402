@@ -40,6 +40,11 @@ ok(remoteToolRow(remote, { injected: true }) === null, "an injection-flagged lis
 ok(remoteToolRow({ ...remote, route: "/v1/{id}" }) === null && remoteToolRow({ ...remote, price: null }) === null && remoteToolRow({ ...remote, price: 0 }) === null, "templated, unpriced and free outside rows are not recommendations");
 ok(remoteToolRow({ ...remote, seller: "http://seller.example" }) === null, "a non-https outside origin is not a row");
 ok(remoteToolRow(remote, { lastLiveAt: 0 }).lastLiveAt === null, "no live proof reads as null, not epoch zero");
+ok(remoteToolRow(remote, { executable: false }).executable === false && !("executable" in remoteToolRow(remote)), "an outside row execute cannot pay is marked executable:false; the default leaves it unmarked");
+{
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/remoteExecutable: \(t\) => \{[\s\S]{0,300}withDispatchFields\([\s\S]{0,120}\{ rowLevel: true \}\)\.routerDispatchByChain\?\.base\?\.eligible === true/.test(src), "the export marks an outside row executable only on the router's Base verdict");
+}
 ok(cleanText("a".repeat(700), 600).length === 600, "cleaned text is length-capped");
 
 // ---- neutrality at the row level ----

@@ -154,6 +154,18 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(paid3 <= sellerCap && l3.sellerSpendUsd("one.example", 0) <= sellerCap + 1e-9, `12 concurrent legs to one seller stay under its $${sellerCap} daily ceiling ($${paid3} paid, $${l3.sellerSpendUsd("one.example", 0)} booked)`);
 }
 
+// ---- a tool marked call-directly is never attempted by execute ----
+{
+  const l4 = openDecideLedger(join(mkdtempSync(join(tmpdir(), "decide-cd-")), "l.db"));
+  const ext = { id: "e", slug: "e", name: "e", seller: "x.example", firstParty: false, endpoint: "https://x.example/x", method: "POST", priceUsd: 0.02, callDirectly: true, executeViaAgent402Usd: null, inputSchema: { type: "object", properties: {}, required: [] }, exampleParams: {} };
+  l4.saveDecision({ decisionId: "dc", depth: "plan", priceUsd: 0.02, payer: "p", plan: [{ step: 1, purpose: "x", tool: ext, fallbacks: [], dependsOn: [] }], costViaUsd: 0.05 });
+  l4.markDecisionSettled("dc");
+  let routed = 0;
+  const ex4 = makeExecuteHandler({ ledger: l4, getCatalog: () => ({ rx: { slug: "route-execute-pro", route: "POST /x", handler: async () => { routed++; return { result: {}, receipt: {} }; } } }), runBudgetMs: () => null, spendingWalletStatus: async () => ({ status: "ok" }) });
+  const out = await ex4({ decisionId: "dc", maxBudgetUsd: 0.05 }, { headers: {}, ip: "192.0.2.4", __meteredQuoteUsd: 0.05 }).catch((e) => e);
+  ok(routed === 0 && (out?.steps?.[0]?.attempts?.[0]?.skipped || out?.message || "").match(/call this tool directly|nothing was charged|caller/), `a call-directly step is skipped without paying anyone (${out?.steps?.[0]?.attempts?.[0]?.skipped || out?.message})`);
+}
+
 // ---- a placeholder the plan could not fill is never sent to a paid tool ----
 {
   calls.length = 0;

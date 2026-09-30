@@ -270,6 +270,7 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
       const attempts = [];
       for (const tool of [step.tool, ...(step.fallbacks || [])]) {
         if (left() < 5000) { attempts.push({ id: tool.id, skipped: "the run's time budget is spent" }); break; }
+        if (tool.callDirectly === true) { attempts.push({ id: tool.id, skipped: "call this tool directly: execute cannot pay it" }); continue; }
         const def = tool.firstParty ? bySlug.get(tool.slug) : null;
         const listPrice = tool.firstParty ? priceOfDef(def) : tool.priceUsd;
         if (tool.firstParty && listPrice === null) { attempts.push({ id: tool.id, skipped: "no longer in the catalog" }); continue; }

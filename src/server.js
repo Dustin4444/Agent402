@@ -4791,6 +4791,12 @@ app.get("/__internal/decide/tools.ndjson", decideIndexExportHandler({
   getCatalog: () => CATALOG,
   baseUrl: BASE_URL,
   getNetworks: () => enabledNetworks(NETWORK).map((n) => PAY_NETWORKS[n]).filter(Boolean),
+  // Execute pays outside steps on Base through route-execute-pro, so a row is
+  // executable only when the router's Base verdict for it is eligible now.
+  remoteExecutable: (t) => {
+    const priceUsd = Number(String(t?.price ?? "").replace(/^\$/, ""));
+    return withDispatchFields({ ...t, priceUsd: Number.isFinite(priceUsd) ? priceUsd : null }, { rowLevel: true }).routerDispatchByChain?.base?.eligible === true;
+  },
 }));
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
