@@ -14,7 +14,8 @@ const runs = [
     { status: "ok", tool: { firstParty: false, seller: "s.example" }, costUsd: 0.0105, routingFeeUsd: 0.0005, receipt: { settleTx: "0xAAA", settleNetwork: "eip155:8453" } },
   ] },
   { id: "r2", created_at: T + 3_600_000, finished_at: T + 3_660_000, spent_usd: 0.0315, steps: [
-    { status: "failed", attempts: [{ id: "x", mayHavePaid: true, error: "timeout" }] },
+    { status: "ok", tool: { firstParty: true, slug: "ours" }, costUsd: 0.0015 },
+    { status: "failed", attempts: [{ id: "x", mayHavePaid: true, error: "timeout", bookedUsd: 0.03 }] },
   ] },
   { id: "r3", created_at: T + 7_200_000, finished_at: T + 7_210_000, spent_usd: 0.0105, steps: [
     { status: "ok", tool: { firstParty: false, seller: "t.example" }, costUsd: 0.0105, routingFeeUsd: 0.0005, receipt: { settleTx: "0xBBB", settleNetwork: "eip155:8453" } },
@@ -32,7 +33,12 @@ ok(out.mismatches.length === 1 && out.mismatches[0].tx === "0xBBB" && /more than
 ok(out.uncertainLegs === 1 && out.uncertainFound.length === 1 && out.uncertainFound[0].tx === "0xCCC" && out.uncertainTransfersFoundUsd === 0.03, "an uncertain leg is matched to the unexplained transfer in its window");
 ok(!out.uncertainFound.some((f) => f.tx === "0xAAA" || f.tx === "0xBBB"), "a transfer a confirmed leg explains is never attributed to an uncertain one");
 const quiet = reconcile({ runs: [runs[1]], receipts: new Map(), transfers: [] });
-ok(quiet.uncertainFound.length === 0 && quiet.uncertainBookedAtWorstCaseUsd === 0.0315, "an uncertain leg with no transfer in its window: booked worst case, nothing paid");
+ok(quiet.uncertainFound.length === 0 && quiet.uncertainBookedAtWorstCaseUsd === 0.03, `an uncertain leg with no transfer in its window: its own booked worst case, not first-party spend or fees (${quiet.uncertainBookedAtWorstCaseUsd})`);
+
+{
+  const legacy = reconcile({ runs: [{ id: "L", created_at: T, finished_at: T + 1000, spent_usd: 1, steps: [{ status: "failed", attempts: [{ id: "y", mayHavePaid: true }] }] }], receipts: new Map(), transfers: [] });
+  ok(legacy.uncertainBookedAtWorstCaseUsd === 0 && legacy.uncertainLegsWithoutBookedAmount === 1, "a leg recorded without its booked amount is counted as unknown, not guessed from run spend");
+}
 
 console.log(`\ntest-decide-reconcile: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

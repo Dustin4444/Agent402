@@ -346,6 +346,7 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
             const exposure = Number.isFinite(signed) && signed >= 0 && !timedOut ? Math.min(signed, maxUsd) : maxUsd;
             spent = roundUsd(spent + exposure * (1 + cfg.routingFeePct / 100));
             ledger.settleSellerHold(hold, exposure);
+            attempts[attempts.length - 1].bookedUsd = roundUsd(exposure); // the worst case booked for this leg (read by the reconciliation)
             break;
           }
           ledger.settleSellerHold(hold, 0); // refused before any payment: nothing left

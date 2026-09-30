@@ -315,6 +315,7 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   routerMode = "ok";
   ok(calls.filter((x) => x[0] === "router").length === 1, "a timed-out external leg is not followed by another paid seller");
   ok(out.steps[0].attempts[0].mayHavePaid === true && out.spentUsd >= 0.015 * 1.05 - 1e-9, `...and its worst case is booked against the budget (${out.spentUsd})`);
+  ok(out.steps[0].attempts[0].bookedUsd > 0, `...and the attempt records the worst case booked for it (${out.steps[0].attempts[0].bookedUsd})`);
 }
 
 // ---- report products never run as a plan step ----

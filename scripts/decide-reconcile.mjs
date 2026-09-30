@@ -26,7 +26,7 @@ export function reconcile({ runs, receipts, transfers }) {
       if (st.status === "ok" && st.tool && !st.tool.firstParty) {
         confirmed.push({ runId: r.id, seller: st.tool.seller, tx: st.receipt?.settleTx || null, network: st.receipt?.settleNetwork || null, bookedMicro: micro(st.costUsd - (st.routingFeeUsd || 0)) });
       }
-      for (const a of st.attempts || []) if (a.mayHavePaid) uncertain.push({ runId: r.id, toolId: a.id, at: r.created_at, until: r.finished_at || r.created_at + 15 * 60_000 });
+      for (const a of st.attempts || []) if (a.mayHavePaid) uncertain.push({ runId: r.id, toolId: a.id, at: r.created_at, until: r.finished_at || r.created_at + 15 * 60_000, bookedMicro: Number.isFinite(Number(a.bookedUsd)) ? micro(a.bookedUsd) : null });
     }
   }
   const explained = new Set();
@@ -47,7 +47,12 @@ export function reconcile({ runs, receipts, transfers }) {
     const inWindow = transfers.filter((t) => !explained.has(t.tx.toLowerCase()) && t.at >= u.at - 60_000 && t.at <= u.until + 10 * 60_000);
     for (const t of inWindow) { explained.add(t.tx.toLowerCase()); found.push({ ...u, tx: t.tx, to: t.to, micro: t.micro }); }
   }
-  const uncertainBookedMicro = runs.reduce((a, r) => a + micro(r.spent_usd ?? 0), 0) - bookedMicro;
+  // What was booked for the uncertain legs themselves (the seller share at its
+  // worst case), not all run spend minus the confirmed legs: that difference
+  // also held first-party list prices and routing fees. A leg recorded before
+  // bookedUsd existed is counted as unknown rather than guessed.
+  const uncertainBookedMicro = uncertain.reduce((a, u) => a + (u.bookedMicro || 0), 0);
+  const uncertainBookedUnknown = uncertain.filter((u) => u.bookedMicro == null).length;
   return {
     confirmedLegs: confirmed.length, uncertainLegs: uncertain.length,
     bookedConfirmedUsd: usd(bookedMicro), onChainConfirmedUsd: usd(onChainMicro),
@@ -55,6 +60,8 @@ export function reconcile({ runs, receipts, transfers }) {
     mismatches, missingTx: missingTx.length, uncertainFound: found,
     note: "Booked worst cases that no transfer explains were not paid: that gap is the amount the ledger over-counted, not money owed.",
     uncertainBookedAtWorstCaseUsd: usd(Math.max(0, uncertainBookedMicro)),
+    ...(uncertainBookedUnknown ? { uncertainLegsWithoutBookedAmount: uncertainBookedUnknown } : {}),
+    windowNote: "An uncertain leg is matched to any unexplained transfer out of the wallet inside its run's window. The wallet is shared with the router's other buys, so a match is a lead to check, not proof.",
   };
 }
 
