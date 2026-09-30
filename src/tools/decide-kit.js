@@ -10,6 +10,7 @@
 //
 // Listed only when DECIDE_SERVICE_URL and DECIDE_INTERNAL_TOKEN are set.
 
+import { runInAbortableScope } from "../drain-abort.js";
 import { decideConfig, priceForDepth, DEPTHS } from "../decide/config.js";
 import { recordWish } from "../wish.js";
 import { payerFromRequest } from "../payer.js";
@@ -298,7 +299,11 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
           try {
             // No request object: a step must not see (or act on) the paying
             // request's credential, payer or settle hooks.
-            const result = await withTimeout(Promise.resolve(def.handler(params)), Math.min(cfg.execute.stepTimeoutMs, left()), tool.slug);
+            // Past the timeout the step's own outbound calls are cut off too,
+            // so a late step cannot keep spending upstream while the fallback runs.
+            const stepStop = new AbortController();
+            const result = await withTimeout(runInAbortableScope(() => Promise.resolve(def.handler(params)), { stopSignal: stepStop.signal }), Math.min(cfg.execute.stepTimeoutMs, left()), tool.slug)
+              .catch((e) => { stepStop.abort(e); throw e; });
             spent = roundUsd(spent + cost);
             done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: true }, costUsd: cost, result, latencyMs: Date.now() - t0 };
             break;

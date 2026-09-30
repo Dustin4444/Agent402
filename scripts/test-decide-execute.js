@@ -167,6 +167,25 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(routed === 0 && (out?.steps?.[0]?.attempts?.[0]?.skipped || out?.message || "").match(/call this tool directly|nothing was charged|caller/), `a call-directly step is skipped without paying anyone (${out?.steps?.[0]?.attempts?.[0]?.skipped || out?.message})`);
 }
 
+// ---- a first-party step past its timeout has its outbound calls cut off ----
+{
+  const { installDrainAwareFetch } = await import("../src/drain-abort.js");
+  const realFetch = globalThis.fetch;
+  let aborted = false;
+  globalThis.fetch = installDrainAwareFetch({ fetchImpl: (u, init) => new Promise((res, rej) => { init?.signal?.addEventListener("abort", () => { aborted = true; rej(init.signal.reason); }); }) });
+  const l5 = openDecideLedger(join(mkdtempSync(join(tmpdir(), "decide-to-")), "l.db"));
+  const slow = { slug: "slow", route: "POST /api/slow", price: "$0.01", discovery: { bodyType: "json" }, handler: async () => { await fetch("https://upstream.example/slow"); return { never: true }; } };
+  l5.saveDecision({ decisionId: "dt", depth: "plan", priceUsd: 0.02, payer: "p", plan: [{ step: 1, purpose: "x", tool: tool("slow"), fallbacks: [], dependsOn: [] }], costViaUsd: 0.01 });
+  l5.markDecisionSettled("dt");
+  process.env.DECIDE_CONFIG = JSON.stringify({ execute: { stepTimeoutMs: 150 } });
+  const ex5 = makeExecuteHandler({ ledger: l5, getCatalog: () => ({ slow }), runBudgetMs: () => null, spendingWalletStatus: async () => ({ status: "ok" }) });
+  await ex5({ decisionId: "dt" }, { headers: {}, ip: "192.0.2.8", __meteredQuoteUsd: 0.01 }).catch(() => null);
+  await new Promise((r) => setTimeout(r, 20));
+  delete process.env.DECIDE_CONFIG;
+  globalThis.fetch = realFetch;
+  ok(aborted, "the timed-out step's upstream request is aborted, not left running");
+}
+
 // ---- a placeholder the plan could not fill is never sent to a paid tool ----
 {
   calls.length = 0;
