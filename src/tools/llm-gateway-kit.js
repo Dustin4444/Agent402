@@ -25,6 +25,8 @@
 // the stream finishes.) Streamed responses are not idempotency-replayable (the
 // cache hooks res.json only).
 
+import { OPENROUTER_ATTRIBUTION } from "../openrouter-attribution.js";
+export { OPENROUTER_ATTRIBUTION };
 import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 import { flattenNamespaceForChat } from "./tool-namespaces.js";
 import { createHash, createHmac } from "node:crypto";
@@ -696,7 +698,6 @@ export function tierPriceLabel(price) {
  *  upstream. An id whose expiration date is withdrawn upstream leaves this
  *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
-  "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
   // Gemini 2.5 (OpenRouter expiration_date 2026-10-20). Their family prefixes
   // left the tiers 2026-09-29; these entries turn a caller naming one into a
   // 400 that names a live successor on a tier we serve, not an upstream failure.
@@ -931,7 +932,7 @@ export const MODEL_COST = [
   // repeatedly. Prompt is pinned AT v1-chat's max_price prompt cap, so no
   // provider the tier admits can ever exceed it there; completion covers the
   // observed maximum.
-  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.95 }], // live endpoints 2026-09-18
+  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 7 }], // live endpoints 2026-09-30 (relace/fp4 completion $7)
   // deepseek-chat-v3.1: one regional endpoint lists prompt above the family row (live endpoints 2026-09-24).
   ["deepseek/deepseek-chat-v3.1", { prompt: 0.65, completion: 2.5 }],
   // deepseek-v3.2: re-admitted once its upstream expiration date was withdrawn.
@@ -2109,12 +2110,6 @@ export function createSseUsageScrubber({ onUsage } = {}) {
  * review. `scripts/test-openrouter-attribution.js` fails if any call site in
  * src/ reaches openrouter.ai without them.
  */
-export const OPENROUTER_ATTRIBUTION = Object.freeze({
-  "HTTP-Referer": "https://agent402.tools",
-  "X-Title": "Agent402.Tools x402 gateway",
-  "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
-  "X-OpenRouter-Categories": "personal-agent,api",
-});
 
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
