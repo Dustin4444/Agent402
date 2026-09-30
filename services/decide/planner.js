@@ -102,7 +102,7 @@ function toolView(row, { routingFeePct }) {
 
 /**
  * @param input  parsed { task, constraints, depth }
- * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, choose?(task, items, opts)->{stepIndex: rowId}|null, reliability(id)->stats, cfg, now, deadline }
+ * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, choose?(task, items, opts)->{stepIndex: rowId}|null, checkParams?(task, items, opts)->{key: prob}|null, reliability(id)->stats, cfg, now, deadline }
  */
 export async function buildDecision({ task, constraints, depth }, deps) {
   const { index, embed, llm, reliability = () => null, cfg, now = Date.now(), meter = null } = deps;
@@ -255,6 +255,31 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     p.tool.exampleParamsSource = hit[0];
   }
 
+  // 5b. check the written values. A step reference must name an earlier step
+  //     the step depends on. Every other value is scored by the judgment model
+  //     where it is on: below the bar, a required value becomes a placeholder
+  //     and an optional one is dropped. No answer changes nothing.
+  const placeholder = (name) => `<${name}>`;
+  const reject = (p, name) => {
+    if ((p._row.inputSchema?.required || []).includes(name)) p.tool.exampleParams[name] = placeholder(name);
+    else delete p.tool.exampleParams[name];
+    (p._needsInput ||= []).push(name);
+  };
+  const toCheck = [];
+  for (const p of plan) {
+    for (const [name, v] of Object.entries(p.tool.exampleParams || {})) {
+      const ref = typeof v === "string" ? /^\{\{step (\d+)\}\}$/.exec(v) : null;
+      if (ref) { if (!p.dependsOn.includes(Number(ref[1]))) reject(p, name); continue; }
+      if (typeof v === "string" && /^<[^<>]*>$/.test(v)) continue; // already a placeholder
+      toCheck.push({ key: `s${p.step}:${name}`, p, purpose: p.purpose, row: p._row, name, prop: p._row.inputSchema?.properties?.[name] || {}, value: v });
+    }
+  }
+  if (toCheck.length && deps.checkParams && cfg.judge === "jev" && left() > 1000) {
+    const scores = await within(deps.checkParams(task, toCheck.map(({ p, ...it }) => it), { timeoutMs: timeoutFor(0.4), meter }), timeoutFor(0.4) + 250);
+    if (scores) for (const it of toCheck) if (typeof scores[it.key] === "number" && scores[it.key] < (cfg.paramCheckMin ?? 0.3)) reject(it.p, it.name);
+  }
+  for (const p of plan) if (p._needsInput?.length) { p.tool.exampleParamsNeedInput = p._needsInput; delete p._needsInput; }
+
   // 6. cost, latency, confidence
   const stepLatency = (p) => Number(reliability(p._row.id)?.latency_p95_ms) || (p._row.firstParty ? DEFAULT_LATENCY_MS.firstParty : DEFAULT_LATENCY_MS.thirdParty);
   const finishAt = [];
@@ -306,7 +331,8 @@ export function compilePrompt(d) {
     // Third-party tools are named by endpoint and seller host only: a seller
     // writes its own tool name, and that text must not reach an agent as prose.
     lines.push(`  Call ${p.tool.method} ${p.tool.endpoint} (${p.tool.firstParty ? `${p.tool.name}, Agent402` : `third-party tool, seller ${p.tool.seller}`}, $${p.tool.priceUsd})`);
-    lines.push(`  Params: ${JSON.stringify(p.tool.exampleParams)}${p.tool.exampleParamsSource === "skeleton" ? " (fill in the <placeholders>)" : ""}`);
+    const needsFill = p.tool.exampleParamsSource === "skeleton" || Object.values(p.tool.exampleParams || {}).some((v) => typeof v === "string" && /^<[^<>]*>$/.test(v));
+    lines.push(`  Params: ${JSON.stringify(p.tool.exampleParams)}${needsFill ? " (fill in the <placeholders>)" : ""}`);
     if (p.dependsOn.length) lines.push(`  Uses output of step${p.dependsOn.length > 1 ? "s" : ""} ${p.dependsOn.join(", ")}: replace {{step N}} with the relevant field from that response.`);
     for (const f of p.fallbacks) lines.push(`  If it fails: ${f.method} ${f.endpoint} ($${f.priceUsd})`);
     lines.push("");

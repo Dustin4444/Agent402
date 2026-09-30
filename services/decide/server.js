@@ -74,6 +74,7 @@ export async function decide(body, { now = Date.now() } = {}) {
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
       judge: (state.jev || (state.jev = makeJevJudge())).judge,
       choose: (t, items, o) => state.jev.choose(t, items, { ...o, textOf: judgeText }),
+      checkParams: (t, items, o) => state.jev.checkParams(t, items, { ...o, textOf: judgeText }),
       reliability: (id) => state.reliability.get(id),
       cfg, now,
       deadline: Math.min(now + cfg.budgetMs[input.depth], callerDeadline - 500),

@@ -29,6 +29,9 @@ export const DEFAULTS = Object.freeze({
   // Fit judging: "jev" asks the judgment model first and falls back to the
   // models below; "llm" uses the models only.
   judge: "jev",
+  // With judge "jev": a written parameter value scored below this is
+  // replaced by a placeholder (required) or dropped (optional).
+  paramCheckMin: 0.3,
   // Model used to decompose tasks, fill params and (as fallback) judge fit.
   model: "google/gemini-3.1-flash-lite",
   modelFallback: "anthropic/claude-haiku-4.5",

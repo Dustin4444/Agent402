@@ -122,6 +122,13 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(out.steps[0].status === "failed" && out.steps[0].attempts.every((a) => /params do not fit/.test(a.skipped)) && !calls.some((c) => c[0] === "a"), "invalid params: the tool is not called");
 }
 
+// ---- a placeholder the plan could not fill is never sent to a paid tool ----
+{
+  calls.length = 0;
+  const out = await exec({ decisionId: "d1", params: { 1: { q: "<q>" }, 2: { q: "z" } } }, mkReq("0xph"));
+  ok(out.steps[0].status === "skipped" && /needs q: pass params/.test(out.steps[0].reason) && !calls.some((c) => c[0] === "a" || c[0] === "b"), "a step still holding a <placeholder> is skipped, not paid for");
+}
+
 // ---- a paid external failure is not followed by another paid seller ----
 {
   calls.length = 0;

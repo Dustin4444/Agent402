@@ -331,5 +331,38 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   ok(Object.keys(jevChoiceQuestions([{ i: 0, purpose: "p", options: [pack, single] }])).join() === "p0", "question ids carry the step index");
 }
 
+// ---- written params checked by the judgment model ----
+{
+  const idx = new ToolIndex();
+  idx.upsert(mk("pdfsum", { description: "summarize a pdf at a url", props: { url: { type: "string" }, maxWords: { type: "integer" } }, required: ["url"] }));
+  const steps1 = { steps: [{ purpose: "summarize the pdf", query: "summarize a pdf", dependsOn: [] }] };
+  const fits = (s2, user) => { const f = {}; for (const st of keysFor(user)) for (const cc of st.candidates) f[cc.key] = /ENTIRE/.test(st.purpose) ? 0.2 : 0.95; return { fits: f }; };
+  const written = { params: { "1": { url: "https://example.com/document.pdf", maxWords: 200 } } };
+  const sent = [];
+  const scoreBy = (fn) => async (url, init) => { const body = JSON.parse(init.body); sent.push(body); const answers = {}; for (const [k, q] of Object.entries(body.questions)) answers[k] = { type: "noul", noul: fn(q) }; return new Response(JSON.stringify({ answers, usage: { input_tokens: 100 } })); };
+  const jev = makeJevJudge({ apiKey: "k", fetchImpl: scoreBy(() => 0.05) });
+  const meter = [];
+  const d = await buildDecision({ task: "Summarize a PDF at a URL in five bullets", constraints: {}, depth: "full" }, { index: idx, embed: noEmbed, llm: stubLlm([steps1, fits, written]), checkParams: jev.checkParams, meter, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  const ep = d.plan[0]?.tool.exampleParams || {};
+  ok(ep.url === "<url>" && !("maxWords" in ep), `a rejected required value becomes a placeholder; a rejected optional one is dropped (${JSON.stringify(ep)})`);
+  ok(d.plan[0].tool.exampleParamsNeedInput?.join() === "url,maxWords", "the plan names the parameters the agent must supply");
+  ok(/fill in the <placeholders>/.test(d.compiledPrompt), "the compiled prompt tells the agent to fill the placeholder");
+  ok(meter.some((m) => m.stage === "params_check") && Object.values(sent[0].questions).every((q) => q.type === "noul" && "value" in q.instructions), "one noul per written value, metered as its own stage");
+  const kept = makeJevJudge({ apiKey: "k", fetchImpl: scoreBy(() => 0.9) });
+  const d2 = await buildDecision({ task: "Summarize a PDF at a URL in five bullets", constraints: {}, depth: "full" }, { index: idx, embed: noEmbed, llm: stubLlm([steps1, fits, written]), checkParams: kept.checkParams, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d2.plan[0].tool.exampleParams.url === "https://example.com/document.pdf" && d2.plan[0].tool.exampleParams.maxWords === 200 && !d2.plan[0].tool.exampleParamsNeedInput, "values at or above the bar are kept");
+  const down = makeJevJudge({ apiKey: "k", fetchImpl: async () => new Response("x", { status: 503 }) });
+  const d3 = await buildDecision({ task: "Summarize a PDF at a URL in five bullets", constraints: {}, depth: "full" }, { index: idx, embed: noEmbed, llm: stubLlm([steps1, fits, written]), checkParams: down.checkParams, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d3.plan[0].tool.exampleParams.url === "https://example.com/document.pdf", "a failed check changes nothing");
+  let n = 0;
+  const counted = makeJevJudge({ apiKey: "k", fetchImpl: async (...a) => { n++; return scoreBy(() => 0.05)(...a); } });
+  const d4 = await buildDecision({ task: "Summarize a PDF at a URL in five bullets", constraints: {}, depth: "full" }, { index: idx, embed: noEmbed, llm: stubLlm([steps1, fits, written]), checkParams: counted.checkParams, cfg: { ...cfg, judge: "llm" }, now: NOW, deadline: Date.now() + 10_000 });
+  ok(n === 0 && d4.plan[0].tool.exampleParams.url === "https://example.com/document.pdf", 'judge "llm" never checks');
+  // a step reference must name a step this one depends on
+  const selfRef = { params: { "1": { url: "{{step 1}}" } } };
+  const d5 = await buildDecision({ task: "Summarize a PDF at a URL in five bullets", constraints: {}, depth: "full" }, { index: idx, embed: noEmbed, llm: stubLlm([steps1, fits, selfRef]), cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d5.plan[0].tool.exampleParams.url === "<url>", `a reference to a step this one does not depend on is not kept (${JSON.stringify(d5.plan[0].tool.exampleParams)})`);
+}
+
 console.log(`\ntest-decide-planner: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

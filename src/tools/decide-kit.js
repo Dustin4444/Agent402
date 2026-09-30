@@ -164,6 +164,7 @@ function stepParams(step, overrides) {
   return o && typeof o === "object" && !Array.isArray(o) ? o : step.tool.exampleParams || {};
 }
 const REF = /^\{\{step (\d+)\}\}$/;
+const PLACEHOLDER = /^<[^<>]*>$/;
 
 async function withTimeout(promise, ms, label) {
   let t;
@@ -258,6 +259,10 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
       const params = stepParams(step, input.params);
       const ref = Object.values(params).map((v) => (typeof v === "string" ? REF.exec(v) : null)).find(Boolean);
       if (ref) { results.push({ step: step.step, status: "skipped", reason: `needs the output of step ${ref[1]}: pass params for this step` }); continue; }
+      // A placeholder the plan could not fill from the task is never sent to a
+      // paid tool as if it were the value.
+      const open = Object.entries(params).filter(([, v]) => typeof v === "string" && PLACEHOLDER.test(v)).map(([k]) => k);
+      if (open.length) { results.push({ step: step.step, status: "skipped", reason: `needs ${open.join(", ")}: pass params for this step` }); continue; }
       let done = null;
       const attempts = [];
       for (const tool of [step.tool, ...(step.fallbacks || [])]) {
