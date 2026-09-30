@@ -6,13 +6,13 @@
 //   node scripts/test-decide-planner.js
 
 import { scoreCandidates, reliabilityScore, priceScore, freshnessScore } from "../services/decide/rank.js";
-import { buildDecision, parseDecideInput, cacheKeyFor, compilePrompt, groundedParams } from "../services/decide/planner.js";
+import { buildDecision, parseDecideInput, cacheKeyFor, compilePrompt, groundedParams, isPackRow, packChoiceOptions } from "../services/decide/planner.js";
 import { validateParams, skeletonParams, pruneParams } from "../src/decide/params.js";
 import { DEFAULTS, decideConfig, priceForDepth } from "../src/decide/config.js";
 import { makeDecisionCache, makeGate, MemoryDecisionStore } from "../services/decide/decision-store.js";
 import { extractJson, judgePrompt, judgeText } from "../services/decide/llm.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
-import { makeJevJudge, jevQuestions } from "../services/decide/jev.js";
+import { makeJevJudge, jevQuestions, jevChoiceQuestions, CHOOSE_CONFIDENCE } from "../services/decide/jev.js";
 import { localToolRow, remoteToolRow } from "../src/decide/tool-rows.js";
 import { decideQuoteUsd } from "../src/tools/decide-kit.js";
 
@@ -283,6 +283,52 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   const r = await odd.judge("t", [{ purpose: "p", candidates: [{ key: "s1c1", name: "a", description: "b", inputs: [] }] }]);
   ok(r && r.fits.s1c1 === 1 && !("s9c9" in r.fits), "only offered keys are read, and a fit is clamped to 0..1");
   ok(Object.keys(jevQuestions([{ purpose: "p", candidates: [] }])).length === 0, "no candidates, no questions");
+}
+
+// ---- pack or single tool: the judgment model picks between them ----
+{
+  const idx = new ToolIndex();
+  const single = mk("jwt-sign", { description: "sign a jwt token with hs256", props: { payload: { type: "object" } }, required: ["payload"] });
+  const pack = mk("skill-jwt-toolkit", { description: "jwt toolkit pack: sign a jwt token, then verify it and decode claims", props: { payload: { type: "object" } }, required: ["payload"], price: "$0.05" });
+  idx.upsert(single); idx.upsert(pack);
+  ok(isPackRow(pack) && !isPackRow(single) && !isPackRow({ ...pack, firstParty: false }), "a pack is a first-party skill- row; an outside row is never a pack");
+  const v = (row, fit) => ({ row, fit, score: fit });
+  ok(packChoiceOptions([v(single, 0.9), v(pack, 0.8)])?.length === 2 && packChoiceOptions([v(single, 0.9)]) === null && packChoiceOptions([v(pack, 0.9)]) === null, "the choice is asked only when a step's viable tools mix a pack and a single tool");
+  const fitAll = () => stubLlm([(s2, user) => { const fits = {}; for (const st of keysFor(user)) for (const c of st.candidates) fits[c.key] = 0.9; return { fits }; }]);
+  const sent = [];
+  const fetchChoose = (answer) => async (url, init) => {
+    const body = JSON.parse(init.body); sent.push(body);
+    const answers = {};
+    for (const [k, q] of Object.entries(body.questions)) {
+      const packKey = Object.entries(q.criteria).find(([, c]) => /toolkit/i.test(c.name))?.[0];
+      answers[k] = answer === "pack" ? { type: "choice", choice: packKey, confidence: 0.9 } : answer === "unsure" ? { type: "choice", choice: packKey, confidence: CHOOSE_CONFIDENCE - 0.1 } : { type: "choice", choice: "t99", confidence: 0.99 };
+    }
+    return new Response(JSON.stringify({ answers, usage: { input_tokens: 200 } }));
+  };
+  const jev = makeJevJudge({ apiKey: "k", fetchImpl: fetchChoose("pack") });
+  const meter = [];
+  const base = await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), cfg, now: NOW, deadline: Date.now() + 10_000 });
+  const d = await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: jev.choose, meter, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(base.plan[0]?.tool.slug === "jwt-sign", `control: without the choice the cheaper single tool ranks first (${base.plan[0]?.tool.slug})`);
+  ok(d.plan[0]?.tool.slug === "skill-jwt-toolkit" && d.plan[0].fallbacks.some((f) => f.slug === "jwt-sign"), `a confident pick of the pack makes it primary and keeps the single tool as a fallback (${d.plan[0]?.tool.slug})`);
+  ok(/chosen over jwt-sign/.test(d.plan[0].why), "the plan says why the order changed");
+  ok(meter.some((m) => m.stage === "choose" && m.outcome === "ok"), "the choice is metered as its own stage");
+  const q = Object.values(sent[0].questions)[0];
+  ok(q.type === "choice" && Object.keys(q.criteria).every((k) => /^t\d+$/.test(k)) && typeof q.instructions.step === "string", "one Choice per step, options keyed t1..tn");
+  const unsure = makeJevJudge({ apiKey: "k", fetchImpl: fetchChoose("unsure") });
+  const d2 = await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: unsure.choose, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d2.plan[0]?.tool.slug === "jwt-sign", "a pick below the confidence bar keeps the ranking");
+  const bogus = makeJevJudge({ apiKey: "k", fetchImpl: fetchChoose("bogus") });
+  const d3 = await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: bogus.choose, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d3.plan[0]?.tool.slug === "jwt-sign", "an answer naming an option we did not offer is ignored");
+  const down = makeJevJudge({ apiKey: "k", fetchImpl: async () => new Response("x", { status: 500 }) });
+  const d4 = await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: down.choose, cfg, now: NOW, deadline: Date.now() + 10_000 });
+  ok(d4.plan[0]?.tool.slug === "jwt-sign" && d4.plan.length === 1, "a failed choice call keeps the ranking and still returns a plan");
+  let n = 0;
+  const counted = makeJevJudge({ apiKey: "k", fetchImpl: async (...a) => { n++; return fetchChoose("pack")(...a); } });
+  await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: counted.choose, cfg: { ...cfg, judge: "llm" }, now: NOW, deadline: Date.now() + 10_000 });
+  ok(n === 0, 'judge "llm" never asks the choice');
+  ok(Object.keys(jevChoiceQuestions([{ i: 0, purpose: "p", options: [pack, single] }])).join() === "p0", "question ids carry the step index");
 }
 
 console.log(`\ntest-decide-planner: ${pass} passed, ${fail} failed`);

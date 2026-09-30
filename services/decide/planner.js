@@ -25,6 +25,19 @@ function within(promise, ms) {
   return Promise.race([Promise.resolve(promise).catch(() => null), new Promise((r) => { t = setTimeout(() => r(null), Math.max(0, ms)); })]).finally(() => clearTimeout(t));
 }
 
+/** A first-party skill pack: a fixed sequence of catalog tools behind one call. */
+export const isPackRow = (row) => !!row?.firstParty && /^skill-/.test(String(row?.slug || ""));
+
+/** Options for the pack-or-single choice, or null when the step's viable
+ *  tools are not a mix of both: up to three of each, in ranked order. */
+export function packChoiceOptions(viable) {
+  const packs = (viable || []).filter((x) => isPackRow(x.row));
+  const singles = (viable || []).filter((x) => !isPackRow(x.row));
+  if (!packs.length || !singles.length) return null;
+  const keep = new Set([...packs.slice(0, 3), ...singles.slice(0, 3)]);
+  return viable.filter((x) => keep.has(x));
+}
+
 export function normalizeTask(task) {
   return String(task || "").replace(/\s+/g, " ").trim().slice(0, 2000);
 }
@@ -89,7 +102,7 @@ function toolView(row, { routingFeePct }) {
 
 /**
  * @param input  parsed { task, constraints, depth }
- * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, reliability(id)->stats, cfg, now, deadline }
+ * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, choose?(task, items, opts)->{stepIndex: rowId}|null, reliability(id)->stats, cfg, now, deadline }
  */
 export async function buildDecision({ task, constraints, depth }, deps) {
   const { index, embed, llm, reliability = () => null, cfg, now = Date.now(), meter = null } = deps;
@@ -170,12 +183,31 @@ export async function buildDecision({ task, constraints, depth }, deps) {
   const plan = [], gaps = [], rankingLog = [];
   const newStepOf = {}; // original step number -> plan step number (gaps drop steps)
   const view = (row) => toolView(row, cfg);
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
+  const ranked = steps.map((s, i) => {
     const scored = scoreCandidates(s.candidates.map((c) => ({ row: c.row, fit: fitAt(judgedStepIndex[i], c) })),
       { reliability, weights: cfg.weights, now, halfLifeHours: cfg.freshnessHalfLifeHours, liveWithinHours: cfg.liveWithinHours });
-    const viable = scored.filter((x) => x.fit > GAP_FIT);
-    rankingLog.push({ step: i + 1, retrieved: s.candidates.length, retrievedFirstParty: s.candidates.filter((c) => c.row.firstParty).length, top: scored.slice(0, 5).map((x) => ({ id: x.row.id, score: x.score, parts: x.parts })) });
+    return { scored, viable: scored.filter((x) => x.fit > GAP_FIT) };
+  });
+
+  // 4a. pack or single tool: where a step's viable tools include both a skill
+  //     pack and a single tool, the judgment model picks which one to call
+  //     (one Choice per such step, one request). No answer keeps the ranking.
+  const chosen = new Map(); // step index -> row id
+  const choiceItems = [];
+  ranked.forEach((r, i) => { const options = packChoiceOptions(r.viable); if (options) choiceItems.push({ i, purpose: steps[i].purpose, options: options.map((x) => x.row) }); });
+  if (choiceItems.length && deps.choose && cfg.judge === "jev" && left() > 1200) {
+    const picks = await within(deps.choose(task, choiceItems, { timeoutMs: timeoutFor(0.25), meter }), timeoutFor(0.25) + 250);
+    if (picks && typeof picks === "object") for (const [i, id] of Object.entries(picks)) if (typeof id === "string") chosen.set(Number(i), id);
+  }
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const { scored } = ranked[i];
+    let { viable } = ranked[i];
+    const pick = chosen.has(i) ? viable.find((x) => x.row.id === chosen.get(i)) : null;
+    const overrode = pick && pick !== viable[0] ? viable[0] : null;
+    if (overrode) viable = [pick, ...viable.filter((x) => x !== pick)];
+    rankingLog.push({ step: i + 1, retrieved: s.candidates.length, retrievedFirstParty: s.candidates.filter((c) => c.row.firstParty).length, top: scored.slice(0, 5).map((x) => ({ id: x.row.id, score: x.score, parts: x.parts })), ...(chosen.has(i) ? { packChoice: chosen.get(i), overrode: overrode?.row.id || null } : {}) });
     if (!viable.length) { gaps.push(s.purpose); continue; }
     newStepOf[i + 1] = plan.length + 1;
     const primary = viable[0];
@@ -187,7 +219,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     }
     plan.push({
       step: plan.length + 1, purpose: s.purpose,
-      tool: view(primary.row), why: `fit ${primary.fit.toFixed(2)}, score ${primary.score.toFixed(3)}`,
+      tool: view(primary.row), why: `fit ${primary.fit.toFixed(2)}, score ${primary.score.toFixed(3)}${overrode ? `; chosen over ${overrode.row.slug || overrode.row.name} for covering the step` : ""}`,
       score: primary.score,
       fallbacks: fallbacks.map((f) => ({ ...view(f.row), score: f.score })),
       dependsOn: s.dependsOn.map((d) => newStepOf[d]).filter((d) => Number.isInteger(d)),

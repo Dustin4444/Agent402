@@ -23,7 +23,7 @@ import { migrate } from "./migrations.js";
 import { syncIndex, loadIndex } from "./sync.js";
 import { embedTexts, embedBudgetStatus } from "./embed.js";
 import { decideConfig } from "../../src/decide/config.js";
-import { makeLlm } from "./llm.js";
+import { makeLlm, judgeText } from "./llm.js";
 import { makeJevJudge } from "./jev.js";
 import { buildDecision, parseDecideInput, cacheKeyFor } from "./planner.js";
 import { MemoryDecisionStore, PgDecisionStore, makeGate, makeDecisionCache } from "./decision-store.js";
@@ -73,6 +73,7 @@ export async function decide(body, { now = Date.now() } = {}) {
       meter,
       llm: state.llm || (state.llm = makeLlm({ models: [cfg.model, cfg.modelFallback] })),
       judge: (state.jev || (state.jev = makeJevJudge())).judge,
+      choose: (t, items, o) => state.jev.choose(t, items, { ...o, textOf: judgeText }),
       reliability: (id) => state.reliability.get(id),
       cfg, now,
       deadline: Math.min(now + cfg.budgetMs[input.depth], callerDeadline - 500),
