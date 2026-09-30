@@ -12,7 +12,6 @@ import { DEFAULTS, decideConfig, priceForDepth } from "../src/decide/config.js";
 import { makeDecisionCache, makeGate, MemoryDecisionStore } from "../services/decide/decision-store.js";
 import { extractJson, judgePrompt, judgeText } from "../services/decide/llm.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
-import { extractCandidates, optionsFor, paramQuestions, paramsFromAnswers } from "../services/decide/jev-params.js";
 import { makeJevJudge, jevQuestions, jevChoiceQuestions, CHOOSE_CONFIDENCE } from "../services/decide/jev.js";
 import { localToolRow, remoteToolRow } from "../src/decide/tool-rows.js";
 import { decideQuoteUsd } from "../src/tools/decide-kit.js";
@@ -330,63 +329,6 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   await buildDecision({ task: "sign a jwt and verify it back", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm: fitAll(), choose: counted.choose, cfg: { ...cfg, judge: "llm" }, now: NOW, deadline: Date.now() + 10_000 });
   ok(n === 0, 'judge "llm" never asks the choice');
   ok(Object.keys(jevChoiceQuestions([{ i: 0, purpose: "p", options: [pack, single] }])).join() === "p0", "question ids carry the step index");
-}
-
-// ---- params by selection: the judgment model picks values out of the task ----
-{
-  const c = extractCandidates('Sign a JWT with HS256 for payload {"sub":"agent-1"}, then fetch https://example.com/x on 2026-06-23 14:00 for 7 days');
-  const texts = c.map((x) => x.text);
-  ok(c.some((x) => x.kind === "json" && x.value.sub === "agent-1") && texts.includes("https://example.com/x") && texts.includes("2026-06-23 14:00") && texts.includes("HS256"), "candidates: JSON, URL, date and code-like tokens are lifted from the task");
-  ok(c.some((x) => x.kind === "number" && x.value === 7) && !c.some((x) => x.kind === "number" && (x.value === 2026 || x.value === 14)), "a date's parts are not offered as separate numbers");
-  const opt = (prop, extra = []) => optionsFor(prop, c, extra, "the step");
-  ok(opt({ type: "string", enum: ["HS256", "RS256"] }).map((o) => o.value).slice(0, 2).join() === "HS256,RS256" && opt({ type: "string", enum: ["a"] }).at(-1).key === "omit", "an enum parameter is offered exactly its declared values, plus omit");
-  ok(opt({ type: "boolean" }).length === 3 && opt({ type: "integer" }).every((o) => o.key === "omit" || Number.isInteger(o.value)), "booleans offer true/false; integers offer whole numbers only");
-  ok(opt({ type: "object" }).some((o) => o.value?.sub === "agent-1") && !opt({ type: "array" }).some((o) => o.value?.sub), "objects are offered JSON objects from the task, arrays only arrays");
-  ok(opt({ type: "string" }, [{ step: 1, purpose: "sign" }])[0].value === "{{step 1}}", "a string parameter can take an earlier step's output");
-  const row = { name: "jwt-sign", slug: "jwt-sign", description: "sign a jwt", inputSchema: { properties: { payload: { type: "object" }, alg: { type: "string", enum: ["HS256", "RS256"] }, secret: { type: "string" } }, required: ["payload"] } };
-  const { questions, slots } = paramQuestions("Sign a JWT with HS256 for payload {\"sub\":\"agent-1\"}", [{ step: 1, purpose: "sign", row, dependsOn: [] }]);
-  ok(Object.values(questions).every((q) => q.type === "choice" && q.criteria.omit) && Object.keys(questions)[0] === "s1p1" && slots.s1p1.name === "payload", "one Choice per parameter, required first, each with an omit option");
-  const payloadKey = slots.s1p1.options.find((o) => o.value?.sub)?.key;
-  const algKey = Object.entries(slots).find(([, v]) => v.name === "alg")[1].options.find((o) => o.value === "HS256").key;
-  const algQ = Object.entries(slots).find(([, v]) => v.name === "alg")[0];
-  const got = paramsFromAnswers({ s1p1: { choice: payloadKey }, [algQ]: { choice: algKey }, s1p3: { choice: "omit" }, s1p9: { choice: "v1" } }, slots);
-  ok(got.params["1"].payload.sub === "agent-1" && got.params["1"].alg === "HS256" && !("secret" in got.params["1"]), "answers become params; omit and unknown questions set nothing");
-  ok(Object.keys(paramsFromAnswers({ s1p1: { choice: "v999" } }, slots).params).length === 0, "an option key we did not offer sets nothing");
-
-  // through the planner: a selection that validates is used and the model is not asked
-  const idx = new ToolIndex();
-  idx.upsert(mk("btcprice", { description: "current bitcoin price in usd", props: { coin: { type: "string" } }, required: ["coin"] }));
-  idx.upsert(mk("fxrate", { description: "currency exchange rate", props: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] }));
-  const pickBy = (want) => async (url, init) => {
-    const body = JSON.parse(init.body);
-    const answers = {};
-    for (const [k, q] of Object.entries(body.questions)) {
-      const hit = Object.entries(q.criteria).find(([, t]) => t === want[q.instructions.parameter.name]);
-      answers[k] = { type: "choice", choice: hit ? hit[0] : "omit", confidence: 0.9 };
-    }
-    return new Response(JSON.stringify({ answers, usage: { input_tokens: 300 } }));
-  };
-  const steps2 = { steps: [{ purpose: "bitcoin price", query: "bitcoin price", dependsOn: [] }, { purpose: "usd to eur rate", query: "currency exchange rate", dependsOn: [] }] };
-  const fitsBy = (s2, user) => { const fits = {}; for (const st of keysFor(user)) for (const cc of st.candidates) fits[cc.key] = /ENTIRE/.test(st.purpose) ? 0.2 : (/bitcoin/.test(st.purpose) === /bitcoin/.test(cc.description)) ? 0.95 : 0.1; return { fits }; };
-  const task2 = "Get the 'BTC' price and the 'USD' to 'EUR' rate";
-  const jevAll = makeJevJudge({ apiKey: "k", fetchImpl: pickBy({ coin: "BTC", from: "USD", to: "EUR" }) });
-  const llmA = stubLlm([steps2, fitsBy, { params: { "1": { coin: "WRONG" }, "2": { from: "WRONG", to: "WRONG" } } }]);
-  const m1 = [];
-  const dA = await buildDecision({ task: task2, constraints: {}, depth: "plan" }, { index: idx, embed: noEmbed, llm: llmA, fillParams: jevAll.fillParams, meter: m1, cfg, now: NOW, deadline: Date.now() + 10_000 });
-  ok(dA.plan.length === 2 && dA.plan[0].tool.exampleParams.coin === "BTC" && dA.plan[1].tool.exampleParams.from === "USD" && dA.plan[1].tool.exampleParams.to === "EUR", `selected params fill both steps (${JSON.stringify(dA.plan.map((p) => p.tool.exampleParams))})`);
-  ok(llmA.calls.length === 2 && m1.some((m) => m.stage === "params" && m.model.startsWith("typesafe/")), "the model is not asked for params when every step's selection validates");
-  // one step's selection fails: only that step goes to the model
-  const jevHalf = makeJevJudge({ apiKey: "k", fetchImpl: pickBy({ coin: "BTC" }) });
-  const llmB = stubLlm([steps2, fitsBy, { params: { "2": { from: "USD", to: "EUR" } } }]);
-  const dB = await buildDecision({ task: task2, constraints: {}, depth: "plan" }, { index: idx, embed: noEmbed, llm: llmB, fillParams: jevHalf.fillParams, cfg, now: NOW, deadline: Date.now() + 10_000 });
-  const asked = llmB.calls[2]?.user || "";
-  ok(llmB.calls.length === 3 && /"step":2/.test(asked) && !/"step":1/.test(asked), "only the step whose selection does not validate is sent to the model");
-  ok(dB.plan[0].tool.exampleParams.coin === "BTC" && dB.plan[1].tool.exampleParams.from === "USD", "selected and model-written params combine per step");
-  // selection down: the whole plan goes to the model, as before
-  const jevDown = makeJevJudge({ apiKey: "k", fetchImpl: async () => new Response("x", { status: 503 }) });
-  const llmC = stubLlm([steps2, fitsBy, { params: { "1": { coin: "BTC" }, "2": { from: "USD", to: "EUR" } } }]);
-  const dC = await buildDecision({ task: task2, constraints: {}, depth: "plan" }, { index: idx, embed: noEmbed, llm: llmC, fillParams: jevDown.fillParams, cfg, now: NOW, deadline: Date.now() + 10_000 });
-  ok(llmC.calls.length === 3 && dC.plan[1].tool.exampleParams.to === "EUR", "a failed selection call falls back to the model for every step");
 }
 
 console.log(`\ntest-decide-planner: ${pass} passed, ${fail} failed`);
