@@ -698,7 +698,6 @@ export function tierPriceLabel(price) {
  *  upstream. An id whose expiration date is withdrawn upstream leaves this
  *  table and is priced by its own MODEL_COST row (deepseek-v3.2, 2026-09-28). */
 export const RETIRING_MODELS = Object.freeze({
-  "deepseek/deepseek-r1-distill-llama-70b": { until: "2026-09-28", use: "deepseek/deepseek-r1" },
   // Gemini 2.5 (OpenRouter expiration_date 2026-10-20). Their family prefixes
   // left the tiers 2026-09-29; these entries turn a caller naming one into a
   // 400 that names a live successor on a tier we serve, not an upstream failure.
@@ -933,7 +932,7 @@ export const MODEL_COST = [
   // repeatedly. Prompt is pinned AT v1-chat's max_price prompt cap, so no
   // provider the tier admits can ever exceed it there; completion covers the
   // observed maximum.
-  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.95 }], // live endpoints 2026-09-18
+  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 7 }], // live endpoints 2026-09-30 (relace/fp4 completion $7)
   // deepseek-chat-v3.1: one regional endpoint lists prompt above the family row (live endpoints 2026-09-24).
   ["deepseek/deepseek-chat-v3.1", { prompt: 0.65, completion: 2.5 }],
   // deepseek-v3.2: re-admitted once its upstream expiration date was withdrawn.
