@@ -209,7 +209,8 @@ export const routes = {
 
 export function handler(req, res) {
   const key = `${req.method} ${req.url.split("?")[0]}`;
-  const fn = routes[key];
+  // Own keys only: a request must never reach an inherited property.
+  const fn = Object.hasOwn(routes, key) && typeof routes[key] === "function" ? routes[key] : null;
   if (!fn) return send(res, 404, { error: "Not found" });
   if (key !== "GET /health" && !tokenOk(req)) return send(res, 404, { error: "Not found" });
   fn(req).then((out) => send(res, 200, out)).catch((e) => {
