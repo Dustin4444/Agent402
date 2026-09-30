@@ -49,6 +49,8 @@ export function jevQuestions(listing) {
 }
 
 
+import { paramQuestions, paramsFromAnswers } from "./jev-params.js";
+
 // Pack or single tool: one Choice per step, over that step's viable skill
 // packs and single tools. A pick below this confidence keeps the ranking.
 export const CHOOSE_CONFIDENCE = 0.6;
@@ -138,5 +140,17 @@ export function makeJevJudge({ apiKey = jevApiKey(), fetchImpl = fetch } = {}) {
     return picks;
   }
 
-  return { judge, choose, status: () => { roll(); return { day: spend.day, bookedTokens: spend.tokens, capTokens: dailyMaxTokens() }; } };
+  /** steps: [{ step, purpose, dependsOn: [{step, purpose}], row }] -> { params } or null. */
+  async function fillParams(task, steps, opts = {}) {
+    if (!Array.isArray(steps) || !steps.length) return null;
+    const { questions, slots } = paramQuestions(task, steps, opts.textOf);
+    if (!Object.keys(questions).length) return { params: {} };
+    const r = await ask(task, questions, "params", opts);
+    if (!r) return null;
+    if (!r.j?.answers || typeof r.j.answers !== "object") { r.note("unparseable", r.j); return null; }
+    r.note("ok", r.j);
+    return paramsFromAnswers(r.j.answers, slots);
+  }
+
+  return { judge, choose, fillParams, status: () => { roll(); return { day: spend.day, bookedTokens: spend.tokens, capTokens: dailyMaxTokens() }; } };
 }

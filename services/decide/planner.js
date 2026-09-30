@@ -102,7 +102,7 @@ function toolView(row, { routingFeePct }) {
 
 /**
  * @param input  parsed { task, constraints, depth }
- * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, choose?(task, items, opts)->{stepIndex: rowId}|null, reliability(id)->stats, cfg, now, deadline }
+ * @param deps   { index, embed(texts)->vecs, llm:{call}, judge?(task, listing, opts)->{fits}|null, choose?(task, items, opts)->{stepIndex: rowId}|null, fillParams?(task, steps, opts)->{params}|null, reliability(id)->stats, cfg, now, deadline }
  */
 export async function buildDecision({ task, constraints, depth }, deps) {
   const { index, embed, llm, reliability = () => null, cfg, now = Date.now(), meter = null } = deps;
@@ -227,16 +227,27 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     });
   }
 
-  // 5. params: model-filled for plan/full, validated; else the tool's own
-  //    example (first party) or a typed skeleton
-  let filled = null;
-  if (depth !== "quick" && plan.length && left() > 1500) {
-    const pp = paramsPrompt(task, plan.map((p) => ({ step: p.step, purpose: p.purpose, row: p._row })));
+  // 5. params: selected from the task by the judgment model where it is on,
+  //    then model-written for the steps whose selection does not validate;
+  //    else the tool's own example (first party) or a typed skeleton
+  let selected = null, filled = null;
+  if (depth !== "quick" && plan.length && deps.fillParams && cfg.judge === "jev" && left() > 1500) {
+    const bySteps = Object.fromEntries(plan.map((p) => [p.step, p]));
+    selected = await within(deps.fillParams(task, plan.map((p) => ({ step: p.step, purpose: p.purpose, row: p._row, dependsOn: p.dependsOn.map((d) => ({ step: d, purpose: bySteps[d]?.purpose || "" })) })), { timeoutMs: timeoutFor(0.4), meter }), timeoutFor(0.4) + 250);
+  }
+  const selectedOk = (p) => {
+    const v = pruneParams(p._row.inputSchema, selected?.params?.[String(p.step)]);
+    return v && Object.keys(v).length > 0 && validateParams(p._row.inputSchema, v).ok;
+  };
+  const needModel = plan.filter((p) => !selectedOk(p));
+  if (depth !== "quick" && needModel.length && left() > 1500) {
+    const pp = paramsPrompt(task, needModel.map((p) => ({ step: p.step, purpose: p.purpose, row: p._row })));
     filled = await within(llm.call(pp.system, pp.user, { maxTokens: 900, timeoutMs: timeoutFor(0.8), meter, stage: "params" }), timeoutFor(0.8) + 250);
     if (!filled?.params) { partial = true; notes.push("parameter filling unavailable: skeleton params"); }
   }
   for (const p of plan) {
     const schema = p._row.inputSchema;
+    const fromSelection = pruneParams(schema, selected?.params?.[String(p.step)]);
     let fromTask = pruneParams(schema, filled?.params?.[String(p.step)]);
     // An outside tool's fields carry no types, so the validator cannot check a
     // model-written value. Only values GROUNDED in the task survive there: a
@@ -245,6 +256,7 @@ export async function buildDecision({ task, constraints, depth }, deps) {
     // model into, say) is dropped and the field falls back to the skeleton.
     if (!p._row.firstParty) fromTask = groundedParams(fromTask, task);
     const candidates = [
+      ["task", fromSelection], // selected from the task by the judgment model
       ["task", fromTask],
       ["tool-example", p._row.firstParty && p._row.example ? pruneParams(schema, p._row.example) : null],
       ["skeleton", skeletonParams(schema)],
