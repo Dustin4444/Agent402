@@ -247,7 +247,7 @@ ok(extractJson('noise {"a":1} tail') ?.a === 1 && extractJson("nothing") === nul
   const d = await buildDecision({ task: "fear and greed index", constraints: {}, depth: "quick" }, { index: idx, embed: noEmbed, llm, judge: jev.judge, meter, cfg, now: NOW, deadline: Date.now() + 10_000 });
   ok(sent.length === 1 && llm.calls.length === 0, `the judgment model judges fit and the model judge is not called (jev ${sent.length}, llm ${llm.calls.length})`);
   const qs = Object.values(sent[0].body.questions);
-  ok(qs.length >= 1 && qs.every((q) => q.type === "noul" && q.instructions.tool && typeof q.instructions.step === "string"), "one noul question per step and candidate, the listing inside a structured tool field");
+  ok(qs.length >= 1 && qs.every((q) => q.type === "noul" && q.instructions.tool && typeof q.instructions.step === "string"), "noul questions per step and candidate, the listing inside a structured tool field");
   ok(Object.keys(sent[0].body.questions).every((k) => /^s\d+c\d+$/.test(k)) && sent[0].auth === "Bearer k-test", "question ids are the planner's own keys; the key rides as a bearer");
   ok(d.plan[0]?.tool.id === third.id && !d.notes.some((x) => /fit judging unavailable/.test(x)), `the judged fit picks the plan (${d.plan[0]?.tool.id})`);
   const m = meter.find((x) => x.stage === "judge");
