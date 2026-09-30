@@ -4931,8 +4931,21 @@ const CONFUSABLE_RE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "g");
 // with markup/entities/invisible characters turned to spaces (so
 // "Ignore&lt;previous instructions" or a zero-width split cannot slip a phrase
 // past the screen that a later cleaning step would reassemble).
+// Plain printable ASCII with no markup, entity or backtick characters: NFKC,
+// entity decoding, invisible-character handling and the lookalike map are all
+// identity on it, so the four forms below reduce to the lowercased text and its
+// whitespace-collapsed copy. Nearly every listing is this, and the full path
+// costs several times more per listing across an index of tens of thousands.
+const PLAIN_LISTING = /^[\t\n\r\x20-\x7e]*$/;
+const MARKUP_CHARS = /[&<>`*~|]/;
 function injectionForms(text) {
-  const decoded = String(text || "").normalize("NFKC")
+  const raw = String(text || "");
+  if (PLAIN_LISTING.test(raw) && !MARKUP_CHARS.test(raw)) {
+    const lower = raw.toLowerCase();
+    if (!/[\t\n\r]| {2}/.test(lower)) return [lower];
+    return [lower, lower.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ")];
+  }
+  const decoded = raw.normalize("NFKC")
     .replace(/&(?:lt|gt|amp|quot|apos|nbsp|#\d{1,6}|#x[0-9a-f]{1,6});/gi, (m) => {
       const e = m.toLowerCase();
       return e === "&lt;" ? "<" : e === "&gt;" ? ">" : e === "&amp;" ? "&" : " ";
@@ -4950,10 +4963,13 @@ function injectionForms(text) {
   CONFUSABLE_RE.lastIndex = 0;
   return forms;
 }
+// One alternation of every pattern: the same any-match answer as testing them
+// in turn (none carries a flag or a lastIndex), in one pass over the text.
+const INJECTION_ANY = new RegExp(INJECTION_PATTERNS.map((re) => `(?:${re.source})`).join("|"));
 export function looksLikeListingInjection(text) {
   const t = String(text || "");
   if (t.length > 8000) return true; // no honest listing is a novel; oversized = padding an attack
-  for (const form of injectionForms(t)) for (const re of INJECTION_PATTERNS) if (re.test(form)) return true;
+  for (const form of injectionForms(t)) if (INJECTION_ANY.test(form)) return true;
   return false;
 }
 
