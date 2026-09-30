@@ -136,7 +136,7 @@ async function source() {
     headers: { Authorization: `Bearer ${TOKEN}` },
     signal: AbortSignal.timeout(10 * 60_000),
   });
-  if (!res.ok) throw new Error(`index source HTTP ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`index source HTTP ${res.status}`), { status: res.status, retryAfterS: Number(res.headers.get("retry-after")) || null });
   return res.body;
 }
 
@@ -149,6 +149,9 @@ export async function runSync() {
   } catch (e) {
     state.lastSync = { error: String(e?.message || e).slice(0, 200), at: Date.now() };
     console.warn("[decide] sync failed:", state.lastSync.error);
+    // The main app answers 503 while its index is still loading: try again
+    // soon rather than at the next full period (bounded, at most 5 minutes).
+    if (e?.status === 503) setTimeout(runSync, Math.min(300, Math.max(15, e.retryAfterS || 30)) * 1000).unref();
   } finally {
     state.syncing = false;
   }

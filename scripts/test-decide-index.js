@@ -5,7 +5,7 @@
 //   node scripts/test-decide-index.js
 
 import { localToolRow, remoteToolRow, cleanText, embedText, schemaQuality, FIRST_PARTY_SELLER } from "../src/decide/tool-rows.js";
-import { decideTokenOk, fromPrivateNetwork, executableStep, unifiedRows } from "../src/decide/index-export.js";
+import { decideTokenOk, fromPrivateNetwork, executableStep, unifiedRows, decideIndexExportHandler } from "../src/decide/index-export.js";
 import { VectorStore, quantize, toBytes, fromBytes, DIMS } from "../services/decide/vectors.js";
 import { LexicalIndex, tokenize } from "../services/decide/lexical.js";
 import { ToolIndex } from "../services/decide/tool-index.js";
@@ -169,6 +169,21 @@ for (const t of ["Detects prompt-injection patterns in text", "Web search for cu
   for await (const r of unifiedRows({ catalog: cat, baseUrl: "https://agent402.tools" })) rows.push(r);
   const bySlug = Object.fromEntries(rows.map((r) => [r.slug, r]));
   ok(bySlug.hash && bySlug.hash.executable !== false && bySlug.research?.executable === false, "the export marks the report product as not executable");
+}
+
+// ---- the export refuses while the crawl cache is still loading ----
+{
+  const prev = process.env.DECIDE_INTERNAL_TOKEN;
+  process.env.DECIDE_INTERNAL_TOKEN = "t".repeat(32);
+  const mkRes = () => { const r = { code: 0, headers: {}, body: null, chunks: [] }; r.status = (c) => { r.code = c; return r; }; r.set = (h, v) => { if (typeof h === "object") Object.assign(r.headers, h); else r.headers[h] = v; return r; }; r.json = (b) => { r.body = b; return r; }; r.write = (c) => { r.chunks.push(c); return true; }; r.end = (c) => { if (c) r.chunks.push(c); return r; }; r.on = () => r; r.once = () => r; return r; };
+  const req = { headers: { host: "agent402.railway.internal", authorization: "Bearer " + "t".repeat(32) } };
+  const loading = decideIndexExportHandler({ getCatalog: () => ({}), baseUrl: "https://agent402.tools", getNetworks: () => [], getReadiness: () => ({ ready: false, state: "warm-start", retryAfterSeconds: 5 }) });
+  const r1 = mkRes(); await loading(req, r1);
+  ok(r1.code === 503 && r1.headers["Retry-After"] === "5" && r1.chunks.length === 0, "while the index is loading the export answers 503 and streams nothing (so the service deletes nothing)");
+  const ready = decideIndexExportHandler({ getCatalog: () => ({}), baseUrl: "https://agent402.tools", getNetworks: () => [], getReadiness: () => ({ ready: true }) });
+  const r2 = mkRes(); await ready(req, r2);
+  ok(r2.code === 200 && r2.chunks.some((c) => /__end/.test(c)), "once ready it streams and ends with __end");
+  process.env.DECIDE_INTERNAL_TOKEN = prev;
 }
 
 console.log(`\ntest-decide-index: ${pass} passed, ${fail} failed`);

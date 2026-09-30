@@ -12,7 +12,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { localToolRow, remoteToolRow } from "./tool-rows.js";
-import { routableRemoteEntries, looksLikeListingInjection, liveProofAt, mppDualStackOrigins } from "../x402-index.js";
+import { routableRemoteEntries, looksLikeListingInjection, liveProofAt, mppDualStackOrigins, indexReadiness } from "../x402-index.js";
 import { unpackRequestContract } from "../request-contract.js";
 import { dispatchable } from "../tools/route-execute.js";
 import { EXPENSIVE_COMPOSITE_SLUGS } from "../composite-spend-guard.js";
@@ -79,10 +79,16 @@ export async function* unifiedRows({ catalog, baseUrl, networks = [], now = Date
 let exporting = false;
 
 /** Express handler for GET /__internal/decide/tools.ndjson */
-export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks, remoteExecutable = null }) {
+export function decideIndexExportHandler({ getCatalog, baseUrl, getNetworks, remoteExecutable = null, getReadiness = indexReadiness }) {
   return async (req, res) => {
     if (!fromPrivateNetwork(req) || !decideTokenOk(req)) return res.status(404).json({ error: "Not found" });
     if (exporting) return res.status(429).set("Retry-After", "60").json({ error: "export already running" });
+    // A complete export tells the service to delete every row it did not
+    // stream, so an export taken while the crawl cache is still loading (only
+    // our own rows so far) would empty the outside index. Refuse until ready.
+    let ready = { ready: true };
+    try { ready = getReadiness() || ready; } catch { ready = { ready: false, retryAfterSeconds: 30 }; }
+    if (!ready.ready) return res.status(503).set("Retry-After", String(ready.retryAfterSeconds || 30)).json({ error: "index still loading", state: ready.state || null });
     exporting = true;
     let rows = 0;
     try {
