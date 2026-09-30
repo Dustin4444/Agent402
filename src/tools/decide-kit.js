@@ -206,12 +206,6 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     const prior = ledger.runByKey(d.id, runKey);
     if (prior) throw Object.assign(bad(`This decision already has a run with that key (${prior.id}, ${prior.status}); nothing was charged`, 409), { runId: prior.id });
 
-    // Caps, checked before anything is spent (a >= 400 is never charged).
-    if (payer && ledger.payerExposureUsd(payer, t - 3_600_000) + budget > cfg.execute.perWalletHourUsd) throw bad(`This wallet has reached its hourly execution ceiling ($${cfg.execute.perWalletHourUsd}); nothing was charged`, 429);
-    if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for up to 24 hours; nothing was charged", 429);
-    const payerDayCap = cfg.execute.globalDayUsd * cfg.execute.perPayerDayShare;
-    if (payer && ledger.payerExposureUsd(payer, t - 86_400_000) + budget > payerDayCap) throw bad(`This wallet has reached its daily execution ceiling ($${roundUsd(payerDayCap)}); nothing was charged`, 429);
-
     // Outside steps are paid from our spending wallet. When its balance reads
     // low, they are paused before anything is paid (an unreadable balance does
     // not block: a payment the wallet cannot cover is refused, and not charged).
@@ -223,6 +217,15 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
         throw bad("Outside steps are paused while our spending wallet is topped up; nothing was charged - retry later", 503);
       }
     }
+
+    // Caps, checked before anything is spent (a >= 400 is never charged).
+    // From here to createRun there is no await: the checks and the booking of
+    // this run happen in one turn, so concurrent requests cannot all pass on
+    // the same reading.
+    if (payer && ledger.payerExposureUsd(payer, t - 3_600_000) + budget > cfg.execute.perWalletHourUsd) throw bad(`This wallet has reached its hourly execution ceiling ($${cfg.execute.perWalletHourUsd}); nothing was charged`, 429);
+    if (ledger.globalExposureUsd(t - 86_400_000) + budget > cfg.execute.globalDayUsd) throw bad("Plan execution is paused for everyone for up to 24 hours; nothing was charged", 429);
+    const payerDayCap = cfg.execute.globalDayUsd * cfg.execute.perPayerDayShare;
+    if (payer && ledger.payerExposureUsd(payer, t - 86_400_000) + budget > payerDayCap) throw bad(`This wallet has reached its daily execution ceiling ($${roundUsd(payerDayCap)}); nothing was charged`, 429);
 
     const runId = `run_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
     let redeemed = 0;
@@ -300,18 +303,21 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
         }
         if (!router) { attempts.push({ id: tool.id, skipped: "external execution is not enabled on this host" }); continue; }
         if (outsidePaused) { attempts.push({ id: tool.id, skipped: "outside steps are paused while our spending wallet is topped up" }); continue; }
-        if (ledger.sellerSpendUsd(tool.seller, t - 86_400_000) + listPrice * 1.5 > cfg.execute.perSellerDayUsd) { attempts.push({ id: tool.id, skipped: "this seller's daily execution ceiling is reached" }); continue; }
         // The most this leg may pay: the planned price with room for a small
         // live-price drift, never the whole remaining budget (a leg whose
         // outcome is unknown is booked at this worst case).
         const maxUsd = Math.min(roundUsd((spendable - spent) / (1 + cfg.routingFeePct / 100)), roundUsd(listPrice * 1.5), cfg.execute.perCallMaxUsd);
+        // Checked and held in one turn, before the payment: concurrent runs
+        // see this leg's worst case against the seller's daily ceiling.
+        if (ledger.sellerSpendUsd(tool.seller, t - 86_400_000) + maxUsd > cfg.execute.perSellerDayUsd) { attempts.push({ id: tool.id, skipped: "this seller's daily execution ceiling is reached" }); continue; }
+        const hold = ledger.holdSellerSpend({ runId, seller: tool.seller, amountUsd: maxUsd, now: now() });
         try {
           const r = await withTimeout(router.handler({ task: `${step.purpose} (${tool.name})`, include: "external", target: tool.endpoint, params, maxUsd }, req), Math.min(left(), cfg.execute.externalStepTimeoutMs), tool.seller);
           const underlying = Number(r?.receipt?.underlyingPriceUsd);
           const paidOut = Number.isFinite(underlying) && underlying > 0 ? underlying : maxUsd; // unknown: book the worst case
           const fee = roundUsd(paidOut * cfg.routingFeePct / 100);
           spent = roundUsd(spent + paidOut + fee);
-          ledger.noteSellerSpend({ runId, seller: tool.seller, amountUsd: paidOut, now: now() });
+          ledger.settleSellerHold(hold, paidOut);
           done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(paidOut + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
           break;
         } catch (e) {
@@ -326,9 +332,10 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
             const signed = Number(e?.signedUsd);
             const exposure = Number.isFinite(signed) && signed >= 0 && !timedOut ? Math.min(signed, maxUsd) : maxUsd;
             spent = roundUsd(spent + exposure * (1 + cfg.routingFeePct / 100));
-            ledger.noteSellerSpend({ runId, seller: tool.seller, amountUsd: exposure, now: now() });
+            ledger.settleSellerHold(hold, exposure);
             break;
           }
+          ledger.settleSellerHold(hold, 0); // refused before any payment: nothing left
         }
       }
       if (done) { outputs[String(step.step)] = done.result; results.push({ step: step.step, status: "ok", ...done, ...(attempts.length ? { attempts } : {}) }); }

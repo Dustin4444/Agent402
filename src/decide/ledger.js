@@ -106,6 +106,8 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     globalSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE created_at >= ?"),
     globalRunning: db.prepare("SELECT COALESCE(SUM(budget_micro),0) AS s FROM runs WHERE status = 'running' AND created_at >= ?"),
     sellerSpend: db.prepare("INSERT INTO seller_spend (run_id, seller, micro, created_at) VALUES (?,?,?,?)"),
+    sellerHoldSet: db.prepare("UPDATE seller_spend SET micro = ? WHERE rowid = ?"),
+    sellerHoldDrop: db.prepare("DELETE FROM seller_spend WHERE rowid = ?"),
     sellerSince: db.prepare("SELECT COALESCE(SUM(micro),0) AS s FROM seller_spend WHERE seller = ? AND created_at >= ?"),
   };
 
@@ -173,6 +175,17 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     payerExposureUsd(payer, sinceMs, now = Date.now()) { return usd(st.payerSince.get(payer || "", sinceMs).s + st.payerRunning.get(payer || "", now - RUN_MAX_MS).s); },
     /** What an outside seller was paid (or may have been paid) through runs. */
     noteSellerSpend({ runId, seller, amountUsd, now = Date.now() }) { if (seller && amountUsd > 0) st.sellerSpend.run(runId, String(seller), micro(amountUsd), now); },
+    // Book a leg's worst case against the seller BEFORE paying, so concurrent
+    // runs see it; settle it to what actually left once the leg is known
+    // (0 removes it). Returns the hold's id, or null when nothing was booked.
+    holdSellerSpend({ runId, seller, amountUsd, now = Date.now() }) {
+      if (!seller || !(amountUsd > 0)) return null;
+      return Number(st.sellerSpend.run(runId, String(seller), micro(amountUsd), now).lastInsertRowid);
+    },
+    settleSellerHold(holdId, amountUsd) {
+      if (holdId == null) return;
+      if (amountUsd > 0) st.sellerHoldSet.run(micro(amountUsd), holdId); else st.sellerHoldDrop.run(holdId);
+    },
     sellerSpendUsd(seller, sinceMs) { return usd(st.sellerSince.get(String(seller || ""), sinceMs).s); },
     globalExposureUsd(sinceMs, now = Date.now()) { return usd(st.globalSince.get(sinceMs).s + st.globalRunning.get(now - RUN_MAX_MS).s); },
   };

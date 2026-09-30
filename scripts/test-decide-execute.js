@@ -7,6 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
+import { decideConfig } from "../src/decide/config.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
 import { buildDecideTools } from "../src/tools/decide-kit.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "../src/tools/route-execute.js";
@@ -120,6 +121,37 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   calls.length = 0;
   const out = await exec({ decisionId: "d1", params: { 1: { wrong: 1 }, 2: { q: "z" } } }, mkReq("0xh"));
   ok(out.steps[0].status === "failed" && out.steps[0].attempts.every((a) => /params do not fit/.test(a.skipped)) && !calls.some((c) => c[0] === "a"), "invalid params: the tool is not called");
+}
+
+// ---- ceilings hold under concurrency (checks and booking in one turn) ----
+{
+  const l2 = openDecideLedger(join(mkdtempSync(join(tmpdir(), "decide-race-")), "l.db"));
+  const ext = { id: "e", slug: "e", name: "e", seller: "s.example", firstParty: false, endpoint: "https://s.example/x", method: "POST", priceUsd: 2, inputSchema: { type: "object", properties: {}, required: [] }, exampleParams: {} };
+  l2.saveDecision({ decisionId: "dr", depth: "plan", priceUsd: 0.02, payer: "p", plan: [{ step: 1, purpose: "x", tool: ext, fallbacks: [], dependsOn: [] }], costViaUsd: 2.1 });
+  l2.markDecisionSettled("dr");
+  let paidOut = 0;
+  const cat = { rx: { slug: "route-execute-pro", route: "POST /x", handler: async () => { await new Promise((r) => setTimeout(r, 20)); paidOut += 2; return { result: {}, receipt: { underlyingPriceUsd: 2 } }; } } };
+  // A slow wallet read: before the fix, every request passed the caps on the same reading.
+  const ex2 = makeExecuteHandler({ ledger: l2, getCatalog: () => cat, runBudgetMs: () => null, spendingWalletStatus: () => new Promise((r) => setTimeout(() => r({ status: "ok" }), 50)) });
+  const reqs = Array.from({ length: 8 }, () => ({ headers: {}, ip: "203.0.113.9", __meteredQuoteUsd: 2.1 }));
+  const out = await Promise.allSettled(reqs.map((q) => ex2({ decisionId: "dr" }, q)));
+  const ran = out.filter((o) => o.status === "fulfilled").length;
+  const cap = decideConfig().execute.perWalletHourUsd;
+  ok(ran * 2.1 <= cap + 1e-9 && ran >= 1 && paidOut <= cap, `8 concurrent $2.10 runs from one wallet stay under its $${cap} hourly ceiling (${ran} ran, $${paidOut} paid out)`);
+  ok(out.filter((o) => o.status === "rejected").every((o) => o.reason.statusCode === 429), "the rest are refused 429 before anything is paid");
+}
+{
+  // The seller ceiling: legs of different payers to one seller, concurrently.
+  const l3 = openDecideLedger(join(mkdtempSync(join(tmpdir(), "decide-race3-")), "l.db"));
+  const ext = { id: "e", slug: "e", name: "e", seller: "one.example", firstParty: false, endpoint: "https://one.example/x", method: "POST", priceUsd: 2, inputSchema: { type: "object", properties: {}, required: [] }, exampleParams: {} };
+  let paid3 = 0;
+  const cat = { rx: { slug: "route-execute-pro", route: "POST /x", handler: async () => { await new Promise((r) => setTimeout(r, 30)); paid3 += 2; return { result: {}, receipt: { underlyingPriceUsd: 2 } }; } } };
+  const ex3 = makeExecuteHandler({ ledger: l3, getCatalog: () => cat, runBudgetMs: () => null, spendingWalletStatus: async () => ({ status: "ok" }) });
+  const ids = Array.from({ length: 12 }, (_, i) => `ds${i}`);
+  for (const id of ids) { l3.saveDecision({ decisionId: id, depth: "plan", priceUsd: 0.02, payer: id, plan: [{ step: 1, purpose: "x", tool: ext, fallbacks: [], dependsOn: [] }], costViaUsd: 2.1 }); l3.markDecisionSettled(id); }
+  await Promise.allSettled(ids.map((id, i) => ex3({ decisionId: id }, { headers: {}, ip: `198.51.100.${i + 1}`, __meteredQuoteUsd: 2.1 })));
+  const sellerCap = decideConfig().execute.perSellerDayUsd;
+  ok(paid3 <= sellerCap && l3.sellerSpendUsd("one.example", 0) <= sellerCap + 1e-9, `12 concurrent legs to one seller stay under its $${sellerCap} daily ceiling ($${paid3} paid, $${l3.sellerSpendUsd("one.example", 0)} booked)`);
 }
 
 // ---- a placeholder the plan could not fill is never sent to a paid tool ----
