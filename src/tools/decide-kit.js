@@ -204,7 +204,12 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
     const runKey = typeof input?.runKey === "string" && input.runKey ? input.runKey.slice(0, 128)
       : typeof req?.headers?.["idempotency-key"] === "string" && req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]).slice(0, 128) : null;
     const prior = ledger.runByKey(d.id, runKey);
-    if (prior) throw Object.assign(bad(`This decision already has a run with that key (${prior.id}, ${prior.status}); nothing was charged`, 409), { runId: prior.id });
+    if (prior) {
+      // The payer that ran it gets that run's outcome back with the refusal
+      // (still a 409, so nothing is charged again); anyone else gets the id only.
+      const own = prior.status !== "running" && payer && prior.payer === payer;
+      throw Object.assign(bad(`This decision already has a run with that key (${prior.id}, ${prior.status}); nothing was charged`, 409), { runId: prior.id, ...(own ? { priorRun: { id: prior.id, status: prior.status, spentUsd: prior.spentUsd, steps: prior.steps } } : {}) });
+    }
 
     // Outside steps are paid from our spending wallet. When its balance reads
     // low, they are paused before anything is paid (an unreadable balance does

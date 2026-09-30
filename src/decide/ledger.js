@@ -97,7 +97,8 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
     redeem: db.prepare("UPDATE credits SET state = 'redeemed', run_id = ? WHERE token_hash = ? AND decision_id = ? AND state = 'active' AND expires_at > ?"),
     restore: db.prepare("UPDATE credits SET state = 'active', run_id = NULL WHERE token_hash = ? AND state = 'redeemed' AND run_id = ?"),
     createRun: db.prepare("INSERT INTO runs (id, decision_id, payer, status, budget_micro, credit_micro, created_at, run_key) VALUES (?,?,?, 'running', ?, ?, ?, ?)"),
-    runByKey: db.prepare("SELECT id, status FROM runs WHERE decision_id = ? AND run_key = ?"),
+    runByKey: db.prepare("SELECT id, status, payer, spent_micro, steps_json FROM runs WHERE decision_id = ? AND run_key = ?"),
+    releaseRunKey: db.prepare("UPDATE runs SET run_key = NULL WHERE id = ?"),
     finishRun: db.prepare("UPDATE runs SET status = ?, spent_micro = ?, steps_json = ?, finished_at = ? WHERE id = ?"),
     getRun: db.prepare("SELECT * FROM runs WHERE id = ?"),
     payerSince: db.prepare("SELECT COALESCE(SUM(spent_micro),0) AS s FROM runs WHERE payer = ? AND created_at >= ?"),
@@ -168,8 +169,19 @@ export function openDecideLedger(path = process.env.DECIDE_LEDGER_DB || join(exi
       try { st.createRun.run(runId, decisionId, payer || null, micro(budgetUsd), micro(creditUsd), now, runKey); return true; }
       catch (e) { if (runKey && /UNIQUE/.test(String(e?.message))) return false; throw e; }
     },
-    runByKey(decisionId, runKey) { return runKey ? st.runByKey.get(decisionId, runKey) || null : null; },
-    finishRun({ runId, status, spentUsd, steps, now = Date.now() }) { st.finishRun.run(status, micro(spentUsd), JSON.stringify(steps || []), now, runId); },
+    runByKey(decisionId, runKey) {
+      const r = runKey ? st.runByKey.get(decisionId, runKey) : null;
+      if (!r) return null;
+      let steps = [];
+      try { steps = JSON.parse(r.steps_json || "[]"); } catch { /* keep [] */ }
+      return { id: r.id, status: r.status, payer: r.payer, spentUsd: usd(r.spent_micro), steps };
+    },
+    // A run that failed having spent nothing frees its key, so the same key can
+    // be retried; any run that spent keeps it (a retry must not pay twice).
+    finishRun({ runId, status, spentUsd, steps, now = Date.now() }) {
+      st.finishRun.run(status, micro(spentUsd), JSON.stringify(steps || []), now, runId);
+      if (status === "failed" && !(micro(spentUsd) > 0)) st.releaseRunKey.run(runId);
+    },
     getRun(id) { const r = st.getRun.get(id); return r ? { ...r, budgetUsd: usd(r.budget_micro), spentUsd: usd(r.spent_micro), creditUsd: usd(r.credit_micro), steps: JSON.parse(r.steps_json) } : null; },
     /** Spent in the window plus everything still running (its whole budget). */
     payerExposureUsd(payer, sinceMs, now = Date.now()) { return usd(st.payerSince.get(payer || "", sinceMs).s + st.payerRunning.get(payer || "", now - RUN_MAX_MS).s); },

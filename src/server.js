@@ -9514,6 +9514,9 @@ for (const tool of ALL_KIT) {
           error: err.message,
           tool: tool.slug,
           ...provenance,
+          // A repeated decide execution key returns the earlier run to the
+          // payer that ran it, on the refusal (a 409 is never charged).
+          ...(err?.priorRun && typeof err.priorRun === "object" ? { priorRun: err.priorRun } : {}),
           expected: tool.discovery?.inputSchema?.properties || {},
           required: tool.discovery?.inputSchema?.required || [],
           example: tool.discovery?.input || {},

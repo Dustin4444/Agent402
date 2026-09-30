@@ -220,6 +220,17 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   await throwsWith(() => exec({ decisionId: "dK" }, { ...mkReq("0xkey"), headers: { "idempotency-key": "hdr-1" } }), 409, byHeader.runId, "an Idempotency-Key header works as the run key");
   const other = await exec({ decisionId: "dK", runKey: "k-2" }, mkReq("0xkey"));
   ok(other.runId !== first.runId, "a different key is a different run");
+  const again = await exec({ decisionId: "dK", runKey: "k-1" }, mkReq("0xkey")).catch((e) => e);
+  ok(again.statusCode === 409 && again.priorRun?.id === first.runId && again.priorRun.status === "complete" && Array.isArray(again.priorRun.steps) && again.priorRun.steps[0]?.status === "ok", "the payer that ran it gets the earlier run's outcome back on the 409");
+  const stranger = await exec({ decisionId: "dK", runKey: "k-1" }, mkReq("0xother")).catch((e) => e);
+  ok(stranger.statusCode === 409 && !stranger.priorRun, "another payer holding the same key gets the id only, never the results");
+  // A run that failed having spent nothing frees its key.
+  failA = true;
+  const failed = await exec({ decisionId: "dK", runKey: "k-fail" }, mkReq("0xkey")).catch((e) => e);
+  failA = false;
+  const retried = await exec({ decisionId: "dK", runKey: "k-fail" }, mkReq("0xkey"));
+  ok(failed && (failed.statusCode >= 400 || failed.status === "failed") && retried.status === "complete", `a failed run that spent nothing can be retried with the same key (${failed.statusCode || failed.status} then ${retried.status})`);
+  await throwsWith(() => exec({ decisionId: "dK", runKey: "k-fail" }, mkReq("0xkey")), 409, retried.runId, "once that retry spent, the key is held again");
 }
 
 // ---- one outside seller cannot take more than its daily ceiling ----
