@@ -443,6 +443,13 @@ function statusLine() {
 // panel's own footer carries a "what is x402/mpp" row instead (see
 // marketPanelNav/mppPanelNav), keeping the top-level word count unchanged
 // (was 6, now 7: sell / x402 / mpp / leaderboard / our tools / 101 / docs).
+// Agent402 Decide rides the chrome only once its tools are in the catalog, so
+// no page links a product that answers 404. The server sets this at boot.
+let DECIDE_LIVE = false;
+export function setDecideLive(v) { DECIDE_LIVE = Boolean(v); }
+export function decideLive() { return DECIDE_LIVE; }
+const DECIDE_NAV_ITEM = { href: "/decide", label: "Decide" };
+
 const NAV_ZONES = [
   [
     // Reports carries the whole "for people" set (reports, monitors, credits):
@@ -682,6 +689,10 @@ function mobileMenuHtml(chainInfo, activePath) {
   const chains = chainInfo.chains.map((c) => `<a href="${esc(c.href)}" class="ml-mm-chip${c.href === activePath ? " ml-mm-active" : ""}">${esc(c.label)}</a>`).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
     ${activePath === "/reports" ? "" : `<div class="ml-mm-group">${mmLink("/reports", "Get a report →", false, " ml-mm-cta")}</div>`}
+    ${DECIDE_LIVE ? `<div class="ml-mm-h">Decide</div>
+    <div class="ml-mm-group">
+      ${mmLink("/decide", "decide · a plan for any job", activePath === "/decide")}
+    </div>` : ""}
     <div class="ml-mm-h">For people</div>
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
@@ -758,7 +769,7 @@ function nav(activePath) {
     tools: new Set(["/tools", "/skills", "/playground", "/pricing"]),
   };
 
-  const zone1 = NAV_ZONES[0].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
+  const zone1 = (DECIDE_LIVE ? [DECIDE_NAV_ITEM, ...NAV_ZONES[0]] : NAV_ZONES[0]).map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const zone2 = NAV_ZONES[1].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const zone3 = NAV_ZONES[2].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const divider = `<span style="width:1px;height:15px;background:var(--hairline);flex:none;"></span>`;
@@ -828,7 +839,7 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);">${brandMark(20, "f")}<span style="font-weight:600;font-size:14px;font-family:var(--font-sans);letter-spacing:-.01em;">Agent402</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">transactions</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/why" style="color:var(--muted);text-decoration:none;">why</a><a href="/company" style="color:var(--muted);text-decoration:none;">company</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a>${DECIDE_LIVE ? `<a href="/decide" style="color:var(--muted);text-decoration:none;">decide</a>` : ""}<a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">transactions</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/why" style="color:var(--muted);text-decoration:none;">why</a><a href="/company" style="color:var(--muted);text-decoration:none;">company</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>

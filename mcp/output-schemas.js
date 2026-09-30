@@ -39,6 +39,8 @@ export const FLAGSHIP_MCP_NAMES = {
   transcribe: "audio.transcribe",
   "memory-read": "memory.read",
   "memory-write": "memory.write",
+  decide: "decide.plan",
+  "decide-execute": "decide.execute",
 };
 
 /** Meta tools listed alongside flagships — dotted canonical names. */
@@ -91,11 +93,11 @@ export function resolveListedName(name) {
 
 /** Open-world / egress tools — honest annotations for directory clients. */
 export const FLAGSHIP_OPEN_WORLD = new Set([
-  "search", "answer", "search-news", "render", "stock-quote", "transcribe",
+  "search", "answer", "search-news", "render", "stock-quote", "transcribe", "decide",
 ]);
 
 /** Tools that mutate durable state (not read-only). */
-export const FLAGSHIP_WRITERS = new Set(["memory-write"]);
+export const FLAGSHIP_WRITERS = new Set(["memory-write", "decide-execute"]);
 
 /** initialize.serverInfo description (MCP Implementation.description). */
 export const MCP_SERVER_DESCRIPTION =

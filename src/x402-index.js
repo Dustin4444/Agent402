@@ -4908,11 +4908,52 @@ const INJECTION_PATTERNS = [
   /\[(?:system|important|instructions?|override)\]/,
   /system\s*(?:prompt|message|role)\s*[:=]/,
   /do\s+not\s+(?:pick|choose|select|recommend|consider)\s+(?:any\s+)?other/,
+  // A listing that tries to set its own score for a ranker that reads it.
+  /"fits?"\s*:\s*\{/,
+  /\b(?:rate|score|give)\s+(?:this|it|me|every\s+\w+)?\s*(?:a\s+)?fit\s*(?:of\s*)?[:=]?\s*(?:1(?:\.0+)?|100\s*%)/,
+  /\bfit\s*[:=]\s*(?:1(?:\.0+)?|100\s*%)/,
+  // The same instructions in the languages seen on the index.
+  /ignora\s+(?:las?\s+|todas?\s+las?\s+)?(?:instrucciones|indicaciones)\s+(?:anteriores|previas)/,
+  /ignor(?:e|ez)\s+(?:les\s+|toutes\s+les\s+)?(?:instructions|consignes)\s+(?:pr[eé]c[eé]dentes|ant[eé]rieures)/,
+  /ignoriere\s+(?:alle\s+)?(?:vorherigen|bisherigen|obigen)\s+(?:anweisungen|instruktionen)/,
+  /ignore\s+(?:as\s+|todas\s+as\s+)?instru[cç][oõ]es\s+anteriores/,
 ];
+// Letters from other scripts that render like Latin ones ("Іgnоrе" spelled with
+// Cyrillic І, о, е): one more reading of the text maps them back before the
+// patterns run, so a lookalike spelling is read as the phrase it imitates.
+const CONFUSABLES = {
+  "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c", "\u0443": "y", "\u0445": "x", "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u04cf": "l", "\u0501": "d", "\u051b": "q", "\u051d": "w",
+  "\u03b1": "a", "\u03bf": "o", "\u03c1": "p", "\u03b5": "e", "\u03b9": "i", "\u03ba": "k", "\u03bd": "v", "\u03c4": "t", "\u03c5": "u", "\u03c7": "x",
+};
+const CONFUSABLE_RE = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "g");
+// The patterns are written lowercase; the text is brought to that form before
+// matching, twice: as written (so a literal <system> tag is still seen) and
+// with markup/entities/invisible characters turned to spaces (so
+// "Ignore&lt;previous instructions" or a zero-width split cannot slip a phrase
+// past the screen that a later cleaning step would reassemble).
+function injectionForms(text) {
+  const decoded = String(text || "").normalize("NFKC")
+    .replace(/&(?:lt|gt|amp|quot|apos|nbsp|#\d{1,6}|#x[0-9a-f]{1,6});/gi, (m) => {
+      const e = m.toLowerCase();
+      return e === "&lt;" ? "<" : e === "&gt;" ? ">" : e === "&amp;" ? "&" : " ";
+    })
+    .toLowerCase();
+  // Invisible characters are DELETED (a zero-width split inside a word must
+  // rejoin it); markup punctuation becomes a space. Underscores are left as
+  // they are: identifiers like max_priority_fee are honest listing text.
+  // An invisible character may split a word (delete it) or two words (read it
+  // as a space): both readings are checked.
+  const INVIS = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]/g;
+  const flatten = (x) => x.replace(/[\u0000-\u001f\u007f-\u009f<>`*~|]/g, " ").replace(/\s+/g, " ");
+  const forms = [decoded.replace(INVIS, ""), flatten(decoded.replace(INVIS, "")), flatten(decoded.replace(INVIS, " "))];
+  if (CONFUSABLE_RE.test(decoded)) { CONFUSABLE_RE.lastIndex = 0; forms.push(flatten(decoded.replace(INVIS, "").replace(CONFUSABLE_RE, (c) => CONFUSABLES[c]))); }
+  CONFUSABLE_RE.lastIndex = 0;
+  return forms;
+}
 export function looksLikeListingInjection(text) {
   const t = String(text || "");
   if (t.length > 8000) return true; // no honest listing is a novel; oversized = padding an attack
-  for (const re of INJECTION_PATTERNS) if (re.test(t)) return true;
+  for (const form of injectionForms(t)) for (const re of INJECTION_PATTERNS) if (re.test(form)) return true;
   return false;
 }
 
@@ -7327,6 +7368,23 @@ export function crawlToolsByOrigin() {
   const out = new Map();
   for (const [origin, v] of cache.entries()) out.set(origin, Array.isArray(v.tools) ? v.tools : []);
   return out;
+}
+
+/** Every routable outside seller's buy candidates, under the router's own
+ *  seller filter (routable, not an alias or superseded origin, not this host,
+ *  not removed at the owner's request). A generator, so the decision index
+ *  export can yield between entries instead of holding the loop. */
+export function* routableRemoteEntries({ baseUrl = "" } = {}) {
+  const aliases = computeAliasOrigins(cache);
+  const selfBase = String(baseUrl || "").replace(/\/+$/, "").toLowerCase();
+  const isSelf = (origin) => {
+    const o = String(origin).replace(/\/+$/, "").toLowerCase();
+    return (selfBase && o === selfBase) || o === "https://agent402.tools";
+  };
+  for (const [origin, v] of cache) {
+    if (!v || typeof v !== "object" || !isRoutable(v) || aliases.has(origin) || isSelf(origin) || isRemovedOrigin(origin)) continue;
+    yield [origin, decoratedRemoteTools(v)];
+  }
 }
 
 export function sellerEntry(originOrHost) {

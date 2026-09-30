@@ -199,6 +199,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/x402-test`, priority: "0.7" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    ...(catalog && catalog["POST /api/decide"] ? [{ loc: `${baseUrl}/decide`, priority: "0.9" }] : []),
     { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
     { loc: `${baseUrl}/crawler`, priority: "0.5" },
@@ -280,6 +281,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/why`, priority: "0.8" },
     { loc: `${baseUrl}/x402-test`, priority: "0.7" },
     { loc: `${baseUrl}/markets`, priority: "0.8" },
+    ...(catalog && catalog["POST /api/decide"] ? [{ loc: `${baseUrl}/decide`, priority: "0.9" }] : []),
     { loc: `${baseUrl}/digest`, priority: "0.6" },
     { loc: `${baseUrl}/security`, priority: "0.7" },
     { loc: `${baseUrl}/crawler`, priority: "0.5" },
@@ -362,6 +364,11 @@ const fmtExecTierUsd = (n) => {
   const s3 = n.toFixed(3);
   return s3.endsWith("0") ? n.toFixed(2) : s3;
 };
+
+import { decideConfig as _decideConfig } from "./decide/config.js";
+const decidePrices = () => _decideConfig().prices;
+const decideRoutingFeePct = () => _decideConfig().routingFeePct;
+const decideCreditHours = () => _decideConfig().credit.ttlHours;
 
 export function llmsTxt(baseUrl, catalog) {
   // Route prices in this text are READ FROM THE CATALOG at render time. They
@@ -484,7 +491,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [/api/search-news](${baseUrl}/api/search-news): live news search for current events / headlines
 - [/api/find](${baseUrl}/api/find): resolve a plain-language task to the best-matching tools with route, price, input schema, and a ready example (GET \`?q={task}\` or POST \`{"task":"..."}\`) - long-tail discovery behind the flagships
 - [/api/route](${baseUrl}/api/route): Smart Order Router - rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
-- [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: ${execTierSentence} - an over-cap task gets a self-correcting 409 naming the tier that fits
+- [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: ${execTierSentence} - an over-cap task gets a self-correcting 409 naming the tier that fits${catalog["POST /api/decide"] ? `\n- [/api/decide](${baseUrl}/api/decide): a paid decision. Describe a job; get a call-ready plan over this catalog and outside x402 sellers with a recently verified 402: steps, fallbacks, params that validate against each tool's schema, cost and latency estimates. Depth quick $${decidePrices().quick} / plan $${decidePrices().plan} / full $${decidePrices().full}. The ranking formula has no first-party term and every tool carries firstParty. The fee returns as a ${decideCreditHours()}-hour credit toward \`POST /api/decide/execute\`, which runs the plan when paid on Base or by credits or card (third-party steps at the seller's price plus a ${decideRoutingFeePct()}% routing fee). Report outcomes free at \`POST /api/decide/feedback\`.` : ""}
 - [/api/index](${baseUrl}/api/index): the seller index, PAGINATED - one page, 250 max, never the whole set. The response says so: complete false, a Link header with rel=next, and sellerCount for the total. For ONE origin use ?seller=<host>, which pages nothing and returns its full row with crawl history
 - [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume, served as the TOP N and never the whole board - 25 rows by default, 50 the ceiling, and \`totalSellers\` carries how many are ranked in all, so a seller you cannot see in the rows may simply rank below them. Only sellers that SETTLED inside \`windowServed\` rank at all (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter, reported as \`maxCallUsd\` → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) - same data as the MCP tool \`sellers.list\` and the \`agent402-client\` SDK method \`topSellers()\`
 - [/api/mpp-index](${baseUrl}/api/mpp-index): the MPP seller index (live-verified WWW-Authenticate: Payment sellers with the payment offers their real 402 makes: method, recipient, currency, chain)

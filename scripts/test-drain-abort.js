@@ -151,5 +151,20 @@ const f = installDrainAwareFetch({ fetchImpl: async (url, init) => { seen.push({
   }
 }
 
+// ---- a per-scope stop signal cuts off that scope's calls only ----
+{
+  const seen = [];
+  const stub = (u, init) => new Promise((res, rej) => { seen.push(init?.signal); if (init?.signal?.aborted) return rej(init.signal.reason); init?.signal?.addEventListener("abort", () => rej(init.signal.reason)); setTimeout(() => res({ ok: true }), 200); });
+  const f = installDrainAwareFetch({ fetchImpl: stub });
+  const stop = new AbortController();
+  const inside = runInAbortableScope(() => f("https://example.com/a"), { stopSignal: stop.signal });
+  const other = runInAbortableScope(() => f("https://example.com/b"));
+  setTimeout(() => stop.abort(new Error("step timed out")), 20);
+  const [a, b] = await Promise.allSettled([inside, other]);
+  ok(a.status === "rejected" && /step timed out/.test(String(a.reason?.message)) && b.status === "fulfilled", "aborting a scope's stop signal cuts off its call and leaves another scope's alone");
+  const nested = await Promise.allSettled([runInAbortableScope(() => runInAbortableScope(() => f("https://example.com/c")), { stopSignal: AbortSignal.abort(new Error("outer stopped")) })]);
+  ok(nested[0].status === "rejected" && /outer stopped/.test(String(nested[0].reason?.message)), "a nested scope keeps the enclosing scope's stop signal");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

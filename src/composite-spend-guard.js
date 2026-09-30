@@ -67,6 +67,10 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "filing-report",
   // linkedin-article = the research pipeline + synthesis + image generation.
   "linkedin-article",
+  // decide-execute runs a whole plan (our tools and paid outside sellers)
+  // before its own payment settles: the same spend-then-fail, drain and abort
+  // guards as a report.
+  "decide-execute",
   // Media tiers: one upstream call each, but a flat per-call cost is spent BEFORE
   // settlement, so an unsettled repeat is free to the caller and real to us.
   // Being in this set also marks them longRunning (EVM exact only) - a 40-240 s
@@ -86,7 +90,7 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
  *  we would have paid the seller and earned nothing. EVM exact only.
  *  `image-gen-premium` (2026-09-29) renders the larger frame under a 75 s
  *  upstream bound, past what an SVM or Tempo credential reliably covers. */
-export const LONG_RUNNING_SLUGS = new Set(["v1-videos", "seller-payability", "image-gen-premium"]);
+export const LONG_RUNNING_SLUGS = new Set(["v1-videos", "seller-payability", "image-gen-premium", "decide-execute"]);
 
 /** True when a route runs long enough that only EVM `exact` can settle it.
  *
@@ -133,12 +137,19 @@ export function compositeGuardGlobalPaused() {
   return false;
 }
 
+/** Slugs that keep the per-buyer bound but neither feed nor honour the global
+ *  pause: plan execution carries its own global ceiling, and its failures must
+ *  not be able to pause every report product for everyone. */
+export const OWN_GLOBAL_BOUND_SLUGS = new Set(["decide-execute"]);
+
 /** Record that we SPENT upstream for this payer and then did NOT settle (non-200). */
-export function recordCompositeSpendFailure(payer) {
+export function recordCompositeSpendFailure(payer, { global = true } = {}) {
   const t = Date.now();
-  const gk = payer || `anon:${++anonSeq}`;
-  globalFailKeys.set(gk, [...(globalFailKeys.get(gk) || []), t]);
-  if (globalFailCount(t) >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFailKeys = new Map(); }
+  if (global) {
+    const gk = payer || `anon:${++anonSeq}`;
+    globalFailKeys.set(gk, [...(globalFailKeys.get(gk) || []), t]);
+    if (globalFailCount(t) >= GLOBAL_MAX_FAILS) { globalPausedUntil = t + GLOBAL_PAUSE_MS; globalFailKeys = new Map(); }
+  }
   if (!payer) return;
   const arr = (fails.get(payer) || []).filter((x) => t - x < WINDOW_MS);
   arr.push(t);

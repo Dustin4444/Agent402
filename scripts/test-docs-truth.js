@@ -67,7 +67,7 @@ function docFiles() {
     if (!existsSync(dir)) return;
     for (const name of readdirSync(dir)) {
       const p = join(dir, name);
-      if (statSync(p).isDirectory()) { if (name !== "releases" && name !== "node_modules") walk(p); continue; }
+      if (statSync(p).isDirectory()) { if (name !== "releases" && name !== "node_modules" && name !== "internal") walk(p); continue; }
       if (name.endsWith(".md")) out.push(p);
     }
   };

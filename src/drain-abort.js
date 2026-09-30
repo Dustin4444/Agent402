@@ -48,9 +48,14 @@ let installed = false;
 /** Run `fn` as a composite: every fetch inside inherits the drain signal.
  *  `signal` (optional) is the buyer's client-gone signal, read only by the
  *  helpers that opt in through clientGoneSignal(). */
-export async function runInAbortableScope(fn, { signal } = {}) {
+export async function runInAbortableScope(fn, { signal, stopSignal } = {}) {
   active++;
-  const store = { abortable: true, clientSignal: signal ?? null, live: true };
+  // `stopSignal` (optional) cuts off this scope's outbound calls the way the
+  // drain does, for a caller that has stopped waiting (a step past its
+  // timeout). A nested scope keeps the enclosing scope's signals.
+  const outer = scope.getStore();
+  const stops = [outer?.stopSignal, stopSignal].filter(Boolean);
+  const store = { abortable: true, clientSignal: signal ?? outer?.clientSignal ?? null, stopSignal: stops.length > 1 ? AbortSignal.any(stops) : stops[0] || null, live: true };
   try { return await scope.run(store, fn); }
   finally { store.live = false; active--; }
 }
@@ -88,8 +93,11 @@ export function installDrainAwareFetch({ fetchImpl } = {}) {
   const wrapped = function drainAwareFetch(input, init) {
     if (!inAbortableScope()) return target.call(this, input, init);
     if (controller.signal.aborted) return Promise.reject(controller.signal.reason);
+    const stop = scope.getStore()?.stopSignal || null;
+    if (stop?.aborted) return Promise.reject(stop.reason);
     const own = init?.signal;
-    const signal = own ? AbortSignal.any([own, controller.signal]) : controller.signal;
+    const parts = [own, controller.signal, stop].filter(Boolean);
+    const signal = parts.length > 1 ? AbortSignal.any(parts) : parts[0];
     return target.call(this, input, { ...(init || {}), signal });
   };
   wrapped.__a402DrainAware = true;

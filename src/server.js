@@ -40,7 +40,7 @@ import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIde
 import { runInAbortableScope, abortInFlightComposites, installDrainAwareFetch, isDrainAbort } from "./drain-abort.js";
 import { startSolanaLeaderboard, getSolanaLeaderboardSnapshot, solanaEvidenceByOrigin, SOLANA_WINDOWS } from "./solana-leaderboard.js";
 import { creditFromTx as solanaCreditFromTx } from "./solana-buyer.js";
-import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, OWN_GLOBAL_BOUND_SLUGS, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, isLongRunningSlug, spendsBeforeSettlement, _compositeGuardState, compositeUsageSnapshot, withCompositeContext } from "./composite-spend-guard.js";
 import { gatewaySettleBreakerCheck } from "./gateway-settle-breaker.js";
 // Single-upstream-call routes that run long (40 s+): EVM exact only, like the
 // composites (settle-after on SVM/AVM/Tempo is work done, never charged), but
@@ -292,6 +292,8 @@ import { probeDomain as faProbeDomain } from "./tools/domain-audit-kit.js";
 import { probeRecalls as faProbeRecalls } from "./tools/recall-report-kit.js";
 import { sendEmail as faSendEmail } from "./email.js";
 import { marketsPage } from "./markets.js";
+import { decidePage } from "./decide-page.js";
+import { decideConfig } from "./decide/config.js";
 import { proofPage } from "./proof.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
@@ -320,7 +322,19 @@ import { verifyInboundPayment } from "./payment-verify.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, getLeaderboardWalletEvidence, getLeaderboardCircularWallets, startLeaderboardRefresh, leaderboardPage, rankBy, CONCENTRATION, configureSellerFunding, sellerFundingStatus, setSellerFundingEnabled } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
+import { decideIndexExportHandler } from "./decide/index-export.js";
+import { buildDecideTools, decideEnabled, makeFeedbackHandler } from "./tools/decide-kit.js";
+import { openDecideLedger, singleWriterTopology } from "./decide/ledger.js";
+let _decideLedger = null;
+// A ledger that cannot open (bad file, unwritable path) leaves the feature
+// off rather than taking the whole app down at boot.
+const decideLedger = () => {
+  if (_decideLedger !== null) return _decideLedger || null;
+  if (!singleWriterTopology()) { console.error("[decide] more than one replica is configured (RATE_LIMIT_REPLICAS) - the decide ledger needs a single writer, so decide stays off"); _decideLedger = false; return null; }
+  try { _decideLedger = openDecideLedger(); } catch (e) { console.error("[decide] ledger failed to open - decide stays off:", String(e?.message || e).slice(0, 200)); _decideLedger = false; }
+  return _decideLedger || null;
+};
+import { NETWORKS as PAY_NETWORKS, buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport, facilitatorsByNetworkPublic, setComputePayablePaths, parseNetworkPremiums } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
@@ -492,7 +506,7 @@ import { workflowsPage } from "./workflows.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact, esc as escHtml } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider, setDecideLive, ledgerShell, ledgerFooterCompact, esc as escHtml } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -523,7 +537,8 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 // Listed only with a key, like every other env-gated kit: a tool we cannot serve
 // must not appear in the catalog, on /api/pricing, or in a 402's offer.
 const JUDGE_TOOLS_ENABLED = judgeEnabled() ? JUDGE_TOOLS : [];
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CVE_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED];
+const DECIDE_TOOLS_ENABLED = decideEnabled() && decideLedger() ? buildDecideTools({ getCatalog: () => CATALOG, ledger: decideLedger() }) : [];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...CRYPTO_HASH_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...TOKEN_SAFETY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...EXA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CVE_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS, ...FILING_WATCH_TOOLS, ...LLM_CONTEXT_TOOLS, ...LINKEDIN_TOOLS, ...ATTEST_TOOLS, ...SANCTIONS_TOOLS, ...FEEDBACK_TOOLS, ...CHAIN_RPC_TOOLS, ...JUDGE_TOOLS_ENABLED, ...DECIDE_TOOLS_ENABLED];
 // House style on every report tier's output (agents, card buyers, monitors
 // all reach the same handler object): no em or en dashes in what a person
 // reads. Wrapped in place so _premiumHandlers below sees the wrapped one.
@@ -1349,7 +1364,8 @@ function withDispatchSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.sellers)) return snapshot;
   return { ...snapshot, sellers: snapshot.sellers.map((sel) => (sel?.local ? sel : withDispatchFields(sel))) };
 }
-async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null } = {}) {
+async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wantModel = null, onlyUrl = null } = {}) {
+  const sameUrl = (u) => { try { return new URL(u).href === new URL(onlyUrl).href; } catch { return false; } };
   // Filled by the dispatch gate below; read by route-execute when nothing
   // resolves, so the refusal can say which world it is in.
   const gateDrops = { total: 0, byReason: {} };
@@ -1430,16 +1446,17 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
     // that survived the post-filter were whichever one or two happened to
     // win a tie-break, and a Solana seller with the best-matching name could
     // sit at position 40 and never be tried (2026-09-02).
-    const { results } = await routeQueryAsync({ query: task, top: 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: onlyUrl ? 200 : 25, include: "external", networkFilter: "solana", strictNetwork: true, ...indexCtx() });
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks)
         && r.networks.some((n) => SOLANA_NETWORK_LABELS.has(String(n || "").toLowerCase())))
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .filter((r) => !onlyUrl || sameUrl(r.url))
       .slice(0, 5)
       .map((r) => ({ ...r, networks: r.networks, wire: "x402" }));
   } else {
-    const { results } = await routeQueryAsync({ query: task, top: 20, include: "external", ...indexCtx() });
+    const { results } = await routeQueryAsync({ query: task, top: onlyUrl ? 200 : 20, include: "external", ...indexCtx() });
     // The SAME evidence object every public label reads (dispatchEvidence):
     // settled and payers (the best single wallet's figures), the chain-join
     // address and the binding (every figure kept against the wallet it was
@@ -1454,6 +1471,7 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       // `urlTemplate`, because an agent that knows the parameter can use them.
       .filter((r) => !r.urlTemplate)
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .filter((r) => !onlyUrl || sameUrl(r.url))
       .map((r) => ({ ...r, settled: ev.settled.get(norm(r.seller)) || 0, payers: ev.payers.get(norm(r.seller)), binding: ev.binding.get(norm(r.seller)) || null }))
       // Count AND breadth. One implementation, shared with the test, so the
       // rule cannot drift from what is asserted about it.
@@ -1487,9 +1505,11 @@ async function resolveExternalSeller(task, { cap, chain = "base", limit = 1, wan
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
+  if (onlyUrl) candidates = candidates.filter((r) => sameUrl(r.url));
   // Judged order over gated candidates (src/tool-judge.js); injection-screened text only.
+  // A pinned target was already chosen by a decision; it is not re-judged.
   let judgedSelection = null;
-  if (candidates.length) {
+  if (candidates.length && !onlyUrl) {
     const hostOfSeller = (u) => { try { return new URL(u).host; } catch { return String(u || ""); } };
     const ordered = await orderByJudgment(task, candidates, (r) => {
       const desc = String(r.description || r.name || "");
@@ -1950,7 +1970,9 @@ for (const def of Object.values(CATALOG)) {
 const FLAT_TIER_MAX_USD = Math.max(0, ...Object.keys(TIERS).filter(isFlatTier).map((k) => Number(TIERS[k].price) || 0));
 for (const def of Object.values(CATALOG)) {
   const floor = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-  if (typeof def.quote === "function") def.quoteRange = { minUsd: floor, maxUsd: METERED_MAX_QUOTE_USD };
+  // A quoted tool may declare its own ceiling (quoteMaxUsd); the metered cap
+  // is the ceiling only for the tools that do not.
+  if (typeof def.quote === "function") def.quoteRange = { minUsd: floor, maxUsd: Number.isFinite(def.quoteMaxUsd) && def.quoteMaxUsd >= floor ? def.quoteMaxUsd : METERED_MAX_QUOTE_USD };
   else if (typeof def.tierQuote === "function") def.quoteRange = { minUsd: floor, maxUsd: Math.max(floor, FLAT_TIER_MAX_USD) };
 }
 // The attest tool refuses to attest a sale of an identity-bound route (a
@@ -3224,6 +3246,10 @@ app.get("/api/reports/sample/:product", (req, res) => {
 });
 // /markets - one-call front door for the keyless market-data tools (prices read from CATALOG).
 app.get("/markets", (_req, res) => htmlCache(res, 300, 900).send(marketsPage(BASE_URL, CATALOG)));
+// /decide - the Agent402 Decide page, served only while the decide tools are
+// in the catalog (the chrome's nav item and homepage door follow the same flag).
+setDecideLive(Boolean(CATALOG["POST /api/decide"]));
+app.get("/decide", (req, res, next) => (CATALOG["POST /api/decide"] ? htmlCache(res, 300, 900).send(decidePage(BASE_URL, CATALOG)) : next()));
 // Receipts: the metered tier's settled-under-quote proof, aggregates + one
 // latest external and one latest internal row with settle tx (no payer).
 // Refund lookup (free, src/refund-lookup.js): anyone holding a settlement tx
@@ -4761,6 +4787,19 @@ app.post("/__operator/stall-profile", async (req, res) => {
     res.status(500).json({ error: "profile failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
+// Unified tool index for the decide service (src/decide/index-export.js):
+// internal, token-gated, 404 without DECIDE_INTERNAL_TOKEN.
+app.get("/__internal/decide/tools.ndjson", decideIndexExportHandler({
+  getCatalog: () => CATALOG,
+  baseUrl: BASE_URL,
+  getNetworks: () => enabledNetworks(NETWORK).map((n) => PAY_NETWORKS[n]).filter(Boolean),
+  // Execute pays outside steps on Base through route-execute-pro, so a row is
+  // executable only when the router's Base verdict for it is eligible now.
+  remoteExecutable: (t) => {
+    const priceUsd = Number(String(t?.price ?? "").replace(/^\$/, ""));
+    return withDispatchFields({ ...t, priceUsd: Number.isFinite(priceUsd) ? priceUsd : null }, { rowLevel: true }).routerDispatchByChain?.base?.eligible === true;
+  },
+}));
 app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
@@ -5538,6 +5577,8 @@ const computeFind = async (q, k, meter = null) => {
   // DEFINES the task, so a high score came from common words alone. Without it
   // the miss branch was unreachable for any real capability gap: every one of
   // eighteen impossible tasks scored 4-42 against a floor of 3.
+  // The free single pick links to the paid multi-step decision when it runs here.
+  if (CATALOG["POST /api/decide"]) result.multiStep = { tool: "decide", route: "POST /api/decide", mcp: "decide.plan", note: "need a multi-step plan across this catalog and outside x402 sellers, with fallbacks and validated params? call decide" };
   if (result.count === 0 || topScore < FIND_WEAK_SCORE || result.rarestTermCovered === false) {
     if (result.relatedSellers) {
       // A seller-name match IS an answer - point at it instead of recording
@@ -5765,6 +5806,19 @@ app.post("/api/find", (req, res) => {
 // (10/IP/hour, 100/day global — see wish.js); implicit find-misses recorded
 // from /api/find and the MCP find_tool path are exempt. Never touches
 // CATALOG/WALLET_ONLY_SLUGS — same free-surface category as /api/index/register.
+// decide feedback: free, bound to the decision's own feedback token.
+const decideFeedbackLimiter = createRateLimiter("decide-feedback", { perMin: 30, perHour: 600 });
+let _decideFeedback = null;
+app.post("/api/decide/feedback", express.json({ limit: "4kb" }), (req, res) => {
+  if (!decideEnabled() || !decideLedger()) return res.status(404).json({ error: "Not found" });
+  if (decideFeedbackLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many reports from this address. Try again shortly." });
+  try {
+    _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() });
+    res.json(_decideFeedback(req.body));
+  } catch (e) {
+    res.status(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).json({ error: e.statusCode && e.statusCode < 500 ? e.message : "feedback failed" });
+  }
+});
 app.post("/api/wish", (req, res) => {
   try {
     const { need, context } = req.body || {};
@@ -7199,16 +7253,19 @@ const ogSectionCtx = () => ({
   toolCount: Object.keys(CATALOG).length,
   railCount: RAILS.length,
   price: (slug) => { const d = Object.values(CATALOG).find((t) => t && t.slug === slug); return d && typeof d.price === "string" ? d.price : null; },
+  decide: CATALOG["POST /api/decide"] ? (() => { const d = decideConfig().prices; const f = (n) => `$${Number(n).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`; return { quick: f(d.quick), full: f(d.full) }; })() : null,
   monitorPrice: (() => { const c = Number(Object.values(MONITOR_PRODUCTS)[0]?.price); return Number.isFinite(c) && c > 0 ? `$${(c / 100).toFixed(0)}` : "$5"; })(),
 });
+// The decide card follows the decide page: no card for a product that is not live.
+const ogSectionServed = (id) => OG_SECTION_IDS.has(id) && (id !== "decide" || Boolean(CATALOG["POST /api/decide"]));
 app.get("/og/:id.svg", (req, res) => {
   const id = String(req.params.id || "");
-  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  if (!ogSectionServed(id)) return res.status(404).type("text/plain").send("Not found");
   res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(sectionCardSvg(id, ogSectionCtx()));
 });
 app.get("/og/:id.png", async (req, res) => {
   const id = String(req.params.id || "");
-  if (!OG_SECTION_IDS.has(id)) return res.status(404).type("text/plain").send("Not found");
+  if (!ogSectionServed(id)) return res.status(404).type("text/plain").send("Not found");
   try {
     if (!ogSectionCache.has(id)) ogSectionCache.set(id, await rasterizeSvg(sectionCardSvg(id, ogSectionCtx()), { width: 1200, height: 630 }));
     res.type("image/png").set("Cache-Control", "public, max-age=86400").send(ogSectionCache.get(id));
@@ -7622,6 +7679,12 @@ const mcpMountOpts = {
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
+  // The same per-IP limiter as POST /api/decide/feedback: feedback moves ranking.
+  decideFeedback: decideEnabled() && decideLedger() ? (args, ctx = {}) => {
+    if (decideFeedbackLimiter.check(ctx.ip || "?").limited) throw Object.assign(new Error("Too many reports from this address. Try again shortly."), { statusCode: 429 });
+    _decideFeedback ||= makeFeedbackHandler({ ledger: decideLedger() });
+    return _decideFeedback(args);
+  } : null,
   getLeaderboard: getLeaderboardSnapshot,
   // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
   getMppLeaderboard: mppLeaderboardSnapshot,
@@ -8938,7 +9001,7 @@ if (!FREE_MODE) {
     // is owed, so it takes no ticket and spends none of the budget.
     req.__a402HandlerStarted = Date.now();
     if (req.tempoSettled) return next();
-    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });
+    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug, spendsOwnWallet: def.spendsOwnWallet === true });
     res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
     next();
   });
@@ -9197,7 +9260,8 @@ for (const tool of ALL_KIT) {
         // credits key, or the client IP (card/SPT buyers and any rail whose
         // payer is only known post-settlement) - nobody is unkeyed.
         const guardKey = payer || (req.mppTempoSender ? `tempo:${req.mppTempoSender}` : req.creditsKeyId ? `credits:${req.creditsKeyId}` : `ip:${clientIp(req)}`);
-        if (compositeGuardGlobalPaused()) {
+        const ownGlobalBound = OWN_GLOBAL_BOUND_SLUGS.has(tool.slug);
+        if (!ownGlobalBound && compositeGuardGlobalPaused()) {
           const e = new Error("Premium report generation is briefly paused after a burst of unsettled runs; please retry in a few minutes. Not charged.");
           e.statusCode = 503;
           throw e;
@@ -9225,7 +9289,7 @@ for (const tool of ALL_KIT) {
             // lapse becoming an unbounded run of served, never-charged reports.
             const st = res.statusCode;
             if (st === 200) recordCompositeSpendSuccess(guardKey);
-            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
+            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey, { global: !ownGlobalBound });
           } catch { /* never break a response */ }
         });
       }
@@ -9317,10 +9381,18 @@ for (const tool of ALL_KIT) {
       // is what stops a wallet whose payments never settle from draining the
       // upstream wallet one call at a time. Same doctrine as the idempotency
       // cache's commit-on-finish.
+      // Post-settlement hooks (decide credits): each runs once with whether
+      // the payment SETTLED, via onSettleOutcome, so it also runs when the
+      // buyer hung up after the answer, and never on a handler success whose
+      // settlement then failed.
+      if (Array.isArray(req.__onSettled) && req.__onSettled.length) {
+        const hooks = req.__onSettled;
+        onSettleOutcome(req, res, () => { const ok = res.statusCode === 200; for (const fn of hooks) { try { fn(ok); } catch { /* never break a response */ } } });
+      }
       if (req.__externalSpend) {
-        const handle = req.__externalSpend;
+        const handles = Array.isArray(req.__externalSpends) && req.__externalSpends.length ? req.__externalSpends : [req.__externalSpend];
         res.on("finish", () => {
-          try { resolveExternalSpend(handle, res.statusCode === 200); } catch { /* never break a response */ }
+          for (const handle of handles) { try { resolveExternalSpend(handle, res.statusCode === 200); } catch { /* never break a response */ } }
         });
       }
 
@@ -9442,6 +9514,9 @@ for (const tool of ALL_KIT) {
           error: err.message,
           tool: tool.slug,
           ...provenance,
+          // A repeated decide execution key returns the earlier run to the
+          // payer that ran it, on the refusal (a 409 is never charged).
+          ...(err?.priorRun && typeof err.priorRun === "object" ? { priorRun: err.priorRun } : {}),
           expected: tool.discovery?.inputSchema?.properties || {},
           required: tool.discovery?.inputSchema?.required || [],
           example: tool.discovery?.input || {},

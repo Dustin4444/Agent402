@@ -434,7 +434,10 @@ export function acceptsForItem(item, rails) {
       return priceWithPremium(price, caip2);
     };
   };
-  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceOf(caip2), network: caip2 }));
+  // A tool may name the only networks it can serve (`onlyNetworks`): offering
+  // a rail its handler cannot use would take a payment it then has to refuse.
+  const allowed = Array.isArray(item.onlyNetworks) && item.onlyNetworks.length ? new Set(item.onlyNetworks) : null;
+  const evm = evmCaip2.filter((caip2) => !allowed || allowed.has(caip2)).map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceOf(caip2), network: caip2 }));
   // `upto` rides ALONGSIDE `exact` on the gated networks, at the identical
   // price and payTo. The scheme is chosen per payment-option, not per
   // registration, so dual-advertising means emitting a second option - which is
@@ -463,7 +466,7 @@ export function acceptsForItem(item, rails) {
   // (~28s) and Tempo credentials are client-bounded - on those rails the work
   // is done, settlement fails, and the buyer is never charged. A rail that
   // structurally cannot settle these must not be advertised for them.
-  if (item.longRunning) return evm;
+  if (item.longRunning || allowed) return evm;
   return [
     ...evm,
     ...upto,

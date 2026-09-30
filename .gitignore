@@ -112,3 +112,6 @@ coverage/
 *.heapsnapshot
 *.cpuprofile
 /sweep.json
+
+# Internal review notes: cost and margin figures, never committed.
+docs/internal/

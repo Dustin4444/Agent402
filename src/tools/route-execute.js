@@ -125,7 +125,7 @@ const toUsd = (price) => Number(String(price ?? "").replace(/[^0-9.]/g, "")) || 
 //   so this holds on a raw catalog, independent of server.js's flag mutation.
 // - route-execute itself (no recursion).
 // - non-JSON bodies (binary/multipart uploads don't fit the {params} envelope).
-function dispatchable(def) {
+export function dispatchable(def) {
   if (!def || typeof def.handler !== "function") return { ok: false, why: "tool has no internal handler" };
   // ANY execution tier, not just the base slug: before 2026-07-29 the max
   // tier could dispatch route-execute itself (nested routing fees on one
@@ -223,6 +223,16 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
       const params = input.params != null ? input.params : {};
       if (typeof params !== "object" || Array.isArray(params)) throw bad('"params" must be an object matching the resolved tool\'s inputSchema');
       const cap = Math.min(Number(input.maxUsd) > 0 ? Number(input.maxUsd) : UNDERLYING_MAX_USD, UNDERLYING_MAX_USD);
+      // `target` pins the external leg to ONE endpoint (the decide executor
+      // runs a planned step this way). It only narrows: the endpoint must still
+      // be a candidate the resolver would have chosen from, so every gate
+      // (proven seller, cap, chain, live probe, refusal memos) still applies.
+      let target = null;
+      if (input.target != null) {
+        if (input.include !== "external") throw bad('"target" applies only with include:"external"');
+        try { const u = new URL(String(input.target)); if (u.protocol !== "https:" || String(input.target).length > 2048) throw 0; target = u.href; }
+        catch { throw bad('"target" must be one https URL from the index'); }
+      }
 
       // Resolve: explicit slug wins; otherwise rank the task with the same
       // lexical ranker behind /api/find and walk down until a dispatchable,
@@ -335,7 +345,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const wantModel = typeof input.params?.model === "string" && input.params.model.trim() ? input.params.model.trim() : null;
           let candidateList = []; let chain = chains[0]; let lastDrops = null;
           for (const c of chains) {
-            const found = await resolveExternal(input.task, { cap, baseUrl, chain: c, limit: MAX_CANDIDATES, wantModel });
+            const found = await resolveExternal(input.task, { cap, baseUrl, chain: c, limit: MAX_CANDIDATES, wantModel, ...(target ? { onlyUrl: target } : {}) });
             const list = Array.isArray(found) ? found : (found ? [found] : []);
             // Keep the tally from the LAST chain tried even when it resolved
             // nothing, or an all-empty run would report no reason at all.
@@ -459,7 +469,11 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // that installs nothing and reports no error, which is the exact shape
           // of defect this session keeps finding. server.js resolves it on the
           // FINAL response (post-settlement), never on handler success.
-          if (spendHandle && req && typeof req === "object") req.__externalSpend = spendHandle;
+          if (spendHandle && req && typeof req === "object") {
+            req.__externalSpend = spendHandle;
+            // A request that runs several external legs (decide execute) keeps every handle.
+            (req.__externalSpends ||= []).push(spendHandle);
+          }
           let paid;
           try {
             // provenPayTo: the address this seller's reliability evidence was
@@ -529,6 +543,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             const unanswered = e?.paidUnanswered === true;
             if (spentMaybe || unanswered) __paidAttempts++;
             const signedUsd = Number(e?.signedUsd);
+            // Carry the payer's own stamps onto the error a caller sees: an
+            // in-process caller (the decide executor) must know a payment may
+            // have left, or it would treat the leg as unpaid and pay another.
+            if (spentMaybe) lastErr.committed = true;
+            if (unanswered) lastErr.paidUnanswered = true;
+            if (spentMaybe && Number.isFinite(signedUsd) && signedUsd >= 0) lastErr.signedUsd = signedUsd;
             adjustSpend(spendHandle, spentMaybe ? (e?.signedUsd != null && Number.isFinite(signedUsd) && signedUsd >= 0 ? signedUsd : cap) : 0);
             if (hasNext && !spentMaybe && !unanswered && chain !== "tempo") {
               console.warn(e?.refused

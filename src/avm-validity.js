@@ -27,6 +27,9 @@ const AVG_ROUND_SECONDS = 2.8;
 const DEFAULT_REQUIRED_SECONDS = 20;
 export const SLOW_TOOL_SECONDS = {
   "image-gen-premium": 90, // gpt-image-2 medium 1536: ~35-50s typical, 75s upstream cap
+  // A decision is answered within its depth budget (at most 26s) plus the
+  // service call's margin; the signed window must outlive that.
+  "decide": 35,
   // Long-running composites (2-4 min; see payments.js `longRunning`). Not
   // advertised on Algorand at all, but a hand-built payment to the route must
   // still be refused up front rather than burn the upstream run.
