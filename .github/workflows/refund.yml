@@ -35,6 +35,9 @@ on:
       max_each_usd:
         description: "Hard cap per individual refund"
         default: "0.25"
+      max_per_payer_usd:
+        description: "Hard cap per payer in this run"
+        default: "0.5"
       only_chain:
         description: "Optional CAIP-2 filter (e.g. eip155:8453)"
         default: ""
@@ -89,6 +92,7 @@ jobs:
           REFUND_LIVE: ${{ inputs.live && 'true' || 'false' }}
           REFUND_MAX_TOTAL_USD: ${{ inputs.max_total_usd }}
           REFUND_MAX_EACH_USD: ${{ inputs.max_each_usd }}
+          REFUND_MAX_PER_PAYER_USD: ${{ inputs.max_per_payer_usd }}
           REFUND_ONLY_CHAIN: ${{ inputs.only_chain }}
           REFUND_INCLUDE_SYNTHETIC: ${{ inputs.include_synthetic && 'true' || 'false' }}
           # Held by default and listed in their own bucket on every run, dry or
