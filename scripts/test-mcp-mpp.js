@@ -22,9 +22,9 @@ import { evm } from "mppx/client";
 import { Credential } from "mppx";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, MCP_PAYMENT_REQUIRED_CODE, MCP_CREDENTIAL_META } from "../src/mcp-mpp.js";
+import { getFreePorts } from "./lib/free-port.js";
 
-const PORT = 3081;
-const FAC_PORT = 3082;
+const [PORT, FAC_PORT] = await getFreePorts(2);
 const B = `http://127.0.0.1:${PORT}`;
 const SECRET = "test-mcp-mpp-secret";
 const TREASURY = "0x000000000000000000000000000000000000dEaD";

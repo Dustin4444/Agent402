@@ -20,6 +20,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
+import { getFreePorts } from "./lib/free-port.js";
 
 process.env.POSTHOG_TEST_CAPTURE = "1";
 const {
@@ -252,7 +253,7 @@ ok(got.length === 51 && goneOther?.properties.routes === 10 && goneTotal === 120
   `60 retired routes flush as 50 rows + one _other (10 routes) with the exact total (got ${got.length} rows, other routes ${goneOther?.properties.routes}, total ${goneTotal})`);
 
 // --- integration: the real funnel through a paid-mode server ----------------------
-const FAC_PORT = 3082, PORT = 3081, B = `http://127.0.0.1:${PORT}`;
+const [FAC_PORT, PORT] = await getFreePorts(2), B = `http://127.0.0.1:${PORT}`;
 // Mock facilitator: /supported advertises the exact scheme on Base so the
 // middleware's kind sync succeeds and real 402 challenges build offline.
 const facilitator = createServer((req, res) => {
