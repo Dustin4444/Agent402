@@ -8993,7 +8993,7 @@ if (!FREE_MODE) {
     // is owed, so it takes no ticket and spends none of the budget.
     req.__a402HandlerStarted = Date.now();
     if (req.tempoSettled) return next();
-    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });
+    reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug, spendsOwnWallet: def.spendsOwnWallet === true });
     res.once("close", () => settleHangupTicket(req, { abandoned: clientGoneBeforeFirstByte(req) }));
     next();
   });

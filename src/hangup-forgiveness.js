@@ -194,11 +194,13 @@ export function hangupTicketDenial(req) {
  * Reserve a forgiveness ticket for a paid request whose handler is starting.
  * `keys` are the verified identities it carries (falsy entries dropped);
  * `priceUsd` is what it would be charged; `slug` is the catalog route, and a
- * slug with a lasting effect (hasLastingEffect) is always denied. Always
+ * slug with a lasting effect (hasLastingEffect), or any route whose def says
+ * it spends our own wallet before settlement (`spendsOwnWallet`, passed by the
+ * caller from the catalog def), is always denied. Always
  * stores a ticket on the request (granted or not, with the reason) and
  * returns it.
  */
-export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = null, now = Date.now() } = {}) {
+export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = null, spendsOwnWallet = false, now = Date.now() } = {}) {
   const cfg = hangupForgivenessConfig();
   const uniq = [...new Set(keys.filter((k) => typeof k === "string" && k).map(hangupKeyDigest))];
   const micro = Math.max(0, Math.round(Number(priceUsd) * MICRO) || 0);
@@ -207,7 +209,7 @@ export function reserveHangupForgiveness(req, { keys = [], priceUsd = 0, slug = 
   if (!cfg.enabled) { ticket.reason = "disabled"; return store(ticket); }
   // Before any budget is read: a route that leaves something behind is never
   // forgiven, however much budget is left, and spends none of it.
-  if (hasLastingEffect(slug)) { ticket.reason = "lasting effect"; return store(ticket); }
+  if (hasLastingEffect(slug) || spendsOwnWallet === true) { ticket.reason = "lasting effect"; return store(ticket); }
   if (!(micro > 0)) { ticket.reason = "no price"; return store(ticket); }
   // Every request carries at least the IP key; one that carries none is not
   // bounded per key, so it is never forgiven.

@@ -336,6 +336,14 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   }
   ok(!hasLastingEffect(undefined) && !hasLastingEffect({}) && !hasLastingEffect("Memory-Write") && hasLastingEffect("memory-write"), "hasLastingEffect matches exact catalog slugs only");
   ok(Object.isFrozen(LASTING_EFFECT_SLUG_LIST), "the published list is frozen");
+  {
+    // A route that pays from our own wallet before settlement is never
+    // forgiven, listed or not (decide-execute pays outside sellers).
+    const r = {}; const t = reserveHangupForgiveness(r, { keys: ["ip:198.51.100.7"], priceUsd: 0.05, slug: "some-new-wallet-spender", spendsOwnWallet: true });
+    ok(t.granted === false && t.reason === "lasting effect", "a def that spends our own wallet takes no ticket, even when its slug is not on the list");
+    const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+    ok(/reserveHangupForgiveness\(req, \{[^}]*spendsOwnWallet: def\.spendsOwnWallet === true/.test(src), "the reservation passes the catalog def's spendsOwnWallet");
+  }
   _resetHangupForgiveness();
 }
 
@@ -358,7 +366,7 @@ const hangUp = (url, { method = "GET", headers = {}, body = null, abortAfterMs =
   // One post-paywall middleware reserves the ticket for EVERY paid catalog
   // route: after the last gate (the x402 dispatcher) and before any handler -
   // the memory family, the hand-written URL tools and the generic binder.
-  const reserve = server.indexOf("reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug });");
+  const reserve = server.indexOf("reserveHangupForgiveness(req, { keys: hangupForgivenessKeys(req), priceUsd: quotedPriceUsd(def, req), slug: def.slug, spendsOwnWallet: def.spendsOwnWallet === true });");
   const x402At = server.indexOf("return x402mw(req, res, next);");
   const firstHandler = Math.min(...['app.post("/api/extract"', 'app.post("/api/memory"', "for (const tool of ALL_KIT) {\n  const [method, path] = tool.route.split"].map((s) => server.indexOf(s)).filter((i) => i >= 0));
   ok(reserve > 0 && x402At > 0 && reserve > x402At && reserve < firstHandler, "the ticket is reserved after every payment gate and before every paid handler");
