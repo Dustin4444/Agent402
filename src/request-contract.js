@@ -80,6 +80,23 @@ function requiredBodyPaths(schema, prefix = "", depth = 0, out = [], state = { t
   return { paths: out, truncated: state.truncated };
 }
 
+// Optional inputs a buyer MAY send, by location: query parameters and the
+// JSON body's top-level properties. Kept beside the required names so a
+// planner can fill a parameter the seller declared but did not require (a
+// route whose inputs are all optional is not a route that takes no input).
+const OPTIONAL_LOCATIONS = ["query", "body"];
+function optionalBodyNames(schema, required) {
+  const out = [];
+  if (!isRecord(schema?.properties)) return out;
+  for (const raw of Object.keys(schema.properties)) {
+    const n = safeName(raw);
+    if (!n || required.includes(raw)) continue;
+    if (out.length >= MAX_PER_LOCATION) break;
+    out.push(n);
+  }
+  return out;
+}
+
 /**
  * What this operation requires a buyer to send.
  *
@@ -111,6 +128,17 @@ export function requestContractOf(operation) {
     }
     if (names.length) required[loc] = names;
   }
+  const optional = {};
+  {
+    const names = [];
+    for (const p of Array.isArray(operation.parameters) ? operation.parameters : []) {
+      if (!isRecord(p) || p.required === true || String(p.in) !== "query") continue;
+      const n = safeName(p.name);
+      if (!n || names.includes(n) || names.length >= MAX_PER_LOCATION) continue;
+      names.push(n);
+    }
+    if (names.length) optional.query = names;
+  }
 
   const body = operation.requestBody;
   if (isRecord(body)) {
@@ -126,12 +154,14 @@ export function requestContractOf(operation) {
       const walk = requiredBodyPaths(schema);
       if (walk.truncated) partial = true;
       else if (walk.paths.length) required.body = walk.paths;
+      const opt = optionalBodyNames(schema, Array.isArray(schema.required) ? schema.required : []);
+      if (opt.length) optional.body = opt;
     }
   }
 
   const any = Object.keys(required).length > 0;
   const state = any ? (partial ? "partial" : "declared") : (partial ? "partial" : "absent");
-  return { state, source: "seller_openapi", required, runtimeVerified: false };
+  return { state, source: "seller_openapi", required, ...(Object.keys(optional).length ? { optional } : {}), runtimeVerified: false };
 }
 
 /**
@@ -159,7 +189,10 @@ export function requestContractFromInputSchema(schema, method = "POST") {
   if (hasUnsupported(schema)) return { state: "partial", source: "seller_manifest", required: {}, runtimeVerified: false };
   const required = {};
   let partial = false;
-  if (["GET", "HEAD", "DELETE"].includes(String(method).toUpperCase())) {
+  const optionalNames = optionalBodyNames(schema, Array.isArray(schema.required) ? schema.required : []);
+  const isQuery = ["GET", "HEAD", "DELETE"].includes(String(method).toUpperCase());
+  const optional = optionalNames.length ? { [isQuery ? "query" : "body"]: optionalNames } : null;
+  if (isQuery) {
     const names = [];
     for (const raw of Array.isArray(schema.required) ? schema.required : []) {
       const n = safeName(typeof raw === "string" ? raw.trim() : "");
@@ -174,7 +207,7 @@ export function requestContractFromInputSchema(schema, method = "POST") {
     else if (walk.paths.length) required.body = walk.paths;
   }
   const any = Object.keys(required).length > 0;
-  return { state: any ? (partial ? "partial" : "declared") : (partial ? "partial" : "absent"), source: "seller_manifest", required, runtimeVerified: false };
+  return { state: any ? (partial ? "partial" : "declared") : (partial ? "partial" : "absent"), source: "seller_manifest", required, ...(optional ? { optional } : {}), runtimeVerified: false };
 }
 
 const SOURCES = new Set(["seller_openapi", "seller_manifest"]);
@@ -186,12 +219,12 @@ const SOURCES = new Set(["seller_openapi", "seller_manifest"]);
  *  apart. */
 export function packRequestContract(c) {
   if (!c || c.state === "unknown") return null;
-  if (c.state === "absent") {
-    return c.source && c.source !== "seller_openapi" ? ["absent", {}, c.source] : ["absent", {}];
-  }
-  // A third element names a source other than OpenAPI; two elements stay the
-  // OpenAPI form every cache written before it holds.
-  return c.source && c.source !== "seller_openapi" ? [c.state, c.required, c.source] : [c.state, c.required];
+  const required = c.state === "absent" ? {} : c.required;
+  // A fourth element carries optional names (the source is then always
+  // written). A third element names a source other than OpenAPI; two elements
+  // stay the OpenAPI form every cache written before it holds.
+  if (isRecord(c.optional) && Object.keys(c.optional).length) return [c.state, required, c.source || "seller_openapi", c.optional];
+  return c.source && c.source !== "seller_openapi" ? [c.state, required, c.source] : [c.state, required];
 }
 
 export function unpackRequestContract(t) {
@@ -204,9 +237,9 @@ export function unpackRequestContract(t) {
     return null;
   }
   const v = descriptor && "value" in descriptor ? descriptor.value : undefined;
-  if (!Array.isArray(v) || (v.length !== 2 && v.length !== 3)) return null;
+  if (!Array.isArray(v) || v.length < 2 || v.length > 4) return null;
   const [state, required] = v;
-  const source = v.length === 3 ? v[2] : "seller_openapi";
+  const source = v.length >= 3 ? v[2] : "seller_openapi";
   if (!SOURCES.has(source)) return null;
   if (state !== "declared" && state !== "partial" && state !== "absent") return null;
   if (!isRecord(required)) return null;
@@ -221,10 +254,20 @@ export function unpackRequestContract(t) {
       .filter(Boolean).slice(0, MAX_PER_LOCATION);
     if (safe.length) clean[loc] = safe;
   }
-  // An absent contract carries no names; one that arrives with names is not
-  // what we wrote.
+  // An absent contract carries no required names; one that arrives with them
+  // is not what we wrote.
   if (state === "absent" && Object.keys(clean).length) return null;
-  return { state, source, required: clean, runtimeVerified: false };
+  const optional = {};
+  if (v.length === 4) {
+    if (!isRecord(v[3])) return null;
+    for (const loc of OPTIONAL_LOCATIONS) {
+      const names = Array.isArray(v[3][loc]) ? v[3][loc] : null;
+      if (!names) continue;
+      const safe = names.map((n) => safeName(n)).filter((n) => n && !(clean[loc] || []).includes(n)).slice(0, MAX_PER_LOCATION);
+      if (safe.length) optional[loc] = safe;
+    }
+  }
+  return { state, source, required: clean, ...(Object.keys(optional).length ? { optional } : {}), runtimeVerified: false };
 }
 
 /** How much a stored tuple tells a buyer: 0 nothing, 1 "requires nothing",
@@ -232,7 +275,9 @@ export function unpackRequestContract(t) {
  *  that fills gaps must not let a "requires nothing" block a list of names. */
 export function requestContractStrength(t) {
   if (!Array.isArray(t)) return 0;
-  return t[0] === "absent" ? 1 : (t[0] === "declared" || t[0] === "partial") ? 2 : 0;
+  // Optional names (a fourth element) are more to go on than none at the same state.
+  const base = t[0] === "absent" ? 1 : (t[0] === "declared" || t[0] === "partial") ? 2 : 0;
+  return base && t.length === 4 ? base + 0.5 : base;
 }
 
 /** Spread into a public tool row, or nothing. */

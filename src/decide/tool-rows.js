@@ -162,6 +162,16 @@ export function remoteToolRow(t, { requestContract = null, injected = false, las
       required.push(top);
     }
   }
+  // Optional inputs the seller declared: named so a planner can fill them,
+  // never listed as required.
+  const opt = requestContract?.optional || {};
+  for (const loc of Object.keys(opt)) {
+    for (const name of opt[loc] || []) {
+      if (Object.keys(properties).length >= MAX_FIELDS) break;
+      if (!SAFE_FIELD.test(name) || Object.hasOwn(properties, name)) continue;
+      properties[name] = { in: loc === "body" ? "body" : loc };
+    }
+  }
   const networks = Array.isArray(t.networks) ? t.networks.filter((n) => typeof n === "string").slice(0, 16) : [];
   const rails = ["x402", ...(mppOrigins.has(origin) ? ["mpp"] : [])];
   return finish({
