@@ -45,6 +45,16 @@ ok(cleanText("a".repeat(700), 600).length === 600, "cleaned text is length-cappe
 // ---- neutrality at the row level ----
 const twin = (fp) => ({ ...lr, firstParty: fp, seller: fp ? "agent402" : "other.example" });
 ok(schemaQuality(twin(true)) === schemaQuality(twin(false)) && embedText(twin(true)) === embedText(twin(false)), "firstParty changes neither schema quality nor the text that is ranked");
+{
+  // Built the way each kind is really built: ours carries typed properties,
+  // an outside row carries names and locations only. Same declared inputs,
+  // same score.
+  const ours = localToolRow({ route: "POST /api/q", slug: "q", name: "Q", price: "$0.01", description: "q", discovery: { inputSchema: { properties: { q: { type: "string" }, n: { type: "integer" } }, required: ["q", "n"] } } });
+  const theirs = remoteToolRow({ seller: "https://seller.example", route: "/q", method: "POST", name: "Q", description: "q", price: 0.01, networks: ["eip155:8453"] }, { requestContract: { state: "declared", required: { body: ["q", "n"] } }, lastLiveAt: 1 });
+  ok(theirs && schemaQuality(ours) === schemaQuality(theirs) && schemaQuality(ours) === 1, `typed first-party and untyped outside rows with the same declared inputs score the same (${schemaQuality(ours)} vs ${schemaQuality(theirs)})`);
+  const noInputs = remoteToolRow({ seller: "https://seller.example", route: "/none", method: "GET", name: "N", description: "n", price: 0.01 }, { requestContract: { state: "absent", required: {} }, lastLiveAt: 1 });
+  ok(schemaQuality(noInputs) === 1 && schemaQuality({ inputSchemaState: "partial" }) === 0.5 && schemaQuality({ inputSchemaState: "unknown" }) === 0, "declared or no inputs 1, partial 0.5, unknown 0");
+}
 
 // ---- vectors ----
 const rnd = (seed) => { let s = seed; return Array.from({ length: DIMS }, () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648 - 0.5; }); };

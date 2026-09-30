@@ -58,19 +58,15 @@ function contentHash(row) {
 }
 
 /** 0..1: how well a buyer can construct a call from what the row declares.
- *  Only facts both kinds of row can carry count: whether the inputs are
- *  declared, and whether they are typed. (Examples are not scored: outside
- *  rows never carry seller example values, by policy, so scoring them would
- *  favour our own rows.) */
+ *  Only a fact both kinds of row carry counts: whether the inputs are
+ *  declared. Property types are not scored (outside rows carry names and
+ *  locations but never types, so scoring types would favour our own rows),
+ *  and neither are examples (outside rows never carry seller example values,
+ *  by policy). */
 export function schemaQuality(row) {
-  const props = row.inputSchema?.properties || {};
-  const n = Object.keys(props).length;
-  const typed = n ? Object.values(props).filter((p) => p && typeof p.type === "string").length / n : 1;
-  let q = 0;
-  if (row.inputSchemaState === "declared" || row.inputSchemaState === "absent") q += 0.6;
-  else if (row.inputSchemaState === "partial") q += 0.3;
-  q += 0.4 * typed;
-  return Math.round(Math.min(1, q) * 1000) / 1000;
+  if (row.inputSchemaState === "declared" || row.inputSchemaState === "absent") return 1;
+  if (row.inputSchemaState === "partial") return 0.5;
+  return 0;
 }
 
 function finish(row) {
