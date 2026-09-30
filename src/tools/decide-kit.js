@@ -319,7 +319,12 @@ export function makeExecuteHandler({ ledger, getCatalog, now = () => Date.now(),
           const fee = roundUsd(paidOut * cfg.routingFeePct / 100);
           spent = roundUsd(spent + paidOut + fee);
           ledger.settleSellerHold(hold, paidOut);
-          done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(paidOut + fee), routingFeeUsd: fee, result: r?.result, receipt: r?.receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
+          // The router's receipt prices the router's own call (paidUsd is its
+          // tier price, routingFeeUsd the tier price minus the seller's). This
+          // run charges the seller's price plus decide's fee, so those two
+          // fields are replaced with this step's own figures.
+          const receipt = r?.receipt && typeof r.receipt === "object" ? { ...r.receipt, paidUsd: roundUsd(paidOut + fee), routingFeeUsd: fee } : r?.receipt;
+          done = { tool: { id: tool.id, slug: tool.slug, seller: tool.seller, firstParty: false }, costUsd: roundUsd(paidOut + fee), routingFeeUsd: fee, result: r?.result, receipt, untrustedContent: true, latencyMs: Date.now() - t0 };
           break;
         } catch (e) {
           const timedOut = e?.statusCode === 504 && /did not answer within/.test(String(e?.message));

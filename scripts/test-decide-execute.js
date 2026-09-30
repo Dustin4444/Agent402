@@ -56,7 +56,7 @@ const catalog = {
     if (routerMode === "committed") throw Object.assign(new Error("seller settled then failed"), { statusCode: 502, committed: true });
     if (routerMode === "fail") throw Object.assign(new Error("no seller"), { statusCode: 502 });
     if (routerMode === "hang") return new Promise(() => {});
-    return { result: { ext: true }, receipt: { underlyingPriceUsd: 0.018, seller: "seller.example" } };
+    return { result: { ext: true }, receipt: { underlyingPriceUsd: 0.018, seller: "seller.example", paidUsd: 3.3, routingFeeUsd: 3.282 } };
   } },
 };
 const exec = makeExecuteHandler({ ledger, getCatalog: () => catalog, now });
@@ -97,6 +97,7 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   ok(ledger.creditState(out.leftoverCredit.token).state === "active", "the leftover credit activates on a settled 200");
   ok(ledger.creditState(out.leftoverCredit.token).expiresAt === ledger.getDecision("d1").createdAt + 24 * 3600_000, "the leftover keeps the decision's expiry: no fresh window");
   ok(out.steps[1].untrustedContent === true, "third-party output is marked untrusted");
+  ok(out.steps[1].receipt.paidUsd === out.steps[1].costUsd && out.steps[1].receipt.routingFeeUsd === out.steps[1].routingFeeUsd && out.steps[1].receipt.underlyingPriceUsd === 0.018, `the step receipt carries this run's charge, not the router's own price (${JSON.stringify(out.steps[1].receipt)})`);
 }
 
 // ---- fallback order, and a first-party failure falls to the next tool ----
