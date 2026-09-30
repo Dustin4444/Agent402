@@ -3,6 +3,17 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const ENTRIES = [
   {
     date: "2026-09-30",
+    title: "Decide: a call-ready plan for any job, and a way to run it",
+    items: [
+      "POST /api/decide turns a task into a plan: which tools, from this catalog and from outside x402 sellers with a recently verified 402, in what order, with fallbacks and input params that validate against each tool's schema. Priced by depth (quick, plan, full); every tool in a plan says whether it is ours, and the ranking has no first-party term. See /decide.",
+      "The fee comes back as an execution credit. POST /api/decide/execute runs the plan: our tools directly, outside steps paid on your behalf on Base at the seller's price plus a disclosed routing fee. Spend stops at the budget, fallbacks are tried in order, unspent money returns as a credit, and a run where no step succeeds is not charged.",
+      "A parameter the plan could not take from the task is left as a <placeholder> for the agent to fill, and execute never sends a placeholder to a paid tool. Each written value is checked against the task before it is kept.",
+      "Outside sellers whose inputs are all optional are now indexed with those inputs named, so a plan can fill them instead of calling the route empty.",
+      "decide.feedback on the MCP connector (and POST /api/decide/feedback) records whether a step worked; it is free and feeds the ranking.",
+    ],
+  },
+  {
+    date: "2026-09-30",
     title: "Live transfers on /revenue, and tighter proof for the sellers the router pays",
     items: [
       "/revenue, /api/revenue and the chain pages read their recent transfers from the settlement ledger on every load, so a new settlement shows on the first refresh once the ledger has recorded it (it reads the chains every five minutes). Wallet balances still refresh hourly, and the page says so.",
