@@ -1970,7 +1970,9 @@ for (const def of Object.values(CATALOG)) {
 const FLAT_TIER_MAX_USD = Math.max(0, ...Object.keys(TIERS).filter(isFlatTier).map((k) => Number(TIERS[k].price) || 0));
 for (const def of Object.values(CATALOG)) {
   const floor = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-  if (typeof def.quote === "function") def.quoteRange = { minUsd: floor, maxUsd: METERED_MAX_QUOTE_USD };
+  // A quoted tool may declare its own ceiling (quoteMaxUsd); the metered cap
+  // is the ceiling only for the tools that do not.
+  if (typeof def.quote === "function") def.quoteRange = { minUsd: floor, maxUsd: Number.isFinite(def.quoteMaxUsd) && def.quoteMaxUsd >= floor ? def.quoteMaxUsd : METERED_MAX_QUOTE_USD };
   else if (typeof def.tierQuote === "function") def.quoteRange = { minUsd: floor, maxUsd: Math.max(floor, FLAT_TIER_MAX_USD) };
 }
 // The attest tool refuses to attest a sale of an identity-bound route (a

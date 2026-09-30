@@ -454,6 +454,8 @@ export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now 
       category: "agents",
       price: `$${priceForDepth("quick").toFixed(3)}`,
       quote: (body) => decideQuoteUsd(body),
+      // Quoted by depth: the listed price is quick's, the ceiling is full's.
+      quoteMaxUsd: priceForDepth("full"),
       description:
         "Describe a job and get a call-ready plan: which tools, across this catalog and outside x402 sellers with a recently verified 402, solve it end to end, in what order, with fallbacks, input params that validate against each tool's schema, and cost/latency estimates. Priced by depth: quick (one best tool), plan (steps + fallbacks), full (plan + params + compiled prompt). The fee comes back as a credit toward running the plan with POST /api/decide/execute. The ranking formula has no first-party term; every tool carries firstParty. Uncovered needs are listed in gaps.",
       tags: ["agents", "routing", "planning", "discovery", "x402"],
@@ -484,6 +486,8 @@ export function buildDecideTools({ getCatalog, ledger = openDecideLedger(), now 
       // still work).
       onlyNetworks: ["eip155:8453"],
       quote: (body) => executeQuoteUsd(body, { ledger, now: now() }),
+      // The budget is capped per call (executeBudgetUsd), so that is the ceiling.
+      quoteMaxUsd: decideConfig().execute.perCallMaxUsd,
       description:
         "Run a decision's plan through Agent402: first-party steps run directly, third-party steps are paid on your behalf (paid on Base, or by credits or card) and relayed at the seller's price plus a disclosed routing fee. Priced at the plan's budget (or your maxBudgetUsd, whichever you set) less a valid execution credit; spend stops at that budget, fallbacks are tried in order, and any unspent amount comes back as a credit. A run where no step succeeds is not charged.",
       tags: ["agents", "execute", "planning", "router", "x402"],

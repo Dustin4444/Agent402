@@ -3,7 +3,7 @@
 //
 //   node scripts/test-decide-execute.js
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecideLedger, hashToken } from "../src/decide/ledger.js";
@@ -459,6 +459,11 @@ await throwsWith(() => exec({ decisionId: "nope" }, mkReq()), 404, "Unknown deci
   const tools = buildDecideTools({ getCatalog: () => ({}), ledger });
   ok(tools.length >= 2 && tools.every((t) => WALLET_ONLY_SLUGS.has(t.slug)), `every decide tool is wallet-only (${tools.map((t) => t.slug).join(", ")})`);
   ok(tools.find((t) => t.slug === "decide-execute")?.spendsOwnWallet === true, "execute is marked as spending our wallet before settlement");
+  const dq = tools.find((t) => t.slug === "decide"), ex = tools.find((t) => t.slug === "decide-execute");
+  ok(dq.quoteMaxUsd === decideConfig().prices.full && dq.quote({ task: "x", depth: "full" }) <= dq.quoteMaxUsd && dq.quote({ task: "x", depth: "plan" }) > Number(dq.price.replace("$", "")), `decide publishes its own range: from the quick price to full's (${dq.price} to $${dq.quoteMaxUsd}), and the default depth quotes above the floor`);
+  ok(ex.quoteMaxUsd === decideConfig().execute.perCallMaxUsd, "execute's ceiling is its per-call budget cap, not the model gateway's");
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/def\.quoteRange = \{ minUsd: floor, maxUsd: Number\.isFinite\(def\.quoteMaxUsd\)/.test(src), "the published range reads a tool's own quoteMaxUsd");
 }
 
 console.log(`\ntest-decide-execute: ${pass} passed, ${fail} failed`);
