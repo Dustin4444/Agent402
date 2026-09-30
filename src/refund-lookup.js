@@ -1,10 +1,12 @@
 // Refund lookup: "did Agent402 refund this payment?", answerable by anyone who
 // holds the settlement transaction.
 //
-// Why it exists (2026-09-29): a Base refund is a plain USDC transfer from one
-// of our sending wallets with no memo, so a buyer who receives one cannot tell
-// it came from us or which payment it repays (Stellar and Algorand refunds
-// carry an "agent402 refund" memo; EVM transfers have nowhere to put one).
+// Why it exists (2026-09-29): a Base refund is a USDC transfer from one of our
+// sending wallets, and a wallet app shows it with no memo, so a buyer who
+// receives one cannot tell it came from us or which payment it repays.
+// (Stellar and Algorand refunds carry an "agent402 refund" memo; since
+// 2026-09-30 an EVM refund carries "agent402 refund for <settlement tx>" as a
+// UTF-8 suffix on its input data, readable on an explorer, not in wallets.)
 //
 // What it may say. The caller presents a transaction hash, which is already
 // public on chain, and learns only facts about THAT payment that the chain

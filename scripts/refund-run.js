@@ -307,6 +307,19 @@ export function ourPayToSet(accepts, env = process.env) {
 
 // ---- chain senders (each returns the outbound tx id) ----
 
+// The memo an EVM refund carries. ERC-20 transfer() has no memo argument, so
+// the text rides as a UTF-8 suffix after the ABI-encoded arguments: the token
+// ignores trailing calldata, and explorers show it under the transaction's
+// input data (Basescan decodes it as UTF-8). Names the settlement it repays
+// when the row holds a real transaction hash (public on chain already).
+export function refundMemo(row) {
+  const ev = String(row?.evidence || "").trim();
+  return /^0x[0-9a-fA-F]{64}$/.test(ev) ? `agent402 refund for ${ev}` : "agent402 refund";
+}
+export function refundMemoHex(row) {
+  return "0x" + Buffer.from(refundMemo(row), "utf8").toString("hex");
+}
+
 async function sendEvm(row, accepts) {
   const { createWalletClient, http, publicActions, defineChain } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");
@@ -327,7 +340,9 @@ async function sendEvm(row, accepts) {
   // future asset would refund a millionth (or a million times) the debt.
   const decimals = await client.readContract({ address: token, abi: erc20, functionName: "decimals" });
   const amount = BigInt(Math.round(row.priceUsd * 10 ** Number(decimals)));
-  const hash = await client.writeContract({ address: token, abi: erc20, functionName: "transfer", args: [row.payer, amount] });
+  const { encodeFunctionData, concat } = await import("viem");
+  const data = concat([encodeFunctionData({ abi: erc20, functionName: "transfer", args: [row.payer, amount] }), refundMemoHex(row)]);
+  const hash = await client.sendTransaction({ to: token, data });
   return hash;
 }
 

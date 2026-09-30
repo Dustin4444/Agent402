@@ -7,7 +7,7 @@
 // case-folding an address on a case-sensitive rail.
 process.env.REFUND_DB_DIR = process.env.TMPDIR || "/tmp";
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals, __resetRefunds } from "../src/refund-ledger.js";
-import { planRefunds, familyOf, ourPayToSet, LASTING_HANGUP_HOLD, isLastingEffectHangup, REPEAT_HANGUP_HOLD, isRepeatHangup } from "./refund-run.js";
+import { planRefunds, familyOf, ourPayToSet, LASTING_HANGUP_HOLD, isLastingEffectHangup, REPEAT_HANGUP_HOLD, isRepeatHangup, refundMemo, refundMemoHex } from "./refund-run.js";
 import { LASTING_EFFECT_SLUG_LIST } from "../src/hangup-forgiveness.js";
 import { readFileSync } from "node:fs";
 
@@ -436,6 +436,22 @@ const SENDERS = { evm: true, stellar: true, algorand: true, solana: false };
   ok(stored.find((r) => r.evidence === "0xreason1")?.hangupReason === "payer budget"
     && stored.find((r) => r.evidence === "0xreason2")?.hangupReason === null,
     "the ledger keeps a disconnect's reason and leaves every other debt's NULL");
+}
+
+// ---- EVM refunds carry a UTF-8 memo after the transfer arguments ----
+{
+  const tx = "0x" + "ab".repeat(32);
+  ok(refundMemo({ evidence: tx }) === `agent402 refund for ${tx}` && refundMemo({ evidence: "0xpayer|research|123" }) === "agent402 refund", "the memo names the settlement tx only when the row holds a real transaction hash");
+  ok(Buffer.from(refundMemoHex({ evidence: tx }).slice(2), "hex").toString("utf8") === `agent402 refund for ${tx}`, "the memo hex decodes back to the same UTF-8 text");
+  const { encodeFunctionData, decodeFunctionData, concat } = await import("viem");
+  const abi = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }];
+  const to = "0x" + "11".repeat(20);
+  const data = concat([encodeFunctionData({ abi, functionName: "transfer", args: [to, 600000n] }), refundMemoHex({ evidence: tx })]);
+  const d = decodeFunctionData({ abi, data });
+  ok(d.functionName === "transfer" && d.args[0].toLowerCase() === to && d.args[1] === 600000n, "transfer calldata with the memo suffix still decodes to the same recipient and amount");
+  const src = readFileSync(new URL("./refund-run.js", import.meta.url), "utf8");
+  const send = src.slice(src.indexOf("async function sendEvm"), src.indexOf("async function sendStellar"));
+  ok(/concat\(\[encodeFunctionData\(\{ abi: erc20, functionName: "transfer"[^\n]*refundMemoHex\(row\)\]\)/.test(send) && /sendTransaction\(\{ to: token, data \}\)/.test(send) && !/writeContract/.test(send), "the EVM sender sends the transfer with the memo suffix appended");
 }
 
 __resetRefunds();
