@@ -5655,59 +5655,6 @@ jobs:
             [ "$code" = "200" ] && echo "🌐 CUSTOM DOMAIN LIVE: https://$CUSTOM_DOMAIN" || echo "(not resolving yet — Railway-managed DNS usually completes within minutes)"
           fi
 
-      # The decide service (DECIDE_MODE=true, same image) builds from the same
-      # commit, AFTER the main app is verified: its index syncs from the main
-      # app's internal export, which this commit's main build serves. It runs
-      # only when a service named agent402-decide exists (created and given its
-      # variables by hand); without one, nothing here changes.
-      - name: Deploy the decide service at the same commit
-        run: |
-          gql() {
-            curl -s -X POST https://backboard.railway.app/graphql/v2 \
-              -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
-              --data @-
-          }
-          PROJECT_ID='${{ steps.project.outputs.project_id }}'
-          ENV_ID='${{ steps.project.outputs.env_id }}'
-          UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          SID=$(jq -n --arg id "$PROJECT_ID" '{query:"query($id:String!) { project(id: $id) { services { edges { node { id name } } } } }", variables:{id:$id}}' | gql \
-            | jq -r '.data.project.services.edges[] | select(.node.name=="agent402-decide") | .node.id' | head -1)
-          if [ -z "$SID" ]; then echo "No agent402-decide service in this project: nothing to deploy."; exit 0; fi
-          [[ "$SID" =~ $UUID ]] || { echo "::error::decide service id is not a UUID"; exit 1; }
-          # First run only: the service has no source yet. Connecting one is
-          # what lets a commit be deployed to it; it may start a build of the
-          # branch head, which the pinned deploy below replaces.
-          SRC=$(jq -n --arg e "$ENV_ID" --arg s "$SID" '{query:"query($e:String!,$s:String!){ serviceInstance(environmentId:$e, serviceId:$s){ source { repo } } }", variables:{e:$e,s:$s}}' | gql \
-            | jq -r '.data.serviceInstance.source.repo // empty')
-          if [ -z "$SRC" ]; then
-            RESP=$(jq -n --arg s "$SID" --arg r "$REPO" '{query:"mutation($s:String!,$r:String!){ serviceConnect(id:$s, input:{ repo:$r, branch:\"main\" }) { id } }", variables:{s:$s,r:$r}}' | gql)
-            echo "$RESP" | jq -e '.errors' >/dev/null && { echo "::error::could not connect the decide service to the repo: $(echo "$RESP" | jq -c '.errors' | head -c 300)"; exit 1; }
-            echo "Connected agent402-decide to $REPO (main)."
-          fi
-          RESP=$(jq -n --arg e "$ENV_ID" --arg s "$SID" --arg c "$GITHUB_SHA" \
-            '{query:"mutation($e:String!, $s:String!, $c:String) { serviceInstanceDeployV2(environmentId: $e, serviceId: $s, commitSha: $c) }", variables:{e:$e,s:$s,c:$c}}' | gql)
-          if echo "$RESP" | jq -e '.errors' >/dev/null; then
-            echo "::error::Railway rejected the decide deploy trigger - the main app is live, the decide service is NOT updated: $(echo "$RESP" | jq -c '.errors' | head -c 300)"
-            exit 1
-          fi
-          DID=$(echo "$RESP" | jq -r '.data.serviceInstanceDeployV2 // empty')
-          [ -n "$DID" ] || { echo "::error::no deployment id returned for the decide service"; exit 1; }
-          echo "decide deployment: $DID"
-          LAST=none
-          for i in $(seq 1 90); do
-            RAW=$(jq -n --arg id "$DID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' | gql || true)
-            ST=$(printf '%s' "$RAW" | jq -r '.data.deployment.status // "UNREADABLE"' 2>/dev/null || echo UNREADABLE)
-            LAST="$ST"
-            echo "[$i] decide $DID -> $ST"
-            case "$ST" in
-              SUCCESS) echo "decide service is LIVE at $GITHUB_SHA"; exit 0 ;;
-              FAILED|CRASHED|REMOVED|SKIPPED) echo "::error::decide deployment ended $ST - the main app is live; decide keeps its previous build (check its Railway logs)"; exit 1 ;;
-            esac
-            sleep 10
-          done
-          echo "::error::decide deployment did not reach SUCCESS in 15 minutes (last status: $LAST). The main app is live."
-          exit 1
-
       # The previous run's URL set, so only new URLs from every sitemap are pinged.
       - name: Restore IndexNow URL state
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -5864,3 +5811,70 @@ jobs:
           TARGET_URL=https://agent402.tools node scripts/demo-payment.js
           echo "=== live M2M stats (informational; present once deployed) ==="
           curl -s https://agent402.tools/api/stats | jq '{tools, wallet, onchainRevenueProof, served: .toolCallsServed}' || echo "(/api/stats not live yet — will appear after this image rolls out)"
+
+      # The decide service (DECIDE_MODE=true, same image) builds from the same
+      # commit, AFTER the main app is verified: its index syncs from the main
+      # app's internal export, which this commit's main build serves. It runs
+      # only when a service named agent402-decide exists (created and given its
+      # variables by hand); without one, nothing here changes. It is the LAST
+      # step so a decide failure cannot skip a check of the main app, and it
+      # still fails the job.
+      - name: Deploy the decide service at the same commit
+        run: |
+          gql() {
+            curl -s -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              --data @-
+          }
+          PROJECT_ID='${{ steps.project.outputs.project_id }}'
+          ENV_ID='${{ steps.project.outputs.env_id }}'
+          UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          LIST=$(jq -n --arg id "$PROJECT_ID" '{query:"query($id:String!) { project(id: $id) { services { edges { node { id name } } } } }", variables:{id:$id}}' | gql)
+          # An unreadable answer is not "no decide service": fail rather than skip.
+          printf '%s' "$LIST" | jq -e '.data.project.services.edges | type == "array"' >/dev/null 2>&1 \
+            || { echo "::error::could not list the project's services: $(printf '%s' "$LIST" | head -c 300)"; exit 1; }
+          SID=$(printf '%s' "$LIST" | jq -r '.data.project.services.edges[] | select(.node.name=="agent402-decide") | .node.id' | head -1)
+          if [ -z "$SID" ]; then echo "No agent402-decide service in this project: nothing to deploy."; exit 0; fi
+          [[ "$SID" =~ $UUID ]] || { echo "::error::decide service id is not a UUID"; exit 1; }
+          # First run only: the service has no source yet. Connecting one is
+          # what lets a commit be deployed to it; it may start a build of the
+          # branch head, which the pinned deploy below replaces.
+          INST=$(jq -n --arg e "$ENV_ID" --arg s "$SID" '{query:"query($e:String!,$s:String!){ serviceInstance(environmentId:$e, serviceId:$s){ source { repo } } }", variables:{e:$e,s:$s}}' | gql)
+          printf '%s' "$INST" | jq -e '.data.serviceInstance' >/dev/null 2>&1 \
+            || { echo "::error::could not read the decide service instance: $(printf '%s' "$INST" | head -c 300)"; exit 1; }
+          SRC=$(printf '%s' "$INST" | jq -r '.data.serviceInstance.source.repo // empty')
+          if [ -z "$SRC" ]; then
+            RESP=$(jq -n --arg s "$SID" --arg r "$REPO" '{query:"mutation($s:String!,$r:String!){ serviceConnect(id:$s, input:{ repo:$r, branch:\"main\" }) { id } }", variables:{s:$s,r:$r}}' | gql)
+            echo "$RESP" | jq -e '.errors' >/dev/null && { echo "::error::could not connect the decide service to the repo: $(echo "$RESP" | jq -c '.errors' | head -c 300)"; exit 1; }
+            echo "Connected agent402-decide to $REPO (main)."
+            # Pushes must not deploy it on their own (only this pinned step
+            # may): a watch pattern no commit touches means a push never
+            # matches. The pinned deploy below names its commit explicitly.
+            RESP=$(jq -n --arg e "$ENV_ID" --arg s "$SID" '{query:"mutation($e:String!,$s:String!){ serviceInstanceUpdate(environmentId:$e, serviceId:$s, input:{ watchPatterns:[\"/.decide-deploys-only-from-ci\"] }) }", variables:{e:$e,s:$s}}' | gql)
+            echo "$RESP" | jq -e '.errors' >/dev/null && { echo "::error::could not set the decide service's watch pattern: $(echo "$RESP" | jq -c '.errors' | head -c 300)"; exit 1; }
+            echo "Set a watch pattern no push matches: agent402-decide deploys only from this step."
+          fi
+          RESP=$(jq -n --arg e "$ENV_ID" --arg s "$SID" --arg c "$GITHUB_SHA" \
+            '{query:"mutation($e:String!, $s:String!, $c:String) { serviceInstanceDeployV2(environmentId: $e, serviceId: $s, commitSha: $c) }", variables:{e:$e,s:$s,c:$c}}' | gql)
+          if echo "$RESP" | jq -e '.errors' >/dev/null; then
+            echo "::error::Railway rejected the decide deploy trigger - the main app is live, the decide service is NOT updated: $(echo "$RESP" | jq -c '.errors' | head -c 300)"
+            exit 1
+          fi
+          DID=$(echo "$RESP" | jq -r '.data.serviceInstanceDeployV2 // empty')
+          [ -n "$DID" ] || { echo "::error::no deployment id returned for the decide service"; exit 1; }
+          echo "decide deployment: $DID"
+          LAST=none
+          for i in $(seq 1 90); do
+            RAW=$(jq -n --arg id "$DID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' | gql || true)
+            ST=$(printf '%s' "$RAW" | jq -r '.data.deployment.status // "UNREADABLE"' 2>/dev/null || echo UNREADABLE)
+            LAST="$ST"
+            echo "[$i] decide $DID -> $ST"
+            case "$ST" in
+              SUCCESS) echo "decide service is LIVE at $GITHUB_SHA"; exit 0 ;;
+              SKIPPED) echo "::error::decide deployment was SKIPPED - the main app is live. If Railway applied the service's watch pattern (/.decide-deploys-only-from-ci) to this pinned deploy, clear the pattern in the service settings and turn off auto-deploy there instead."; exit 1 ;;
+              FAILED|CRASHED|REMOVED) echo "::error::decide deployment ended $ST - the main app is live; decide keeps its previous build (check its Railway logs)"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::decide deployment did not reach SUCCESS in 15 minutes (last status: $LAST). The main app is live."
+          exit 1
