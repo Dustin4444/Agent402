@@ -21,7 +21,7 @@ const offersSrc = readFileSync(new URL("../src/mpp-offers.js", import.meta.url),
 ok(/mppOffersFor\(\{[^}]*identityBound: tool\.identityBound[^}]*longRunning: tool\.longRunning/.test(pagesSrc), "the discovery offers come from mppOffersFor with the route's own flags");
 ok(/tempoOfferedFor\(item\) \? tempoDiscoveryInfo\(\)/.test(offersSrc), "the discovery offers decide with tempoOfferedFor");
 ok(/stripe && !item\.identityBound/.test(offersSrc), "the discovery stripe offer is withheld on identity-bound routes, like the 402");
-ok(/def\.quoteRange = \{ minUsd: floor, maxUsd: METERED_MAX_QUOTE_USD \}/.test(serverSrc), "metered routes publish a range up to the metered cap");
+ok(/def\.quoteRange = \{ minUsd: floor, maxUsd: Number\.isFinite\(def\.quoteMaxUsd\) && def\.quoteMaxUsd >= floor \? def\.quoteMaxUsd : METERED_MAX_QUOTE_USD \}/.test(serverSrc), "quoted routes publish a range up to their own declared ceiling, else the metered cap");
 ok(/typeof def\.tierQuote === "function"\) def\.quoteRange/.test(serverSrc), "priced-by-model routes publish a range");
 ok(/amount: range \? null/.test(pagesSrc), "a ranged route's offers carry a null amount");
 
