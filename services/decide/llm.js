@@ -8,6 +8,8 @@
 // already cleaned by tool-rows.js. The model's answer is parsed as JSON and
 // every id in it is checked against the ids we offered.
 
+import { OPENROUTER_ATTRIBUTION } from "../../src/openrouter-attribution.js";
+
 const URL_ = "https://openrouter.ai/api/v1/chat/completions";
 
 export function extractJson(text) {
@@ -46,7 +48,7 @@ export function makeLlm({ apiKey = llmApiKey(), models = [], fetchImpl = fetch, 
       try {
         const res = await fetchImpl(URL_, {
           method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          headers: { ...OPENROUTER_ATTRIBUTION, Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0, user, response_format: { type: "json_object" },
             messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
           signal: AbortSignal.timeout(remaining),

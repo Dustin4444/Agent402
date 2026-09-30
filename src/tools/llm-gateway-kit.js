@@ -25,6 +25,8 @@
 // the stream finishes.) Streamed responses are not idempotency-replayable (the
 // cache hooks res.json only).
 
+import { OPENROUTER_ATTRIBUTION } from "../openrouter-attribution.js";
+export { OPENROUTER_ATTRIBUTION };
 import { METER_MARKUP, METER_FLOOR_USD, METER_MIN_SETTLE_USD, setMeterSentinel } from "../gateway-meter.js";
 import { flattenNamespaceForChat } from "./tool-namespaces.js";
 import { createHash, createHmac } from "node:crypto";
@@ -2109,12 +2111,6 @@ export function createSseUsageScrubber({ onUsage } = {}) {
  * review. `scripts/test-openrouter-attribution.js` fails if any call site in
  * src/ reaches openrouter.ai without them.
  */
-export const OPENROUTER_ATTRIBUTION = Object.freeze({
-  "HTTP-Referer": "https://agent402.tools",
-  "X-Title": "Agent402.Tools x402 gateway",
-  "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
-  "X-OpenRouter-Categories": "personal-agent,api",
-});
 
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
